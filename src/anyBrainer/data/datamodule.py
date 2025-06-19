@@ -1,10 +1,5 @@
 """
 PyTorch DataModule to control datasets, dataloaders, and splits alltogether. 
-
-Will use MONAI's dataloader due to enhanced data collating behavior through 
-monai.data.utils.list_data_collate and handling of seeds for determinism.
-TODO: check how dataloader RNG can be restored for continuing training, 
-usually through the worker_init_fn. 
 """
 
 __all__ = [
@@ -21,12 +16,18 @@ from collections import defaultdict
 import lightning as L
 import torch
 import numpy as np
+from tqdm import tqdm
 
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
 
 from anyBrainer.utils.utils import resolve_path
+from anyBrainer.data.utils import (
+    parse_filename,
+    check_flat_npy_data_dir,
+    split_data_by_subjects,
+)
 
 from anyBrainer.transforms.managers import (
     ContrastiveTransformManager, 
@@ -139,8 +140,13 @@ class BaseDataModule(L.LightningDataModule):
         Lightning will call it automatically when loading a checkpoint - 
         only if defined.
         """
-        self.train_val_test_split = state_dict.get("train_val_test_split", self.train_val_test_split)
-        self.R = state_dict.get("rng", self.R)
+        self.train_val_test_split = state_dict.get(
+            "train_val_test_split", self.train_val_test_split
+        )
+        
+        rng_state = state_dict.get("rng", None)
+        if rng_state is not None:
+            self.R.set_state(rng_state)
 
 
 class MAEDataModule(BaseDataModule):
@@ -149,8 +155,6 @@ class MAEDataModule(BaseDataModule):
     
     The data_dir should contain .npy files with naming pattern 
     sub_x_ses_y_modalityname_count_if_more_than_one.npy
-
-    #TODO: get mask paths
     
     Args: 
         data_dir: Directory containing .npy files with naming pattern 
@@ -185,91 +189,31 @@ class MAEDataModule(BaseDataModule):
 
         Check if data_dir contains the .npy files and log basic statistics.
         """
-        data_path = Path(self.data_dir)
-        if not data_path.exists():
-            logger.error(f"Data directory {self.data_dir} does not exist")
-            raise FileNotFoundError(f"Data directory {self.data_dir} does not exist")
+        check_flat_npy_data_dir(self.data_dir)
         
-        logger.info(f"Collecting data from {self.data_dir}")
-        
-        npy_files = list(data_path.glob("*.npy"))
-        if len(npy_files) == 0:
-            logger.error(f"No .npy files found in {self.data_dir}")
-            raise FileNotFoundError(f"No .npy files found in {self.data_dir}")
-            
-        logger.info(f"Found {len(npy_files)} .npy files in {self.data_dir}")
-        
-        # Parse filenames to get basic statistics
-        subjects = set()
-        sessions = set()
-        modalities = set()
-        
-        for file_path in npy_files:
-            metadata = self._parse_filename(file_path)
-            if metadata:
-                subjects.add(metadata['sub_id'])
-                sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
-                modalities.add(metadata['modality'])
-        
-        logger.info(f"Dataset contains {len(subjects)} subjects, "
-                    f"{len(sessions)} sessions, {len(modalities)} modalities")
-        
-    def _parse_filename(self, file_path: Path | str) -> Optional[Dict]:
-        """
-        Parse filename with pattern: sub_x_ses_y_ModalityName_CountIfMoreThanOne.npy
-        
-        Returns:
-            Dict with keys: sub_id, ses_id, modality, count, filepath
-        """
-        # Remove .npy extension
-        base_name = Path(file_path).name.replace('.npy', '')
-        
-        # Pattern: sub_(\d+)_ses_(\d+)_(.+)
-        pattern = r'sub_(\d+)_ses_(\d+)_(.+)'
-        match = re.match(pattern, base_name)
-        
-        if not match:
-            logger.warning(f"Could not parse filename in: {file_path}")
-            return None
-            
-        sub_id = match.group(1)
-        ses_id = match.group(2)
-        modality_part = match.group(3)
-        
-        # Check if modality has count (ends with _number)
-        count_pattern = r'(.+)_(\d+)$'
-        count_match = re.match(count_pattern, modality_part)
-        
-        if count_match:
-            modality = count_match.group(1)
-            count = int(count_match.group(2))
-            modality_suffix = f"{modality}_{count}"
-        else:
-            modality = modality_part
-            count = 1
-            modality_suffix = modality
-            
-        return {
-            'sub_id': sub_id,
-            'ses_id': ses_id,
-            'modality': modality,
-            'count': count,
-            'modality_suffix': modality_suffix,
-            'filepath': str(file_path)
-        }
-    
     def _create_data_list(self) -> List[Dict]:
         """
         Create list[dict] for masked autoencoder setup.
         Each scan is a separate entry.
         """
+        logger.info(f"Creating data list from {self.data_dir}")
+        logger.info(f"This may take a while...")
+        
         data_list = []
         
-        for file_path in self.data_dir.glob("*.npy"):
-            metadata = self._parse_filename(file_path)
+        for file_path in tqdm(self.data_dir.glob("*.npy"), desc="Creating data list"):
+            metadata = parse_filename(file_path)
             if metadata:
+                # Get mask file safely
+                mask_path = (self.masks_dir / 
+                             f"{metadata['sub_id']}_ses_{metadata['ses_id']}_mask.npy")
+                if not mask_path.exists():
+                    logger.warning(f"Mask file {mask_path} does not exist")
+                    mask_path = None
+                
                 data_entry = {
                     'img': metadata['filepath'],
+                    'brain_mask': str(mask_path) if mask_path else None,
                     'sub_id': metadata['sub_id'],
                     'ses_id': metadata['ses_id'],
                     'modality_suffix': metadata['modality_suffix'],
@@ -278,39 +222,9 @@ class MAEDataModule(BaseDataModule):
                 }
                 data_list.append(data_entry)
                 
+        logger.info(f"Data collection completed; returning n={len(data_list)} items")
+        
         return data_list
-    
-    def _split_data(self, data_list: List[Dict]) -> tuple:
-        """
-        Split data into train/val/test based on subjects for proper separation.
-        """
-        current_state = self.R.get_state()
-        logger.info(f"Splitting data into train/val/test based on subjects for "
-                    f"masked autoencoder with current state: {current_state[1][:5]}") # pyright: ignore[reportArgumentType]
-        
-        # Get unique subjects
-        subjects = list(set([item['sub_id'] for item in data_list]))
-        
-        # Shuffle subjects for random split
-        self.R.shuffle(subjects)
-        
-        # Calculate split indices
-        n_subjects = len(subjects)
-        train_end = int(n_subjects * self.train_val_test_split[0])
-        val_end = train_end + int(n_subjects * self.train_val_test_split[1])
-        
-        train_subjects = set(subjects[:train_end])
-        val_subjects = set(subjects[train_end:val_end])
-        test_subjects = set(subjects[val_end:])
-        
-        # Split data based on subject assignment
-        train_data = [item for item in data_list if item['sub_id'] in train_subjects]
-        val_data = [item for item in data_list if item['sub_id'] in val_subjects]
-        test_data = [item for item in data_list if item['sub_id'] in test_subjects]
-        
-        logger.info(f"Data split - Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")
-        
-        return train_data, val_data, test_data
         
     def setup(self, stage: str):
         """
@@ -323,7 +237,11 @@ class MAEDataModule(BaseDataModule):
         all_data = self._create_data_list()
         
         # Split data
-        train_data, val_data, test_data = self._split_data(all_data)
+        train_data, val_data, test_data = split_data_by_subjects(
+            all_data, 
+            train_val_test_split=self.train_val_test_split,
+            random_state=self.R,
+        )
         
         if stage == "fit":
             self.train_data = train_data
@@ -350,7 +268,7 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
     
     def val_dataloader(self):
@@ -367,7 +285,7 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
     
     def test_dataloader(self):
@@ -384,7 +302,7 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
     
     def predict_dataloader(self):
@@ -401,7 +319,7 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
 
 
@@ -440,97 +358,33 @@ class ContrastiveDataModule(BaseDataModule):
 
         Check if data_dir contains the .npy files and log basic statistics.
         """
-        data_path = Path(self.data_dir)
-        if not data_path.exists():
-            logger.error(f"Data directory {self.data_dir} does not exist")
-            raise FileNotFoundError(f"Data directory {self.data_dir} does not exist")
-        
-        logger.info(f"Collecting data from {self.data_dir}")
-        
-        npy_files = list(data_path.glob("*.npy"))
-        if len(npy_files) == 0:
-            logger.error(f"No .npy files found in {self.data_dir}")
-            raise FileNotFoundError(f"No .npy files found in {self.data_dir}")
-            
-        logger.info(f"Found {len(npy_files)} .npy files in {self.data_dir}")
-        
-        # Parse filenames to get basic statistics
-        subjects = set()
-        sessions = set()
-        modalities = set()
-        
-        for file_path in npy_files:
-            metadata = self._parse_filename(file_path)
-            if metadata:
-                subjects.add(metadata['sub_id'])
-                sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
-                modalities.add(metadata['modality'])
-        
-        logger.info(f"Dataset contains {len(subjects)} subjects, "
-                    f"{len(sessions)} sessions, {len(modalities)} modalities")
-        
-    def _parse_filename(self, file_path: Path | str) -> Optional[Dict]:
-        """
-        Parse filename with pattern: sub_x_ses_y_ModalityName_CountIfMoreThanOne.npy
-        
-        Returns:
-            Dict with keys: sub_id, ses_id, modality, count, filepath
-        """
-        # Remove .npy extension
-        base_name = Path(file_path).name.replace('.npy', '')
-        
-        # Pattern: sub_(\d+)_ses_(\d+)_(.+)
-        pattern = r'sub_(\d+)_ses_(\d+)_(.+)'
-        match = re.match(pattern, base_name)
-        
-        if not match:
-            logger.warning(f"Could not parse filename in: {file_path}")
-            return None
-            
-        sub_id = match.group(1)
-        ses_id = match.group(2)
-        modality_part = match.group(3)
-        
-        # Check if modality has count (ends with _number)
-        count_pattern = r'(.+)_(\d+)$'
-        count_match = re.match(count_pattern, modality_part)
-        
-        if count_match:
-            modality = count_match.group(1)
-            count = int(count_match.group(2))
-            modality_suffix = f"{modality}_{count}"
-        else:
-            modality = modality_part
-            count = 1
-            modality_suffix = modality
-            
-        return {
-            'sub_id': sub_id,
-            'ses_id': ses_id,
-            'modality': modality,
-            'count': count,
-            'modality_suffix': modality_suffix,
-            'filepath': str(file_path)
-        }
+        check_flat_npy_data_dir(self.data_dir)
     
     def _create_data_list(self) -> List[Dict]:
         """Create data list for contrastive - group by session."""
+        logger.info(f"Grouping data by session from {self.data_dir}")
+        logger.info(f"This may take a while...")
+        
         session_groups = defaultdict(list)
         
-        for file_path in self.data_dir.glob("*.npy"):
-            metadata = self._parse_filename(file_path)
+        # Group by session
+        for file_path in tqdm(self.data_dir.glob("*.npy"), desc="Grouping data"):
+            metadata = parse_filename(file_path)
             if metadata:
                 session_key = f"{metadata['sub_id']}_ses_{metadata['ses_id']}"
                 session_groups[session_key].append(metadata)
         
         data_list = []
-        for session_key, session_files in session_groups.items():
+        for session_key, session_files in tqdm(session_groups.items(), desc="Creating data list"):
             if len(session_files) == 0:
                 continue
                 
             session_entry = {
                 'sub_id': session_files[0]['sub_id'],
-                'ses': session_files[0]['ses_id'],
+                'ses_id': session_files[0]['ses_id'],
+                'modality_suffix': session_files[0]['modality_suffix'],
+                'modality': session_files[0]['modality'],
+                'count': session_files[0]['count'],
             }
             
             # Add each scan with img_i key
@@ -538,40 +392,10 @@ class ContrastiveDataModule(BaseDataModule):
                 session_entry[f"img_{i}"] = file_metadata['filepath']
             
             data_list.append(session_entry)
-            
+        
+        logger.info(f"Data collection completed; returning n={len(data_list)} items")
+        
         return data_list
-    
-    def _split_data(self, data_list: List[Dict]) -> tuple:
-        """
-        Split data into train/val/test based on subjects for proper separation.
-        """
-        current_state = self.R.get_state()
-        logger.info(f"Splitting data into train/val/test based on subjects for "
-                    f"contrastive learning with current state: {current_state[1][:5]}") # pyright: ignore[reportArgumentType]
-        
-        # Get unique subjects
-        subjects = list(set([item['sub_id'] for item in data_list]))
-        
-        # Shuffle subjects for random split
-        self.R.shuffle(subjects)
-        
-        # Calculate split indices
-        n_subjects = len(subjects)
-        train_end = int(n_subjects * self.train_val_test_split[0])
-        val_end = train_end + int(n_subjects * self.train_val_test_split[1])
-        
-        train_subjects = set(subjects[:train_end])
-        val_subjects = set(subjects[train_end:val_end])
-        test_subjects = set(subjects[val_end:])
-        
-        # Split data based on subject assignment
-        train_data = [item for item in data_list if item['sub_id'] in train_subjects]
-        val_data = [item for item in data_list if item['sub_id'] in val_subjects]
-        test_data = [item for item in data_list if item['sub_id'] in test_subjects]
-        
-        logger.info(f"Data split - Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)}")
-        
-        return train_data, val_data, test_data
         
     def setup(self, stage: str):
         """
@@ -584,7 +408,11 @@ class ContrastiveDataModule(BaseDataModule):
         all_data = self._create_data_list()
         
         # Split data
-        train_data, val_data, test_data = self._split_data(all_data)
+        train_data, val_data, test_data = split_data_by_subjects(
+            all_data, 
+            train_val_test_split=self.train_val_test_split,
+            random_state=self.R,
+        )
         
         if stage == "fit":
             self.train_data = train_data
@@ -611,7 +439,7 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
     
     def val_dataloader(self):
@@ -628,7 +456,7 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
     
     def test_dataloader(self):
@@ -645,7 +473,7 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
     
     def predict_dataloader(self):
@@ -662,5 +490,5 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=True
+            pin_memory=False
         )
