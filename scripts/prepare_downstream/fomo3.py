@@ -7,7 +7,7 @@ from batchgenerators.utilities.file_and_folder_operations import (
 )
 from yucca.functional.preprocessing import preprocess_case_for_training_without_label
 from .task_configs import task3_config
-from utils.utils import parallel_process
+from anyBrainer.utils.utils import parallel_process
 
 
 def process_subject(task_info):
@@ -56,7 +56,7 @@ def process_subject(task_info):
         for image_file in sorted_image_files:
             source_img = join(session_path, image_file)
             # Load image
-            img = nib.load(source_img)
+            img = nib.load(source_img) # type: ignore
             images.append(img)
 
         # Apply preprocessing
@@ -71,7 +71,7 @@ def process_subject(task_info):
 
         # Save preprocessed data
         save_path = join(target_preprocessed, f"{prefix}_{subject_id}")
-        np.save(save_path + ".npy", preprocessed_images)
+        np.save(save_path + ".npy", preprocessed_images) # type: ignore
 
         # Save label for preprocessed data
         with open(join(target_preprocessed, f"{prefix}_{subject_id}.txt"), "w") as f:

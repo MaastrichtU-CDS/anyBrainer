@@ -8,7 +8,7 @@ from batchgenerators.utilities.file_and_folder_operations import (
 )
 from yucca.functional.preprocessing import preprocess_case_for_training_without_label
 from .task_configs import task1_config
-from utils.utils import parallel_process
+from anyBrainer.utils.utils import parallel_process
 
 
 def process_subject(task_info):
@@ -70,14 +70,14 @@ def process_subject(task_info):
 
         # Load and preprocess images
         images = [
-            nib.load(modality_mapping[i])
+            nib.load(modality_mapping[i]) # type: ignore
             for i in range(len(modalities))
             if i in modality_mapping
         ]
 
         # Apply preprocessing
         preprocessed_images, _ = preprocess_case_for_training_without_label(
-            images=images,
+            images=images, # type: ignore
             normalization_operation=[
                 pp_config["norm_op"] for _ in pp_config["modalities"]
             ],
@@ -87,7 +87,7 @@ def process_subject(task_info):
 
         # Save preprocessed data
         save_path = join(target_preprocessed, f"{prefix}_{subject_id}")
-        np.save(save_path + ".npy", preprocessed_images)
+        np.save(save_path + ".npy", preprocessed_images) # type: ignore
         shutil.copy(label_file, join(target_preprocessed, f"{prefix}_{subject_id}.txt"))
 
         return f"Processed {folder_name}"

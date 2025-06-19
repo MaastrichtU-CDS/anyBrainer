@@ -69,9 +69,11 @@ class CreateRandomMaskd(MapTransform, Randomizable):
             n_patches = (np.array([d1, d2, d3]) + self.mask_patch_size - 1) // self.mask_patch_size
             total_patches = np.prod(n_patches)
 
-             # Sample which patches to mask
+            # Sample which patches to mask
             n_masked = int(total_patches * self.mask_ratio)
             patch_mask = torch.ones(int(total_patches), dtype=torch.bool)
+
+            last_rng = self.R.get_state()[1][:5] # pyright: ignore[reportArgumentType]
             idx = torch.as_tensor(
                 self.R.choice(int(total_patches), n_masked, replace=False)
             )
@@ -86,12 +88,13 @@ class CreateRandomMaskd(MapTransform, Randomizable):
             # Crop in case spatial dims are not multiples of patch size
             mask = mask[:d1, :d2, :d3]
 
+            # Get original dims
             while mask.ndim < img.ndim:
                 mask = mask.unsqueeze(0)
                 
-            logger.debug(f"mask shape: Expected {img.shape}, got {mask.shape}")
-            logger.debug(f"mask ratio: Expected {self.mask_ratio}, "
-                         f"got {1 - mask.float().mean().item()}")
+            logger.debug(f"mask shape: {mask.shape}, "
+                         f"mask ratio: {1 - mask.float().mean().item()}, "
+                         f"rng: {last_rng}")
  
             # Keep metadata
             if isinstance(img, MetaTensor):

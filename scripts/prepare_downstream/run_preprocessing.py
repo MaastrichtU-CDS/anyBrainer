@@ -1,15 +1,15 @@
 import argparse
 
-from data.preprocess.fomo1 import convert_and_preprocess_task1
-from data.preprocess.fomo2 import convert_and_preprocess_task2
-from data.preprocess.fomo3 import convert_and_preprocess_task3
+from .fomo1 import convert_and_preprocess_task1
+from .fomo2 import convert_and_preprocess_task2
+from .fomo3 import convert_and_preprocess_task3
 
 
 def preprocess_task(
     taskid: int,
     source_path: str,
     output_path: str,
-    num_workers: int = None,
+    num_workers: int | None = None,
 ):
     """
     Preprocess the specified task using parallel processing.

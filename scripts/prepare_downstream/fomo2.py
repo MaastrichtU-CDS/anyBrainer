@@ -8,7 +8,7 @@ from batchgenerators.utilities.file_and_folder_operations import (
 )
 from yucca.functional.preprocessing import preprocess_case_for_training_with_label
 from .task_configs import task2_config
-from utils.utils import parallel_process
+from anyBrainer.utils.utils import parallel_process
 
 
 def process_subject(task_info):
@@ -67,19 +67,19 @@ def process_subject(task_info):
 
         # Load images for preprocessing
         images = [
-            nib.load(modality_mapping[i])
+            nib.load(modality_mapping[i]) # type: ignore
             for i in range(len(modalities))
             if i in modality_mapping
         ]
 
         # Load segmentation label
-        label = nib.load(label_path)
+        label = nib.load(label_path) # type: ignore
 
         # Apply preprocessing with label
         preprocessed_data, preprocessed_label, properties = (
             preprocess_case_for_training_with_label(
-                images=images,
-                label=label,
+                images=images, # type: ignore
+                label=label, # type: ignore
                 normalization_operation=[
                     pp_config["norm_op"] for _ in pp_config["modalities"]
                 ],

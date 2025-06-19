@@ -10,7 +10,7 @@ from batchgenerators.utilities.file_and_folder_operations import (
 )
 from yucca.functional.preprocessing import preprocess_case_for_training_without_label
 from yucca.functional.utils.loading import read_file_to_nifti_or_np
-from utils.utils import parallel_process
+from anyBrainer.utils.utils import parallel_process
 
 
 def safe_log_append(log_path, message):
