@@ -1,0 +1,37 @@
+# Ignore virtual environments
+.venv/
+venv/
+
+# Ignore macOS system files
+.DS_Store
+
+# Ignore editor/IDE files
+.vscode/
+.idea/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore logs
+*.log
+
+# Ignore model files or large binary data (optional)
+*.h5
+*.pt
+*.ckpt
+
+# Ignore build/test artifacts
+build/
+dist/
+*.egg-info/
+
+# Ignore custom template folder
+config_files/
+
+# Extras
+TODOS.md
