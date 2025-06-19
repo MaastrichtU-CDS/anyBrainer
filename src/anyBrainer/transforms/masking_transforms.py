@@ -122,7 +122,6 @@ class SaveReconstructionTargetd(MapTransform):
     def __call__(self, data):
         d = dict(data)
         for key in self.key_iterator(d):
-            # Create a copy for reconstruction target
-            d[self.recon_key] = d[key].copy()
+            d[self.recon_key] = d[key].clone()
         return d
 
