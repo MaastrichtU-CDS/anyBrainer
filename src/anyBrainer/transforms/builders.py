@@ -31,7 +31,6 @@ from monai.transforms import (
 )
 
 from .masking_transforms import (
-    CreateIgnoreMaskd, 
     SaveReconstructionTargetd, 
     CreateRandomMaskd,
 )
@@ -143,10 +142,6 @@ class MaskingTransformBuilder(TransformBuilderInterface):
         transforms = []
         
         transform_map = {
-            'ignore_mask': (CreateIgnoreMaskd, {
-                'ignore_key': 'ignore',
-                'background_threshold': 1e-6,
-            }),
             'reconstruction_target': (SaveReconstructionTargetd, {
                 'recon_key': 'recon',
             }),

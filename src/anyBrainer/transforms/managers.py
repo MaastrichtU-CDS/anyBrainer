@@ -12,7 +12,6 @@ import logging
 
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import Compose, Transform
-from yucca.modules.data.augmentation.transforms.Spatial import spatial
 
 from .interfaces import TransformManagerInterface
 from .builders import (
@@ -98,7 +97,6 @@ class MAETransformManager(TransformManagerInterface):
     """Transform manager for masked autoencoder."""
 
     # MAE-specific configuration
-    IMG_KEYS = ['img', 'brain_mask']
     BRAIN_MASK_INTERPOLATION = 'nearest'
     BRAIN_MASK_PADDING = 'zeros'
 
@@ -122,9 +120,6 @@ class MAETransformManager(TransformManagerInterface):
         # Set any custom configs
         spatial_config = self._configure_mae_spatial_transforms(spatial_config)
 
-        # Set custom MAE img_keys
-        self.img_keys = self.IMG_KEYS
-
         # Initialize transform builders
         self.load_composer = LoadTransformBuilder(load_config)
         self.spatial_composer = SpatialTransformBuilder(spatial_config)
@@ -138,28 +133,20 @@ class MAETransformManager(TransformManagerInterface):
         The mask autoencoder transforms will create two extra keys; 
         one for the reconstruction target ('recon') and one for masking ('mask').
         """
-        allow_missing_keys = True
-
-        transforms = [
-            self.load_composer.build(self.img_keys, allow_missing_keys),
-            self.spatial_composer.build(self.img_keys, allow_missing_keys),
-            self.masking_composer.build(self.img_keys, allow_missing_keys),
-            self.intensity_composer.build(self.img_keys, allow_missing_keys),
-        ]
-        
-        return Compose(transforms)
-    
+        return Compose([
+            self.load_composer.build(['img', 'brain_mask'], allow_missing_keys=True),
+            self.spatial_composer.build(['img', 'brain_mask'], allow_missing_keys=True),
+            self.masking_composer.build(['img'], allow_missing_keys=True),
+            self.intensity_composer.build(['img'], allow_missing_keys=False), # only apply to img key
+        ])
+            
     def get_val_transforms(self) -> Transform:
         """Get validation transforms for masked autoencoder."""
-        allow_missing_keys = True
-
-        transforms = [
-            self.load_composer.build(self.img_keys, allow_missing_keys),
-            self.masking_composer.build(self.img_keys, allow_missing_keys),
-        ]
+        return Compose([
+            self.load_composer.build(['img', 'brain_mask'], allow_missing_keys=True),
+            self.masking_composer.build(['img'], allow_missing_keys=True),
+        ])
         
-        return Compose(transforms)
-    
     def _configure_mae_spatial_transforms(self, spatial_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Custom spatial config logic for MAE.

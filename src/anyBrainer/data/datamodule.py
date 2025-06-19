@@ -26,17 +26,15 @@ import numpy as np
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
 
-from utils.utils import resolve_path
+from anyBrainer.utils.utils import resolve_path
 
-from transforms import (
+from anyBrainer.transforms.managers import (
     ContrastiveTransformManager, 
     MAETransformManager,
 )
 
 logger = logging.getLogger(__name__)
 
-
-MAX_SCANS_PER_SESSION = 100
 
 class BaseDataModule(L.LightningDataModule):
     """
