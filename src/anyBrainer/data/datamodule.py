@@ -15,7 +15,7 @@ __all__ = [
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Literal, Optional, Any, Sequence
+from typing import List, Dict, Optional, Any
 from collections import defaultdict
 
 import lightning as L
