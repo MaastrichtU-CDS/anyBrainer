@@ -22,10 +22,27 @@ class TransformBuilderInterface(ABC):
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        self._params = {}
     
-    @abstractmethod
+    @property
+    def params(self) -> Dict[str, Any]:
+        """Get the parameters used in the last build() call."""
+        return self._params.copy()  # Return a copy to prevent external modification
+    
+    def update_params(self, name: str, new_params: Dict[str, Any]):
+        """Update the parameters used in the last build() call."""
+        self._params[name] = new_params
+    
     def build(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
         """Build and return the transform."""
+        # Reset params at the start of each build
+        self._params = {}
+
+        return self._build_transforms(img_keys, allow_missing_keys)
+    
+    @abstractmethod
+    def _build_transforms(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
+        """Build and return the transform. Implement this in concrete classes."""
         pass
 
 

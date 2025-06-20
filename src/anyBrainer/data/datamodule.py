@@ -10,11 +10,10 @@ __all__ = [
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 from collections import defaultdict
 
 import lightning as L
-import torch
 import numpy as np
 from tqdm import tqdm
 
@@ -194,7 +193,9 @@ class MAEDataModule(BaseDataModule):
     def _create_data_list(self) -> List[Dict]:
         """
         Create list[dict] for masked autoencoder setup.
-        Each scan is a separate entry.
+
+        Each scan is a separate entry. A brain mask is optionally exctracted
+        to restrict the calculation of loss. 
         """
         logger.info(f"Creating data list from {self.data_dir}")
         logger.info(f"This may take a while...")
@@ -204,16 +205,17 @@ class MAEDataModule(BaseDataModule):
         for file_path in tqdm(self.data_dir.glob("*.npy"), desc="Creating data list"):
             metadata = parse_filename(file_path)
             if metadata:
-                # Get mask file safely
-                mask_path = (self.masks_dir / 
-                             f"{metadata['sub_id']}_ses_{metadata['ses_id']}_mask.npy")
-                if not mask_path.exists():
-                    logger.warning(f"Mask file {mask_path} does not exist")
-                    mask_path = None
+                brain_mask_path = (
+                    self.masks_dir / 
+                    f"{metadata['sub_id']}_ses_{metadata['ses_id']}_mask.npy"
+                )
+                if not brain_mask_path.exists():
+                    logger.warning(f"Mask file {brain_mask_path} does not exist")
+                    brain_mask_path = None
                 
                 data_entry = {
                     'img': metadata['filepath'],
-                    'brain_mask': str(mask_path) if mask_path else None,
+                    'brain_mask': str(brain_mask_path) if brain_mask_path else None,
                     'sub_id': metadata['sub_id'],
                     'ses_id': metadata['ses_id'],
                     'modality_suffix': metadata['modality_suffix'],

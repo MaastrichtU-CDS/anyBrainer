@@ -35,7 +35,7 @@ class TestCreateRandomMaskd:
     def op(self, mask_ratio, mask_patch_size):
         return CreateRandomMaskd(mask_ratio=mask_ratio, mask_patch_size=mask_patch_size)
     
-    def check_outputs(self, op, sample_item):
+    def test_output_keys(self, op, sample_item):
         out = op(sample_item)
         assert out.keys() == {"img", "mask", "brain_mask", "sub_id", 
                               "ses_id", "modality", "count"}
@@ -78,7 +78,7 @@ class TestSaveReconstructionTargetd:
     def op(self):
         return SaveReconstructionTargetd(recon_key="recon")
     
-    def check_outputs(self, op, sample_item):
+    def test_output_keys(self, op, sample_item):
         out = op(sample_item)
         assert out.keys() == {"img", "recon", "brain_mask", "sub_id", 
                               "ses_id", "modality", "count"}

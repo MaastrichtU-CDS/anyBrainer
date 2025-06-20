@@ -9,7 +9,7 @@ __all__ = [
     "MaskingTransformBuilder",
 ]
 
-from typing import Dict, Any, Sequence
+from typing import Sequence
 import logging
 
 # pyright: reportPrivateImportUsage=false
@@ -42,10 +42,9 @@ logger = logging.getLogger(__name__)
 class LoadTransformBuilder(TransformBuilderInterface):
     """Builder for loading and basic preprocessing transforms."""
     
-    def build(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
+    def _build_transforms(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
         patch_size = self.config.get('patch_size', (128, 128, 128))
 
-        n_keys = len(img_keys)
         transforms = []
         
         transform_map = {
@@ -55,7 +54,7 @@ class LoadTransformBuilder(TransformBuilderInterface):
             }),
             'pad': (SpatialPadd, {
                 'spatial_size': patch_size,
-                'mode': ['constant'] * n_keys,
+                'mode': 'constant',
             }),
         }
         
@@ -68,6 +67,8 @@ class LoadTransformBuilder(TransformBuilderInterface):
                 params.update(default_params)
                 params.update(self.config.get(transform_name, {}).get('params', {}))
                 transforms.append(transform_class(**params))
+
+                self.update_params(transform_name, params) # good for tracking transform settings
         
         return Compose(transforms)
 
@@ -75,9 +76,8 @@ class LoadTransformBuilder(TransformBuilderInterface):
 class SpatialTransformBuilder(TransformBuilderInterface):
     """Builder for spatial augmentation transforms."""
     
-    def build(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
+    def _build_transforms(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
         patch_size = self.config.get('patch_size', (128, 128, 128))
-        n_keys = len(img_keys)
         transforms = []
         
         transform_map = {
@@ -103,6 +103,8 @@ class SpatialTransformBuilder(TransformBuilderInterface):
                 params.update(default_params)
                 params.update(self.config.get(transform_name, {}).get('params', {}))
                 transforms.append(transform_class(**params))
+
+                self.update_params(transform_name, params)
         
         return Compose(transforms)
 
@@ -110,7 +112,7 @@ class SpatialTransformBuilder(TransformBuilderInterface):
 class IntensityTransformBuilder(TransformBuilderInterface):
     """Builder for intensity augmentation transforms."""
     
-    def build(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
+    def _build_transforms(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
         transforms = []
         
         transform_map = {
@@ -131,6 +133,8 @@ class IntensityTransformBuilder(TransformBuilderInterface):
                 params.update(default_params)
                 params.update(self.config.get(transform_name, {}).get('params', {}))
                 transforms.append(transform_class(**params))
+
+                self.update_params(transform_name, params)
         
         return Compose(transforms)
 
@@ -138,7 +142,7 @@ class IntensityTransformBuilder(TransformBuilderInterface):
 class MaskingTransformBuilder(TransformBuilderInterface):
     """Builder for MAE-specific masking transforms."""
     
-    def build(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
+    def _build_transforms(self, img_keys: Sequence[str], allow_missing_keys: bool = False) -> Transform:
         transforms = []
         
         transform_map = {
@@ -161,5 +165,7 @@ class MaskingTransformBuilder(TransformBuilderInterface):
                 params.update(default_params)
                 params.update(self.config.get(transform_name, {}).get('params', {}))
                 transforms.append(transform_class(**params))
+
+                self.update_params(transform_name, params)
         
         return Compose(transforms)
