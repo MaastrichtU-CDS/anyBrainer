@@ -30,21 +30,21 @@ class ContrastiveTransformManager(TransformManagerInterface):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        load_config = config.get('load_transforms', False)
+        load_config = self.config.get('load_transforms', False)
         if not load_config:
             logger.error("Missing load_transforms settings.")
             raise ValueError("Missing load_transforms settings.")
         
-        spatial_config_1 = config.get('spatial_transforms', {})
-        intensity_config_1 = config.get('intensity_transforms', {})
+        spatial_config_1 = self.config.get('spatial_transforms', {})
+        intensity_config_1 = self.config.get('intensity_transforms', {})
 
         # Check if different augmentations for second view
-        spatial_config_2 = config.get('spatial_transforms_2', spatial_config_1)
-        intensity_config_2 = config.get('intensity_transforms_2', intensity_config_1)
+        spatial_config_2 = self.config.get('spatial_transforms_2', spatial_config_1)
+        intensity_config_2 = self.config.get('intensity_transforms_2', intensity_config_1)
         
         # Get patch size
-        patch_size_1 = config.get('patch_size', (128, 128, 128))
-        patch_size_2 = config.get('patch_size_2', patch_size_1)
+        patch_size_1 = self.config.get('patch_size', (128, 128, 128))
+        patch_size_2 = self.config.get('patch_size_2', patch_size_1)
 
         # Initialize transform builders for first view
         self.load_composer_1 = LoadTransformBuilder(load_config.update({'patch_size': patch_size_1}))
@@ -57,7 +57,7 @@ class ContrastiveTransformManager(TransformManagerInterface):
         self.intensity_composer_2 = IntensityTransformBuilder(intensity_config_2)
 
         # Determine img_keys from config
-        max_modalities = config.get('max_modalities', 100)
+        max_modalities = self.config.get('max_modalities', 100)
         self.img_keys = [f"img_{i}" for i in range(max_modalities)]
 
     def get_train_transforms(self) -> tuple[Transform, Transform]:
@@ -103,17 +103,17 @@ class MAETransformManager(TransformManagerInterface):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        load_config = config.get('load_transforms', False)
+        load_config = self.config.get('load_transforms', False)
         if not load_config:
             logger.error("Missing load_transforms settings.")
             raise ValueError("Missing load_transforms settings.")
         
-        spatial_config = config.get('spatial_transforms', {})
-        masking_config = config.get('masking_transforms', {})
-        intensity_config = config.get('intensity_transforms', {})
+        spatial_config = self.config.get('spatial_transforms', {})
+        masking_config = self.config.get('mae_transforms', {})
+        intensity_config = self.config.get('intensity_transforms', {})
 
         # Get patch size
-        patch_size = config.get('patch_size', (128, 128, 128))
+        patch_size = self.config.get('patch_size', (128, 128, 128))
         load_config.update({'patch_size': patch_size})
         spatial_config.update({'patch_size': patch_size})
 

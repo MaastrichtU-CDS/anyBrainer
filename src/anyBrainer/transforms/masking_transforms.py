@@ -98,7 +98,7 @@ class CreateRandomMaskd(MapTransform, Randomizable):
  
             # Keep metadata
             if isinstance(img, MetaTensor):
-                d[self.mask_key] = MetaTensor(mask, meta=img.meta, affine=img.affine)
+                d[self.mask_key] = MetaTensor(mask, meta=img.meta)
             else:
                 d[self.mask_key] = mask
              

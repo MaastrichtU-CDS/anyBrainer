@@ -21,8 +21,8 @@ class TransformBuilderInterface(ABC):
     """Abstract interface for transform builders."""
     
     def __init__(self, config: Dict[str, Any]):
-        self.config = config
-        self.do_all = config.get('do_all', False)
+        self.config = config.copy()
+        self.do_all = config.get("do_all", False)
         self._params = {}
     
     @property
@@ -51,7 +51,7 @@ class TransformManagerInterface(ABC):
     """Abstract interface for transform managers."""
     
     def __init__(self, config: Dict[str, Any]):
-        self.config = config
+        self.config = config.copy()
     
     @abstractmethod
     def get_train_transforms(self) -> Transform:
