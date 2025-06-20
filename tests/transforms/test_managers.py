@@ -22,6 +22,7 @@ def sample_config():
     return {
         'patch_size': (128, 128, 128),
         'load_transforms': {
+            'do_all': True,
             'load': { # Should see the transform despite missing 'enabled'
                 'enabled': True,
                 'params': {
@@ -30,7 +31,7 @@ def sample_config():
                 }
             },
             'pad': {
-                'enabled': True,
+                'enabled': False, # should still do, since do_all is True
                 'mode': 'reflect', # should see 'constant' since not in 'params'
             },
         },

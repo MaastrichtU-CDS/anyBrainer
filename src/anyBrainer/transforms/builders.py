@@ -59,7 +59,7 @@ class LoadTransformBuilder(TransformBuilderInterface):
         }
         
         for transform_name, (transform_class, default_params) in transform_map.items():
-            if self.config.get(transform_name, {}).get('enabled', False):
+            if self.do_all or self.config.get(transform_name, {}).get('enabled', False):
                 params = {
                     'keys': img_keys,
                     'allow_missing_keys': allow_missing_keys,
@@ -95,7 +95,7 @@ class SpatialTransformBuilder(TransformBuilderInterface):
         }
         
         for transform_name, (transform_class, default_params) in transform_map.items():
-            if self.config.get(transform_name, {}).get('enabled', False):
+            if self.do_all or self.config.get(transform_name, {}).get('enabled', False):
                 params = {
                     'keys': img_keys,
                     'allow_missing_keys': allow_missing_keys,
@@ -125,7 +125,7 @@ class IntensityTransformBuilder(TransformBuilderInterface):
         }
         
         for transform_name, (transform_class, default_params) in transform_map.items():
-            if self.config.get(transform_name, {}).get('enabled', False):
+            if self.do_all or self.config.get(transform_name, {}).get('enabled', False):
                 params = {
                     'keys': img_keys,
                     'allow_missing_keys': allow_missing_keys,
@@ -157,7 +157,7 @@ class MaskingTransformBuilder(TransformBuilderInterface):
         }
         
         for transform_name, (transform_class, default_params) in transform_map.items():
-            if self.config.get(transform_name, {}).get('enabled', False):
+            if self.do_all or self.config.get(transform_name, {}).get('enabled', False):
                 params = {
                     'keys': img_keys,
                     'allow_missing_keys': allow_missing_keys,

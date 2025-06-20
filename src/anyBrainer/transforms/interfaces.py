@@ -22,6 +22,7 @@ class TransformBuilderInterface(ABC):
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        self.do_all = config.get('do_all', False)
         self._params = {}
     
     @property
