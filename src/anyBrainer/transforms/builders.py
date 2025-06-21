@@ -91,7 +91,6 @@ class SpatialTransformBuilder(TransformBuilderInterface):
                 'padding_mode': 'zeros',
             }),
             'crop': (RandSpatialCropd, {'roi_size': patch_size}),
-            'low_res': (RandSimulateLowResolutiond, {'prob': 0.1, 'zoom_range': (0.5, 1.0)}),
         }
         
         for transform_name, (transform_class, default_params) in transform_map.items():
@@ -122,6 +121,7 @@ class IntensityTransformBuilder(TransformBuilderInterface):
             'bias_field': (RandBiasFieldd, {'coeff_range': (0.0, 0.05), 'prob': 0.3}),
             'gibbs_noise': (RandGibbsNoised, {'alpha': (0.2, 0.4), 'prob': 0.2}),
             'adjust_contrast': (RandAdjustContrastd, {'gamma': (0.9, 1.1), 'prob': 0.3}),
+            'low_res': (RandSimulateLowResolutiond, {'prob': 0.1, 'zoom_range': (0.5, 1.0)}),
         }
         
         for transform_name, (transform_class, default_params) in transform_map.items():

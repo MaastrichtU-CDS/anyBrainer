@@ -56,26 +56,22 @@ class ContrastiveTransformManager(TransformManagerInterface):
         self.spatial_composer_2 = SpatialTransformBuilder(spatial_config_2.update({'patch_size': patch_size_2}))
         self.intensity_composer_2 = IntensityTransformBuilder(intensity_config_2)
 
-        # Determine img_keys from config
-        max_modalities = self.config.get('max_modalities', 100)
-        self.img_keys = [f"img_{i}" for i in range(max_modalities)]
-
     def get_train_transforms(self) -> tuple[Transform, Transform]:
         """Get training transforms for contrastive learning."""
         allow_missing_keys = True
 
         # Get transforms for first view
         view_1_transforms = [
-            self.load_composer_1.build(self.img_keys, allow_missing_keys),
-            self.spatial_composer_1.build(self.img_keys, allow_missing_keys),
-            self.intensity_composer_1.build(self.img_keys, allow_missing_keys),
+            self.load_composer_1.build(['query'], allow_missing_keys),
+            self.spatial_composer_1.build(['query'], allow_missing_keys),
+            self.intensity_composer_1.build(['query'], allow_missing_keys),
         ]
 
         # Get transforms for second view
         view_2_transforms = [
-            self.load_composer_2.build(self.img_keys, allow_missing_keys),
-            self.spatial_composer_2.build(self.img_keys, allow_missing_keys),
-            self.intensity_composer_2.build(self.img_keys, allow_missing_keys),
+            self.load_composer_2.build(['key'], allow_missing_keys),
+            self.spatial_composer_2.build(['key'], allow_missing_keys),
+            self.intensity_composer_2.build(['key'], allow_missing_keys),
         ]
         
         return Compose(view_1_transforms), Compose(view_2_transforms)
@@ -85,10 +81,14 @@ class ContrastiveTransformManager(TransformManagerInterface):
         allow_missing_keys = True
 
         # Get transforms for first view
-        view_1_transforms = [self.load_composer_1.build(self.img_keys, allow_missing_keys)]
+        view_1_transforms = [self.load_composer_1.build(['key'], allow_missing_keys)]
 
         # Get transforms for second view
-        view_2_transforms = [self.load_composer_2.build(self.img_keys, allow_missing_keys)]
+        view_2_transforms = [
+            self.load_composer_2.build(['key'], allow_missing_keys),
+            self.spatial_composer_2.build(['key'], allow_missing_keys),
+            self.intensity_composer_2.build(['key'], allow_missing_keys),
+        ]
         
         return Compose(view_1_transforms), Compose(view_2_transforms)
 
@@ -136,7 +136,7 @@ class MAETransformManager(TransformManagerInterface):
         return Compose([
             self.load_composer.build(['img', 'brain_mask'], allow_missing_keys=True),
             self.spatial_composer.build(['img', 'brain_mask'], allow_missing_keys=True),
-            self.masking_composer.build(['img'], allow_missing_keys=True),
+            self.masking_composer.build(['img'], allow_missing_keys=False),
             self.intensity_composer.build(['img'], allow_missing_keys=False), # only apply to img key
         ])
             
@@ -159,7 +159,7 @@ class MAETransformManager(TransformManagerInterface):
         if 'affine' in spatial_config:
             # Allow user configuration only for the image key.
             usr_interp_setting = spatial_config['affine'].get('mode', 'bilinear')
-            usr_padding_setting = spatial_config['affine'].get('padding_mode', 'border')
+            usr_padding_setting = spatial_config['affine'].get('padding_mode', 'zeros')
             
             # Update the affine config
             spatial_config['affine'].update({'mode': [usr_interp_setting, self.BRAIN_MASK_INTERPOLATION], 

@@ -47,6 +47,10 @@ include = ["anyBrainer*"]
 
 [tool.pytest]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "serial",
+]
 
 [tool.black]
 line-length = 88
