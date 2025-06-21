@@ -23,14 +23,22 @@ from monai.data import DataLoader as MONAIDataLoader
 
 from anyBrainer.utils.utils import resolve_path
 from anyBrainer.data.utils import (
-    parse_filename,
+    trivial_check_nested_nifti_dataset,
+    parse_filename_nested_nifti,
     check_flat_npy_data_dir,
     split_data_by_subjects,
 )
-
-from anyBrainer.transforms.managers import (
-    ContrastiveTransformManager, 
-    MAETransformManager,
+from anyBrainer.data.explorer import (
+    GenericNiftiDataExplorer,
+)
+from anyBrainer.transforms import(
+    get_mae_train_transforms,
+    get_mae_val_transforms,
+    get_contrastive_train_transforms,
+    get_contrastive_val_transforms,
+)
+from anyBrainer.transforms import (
+    DeterministicCompose,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +55,6 @@ class BaseDataModule(L.LightningDataModule):
         train_val_test_split: train/val/test split
         seed: random seed for reproducibility
     """
-    R: np.random.RandomState = np.random.RandomState()
 
     def __init__(
         self,
@@ -55,18 +62,27 @@ class BaseDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        seed: int | None = None,
+        random_state: np.random.RandomState | None = None,
     ):
         super().__init__()
         self.data_dir = resolve_path(data_dir)
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_val_test_split = train_val_test_split
+        self.seed = seed
+        self.set_random_state(seed, random_state)
 
         # Will be populated in setup()
         self.train_data = None
         self.val_data = None  
         self.test_data = None
         self.predict_data = None
+
+        self.train_transforms = None
+        self.val_transforms = None
+        self.test_transforms = None
+        self.predict_transforms = None
 
     def set_random_state(
         self, 
@@ -174,12 +190,17 @@ class MAEDataModule(BaseDataModule):
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        seed: int | None = None,
+        random_state: np.random.RandomState | None = None,
     ):
-        super().__init__(data_dir, batch_size, num_workers, train_val_test_split)
+        super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
         self.masks_dir = resolve_path(masks_dir)
         
-        # Create transform manager
-        self.transform_manager = MAETransformManager(transform_config)
+        # Get transforms
+        self.train_transforms = DeterministicCompose(get_mae_train_transforms(), master_seed=seed)
+        self.val_transforms = DeterministicCompose(get_mae_val_transforms(), master_seed=seed)
+        self.test_transforms = DeterministicCompose(get_mae_val_transforms(), master_seed=seed)
+        self.predict_transforms = DeterministicCompose(get_mae_val_transforms(), master_seed=seed)
     
     def prepare_data(self):
         """
@@ -188,7 +209,7 @@ class MAEDataModule(BaseDataModule):
 
         Check if data_dir contains the .npy files and log basic statistics.
         """
-        check_flat_npy_data_dir(self.data_dir)
+        trivial_check_nested_nifti_dataset(self.data_dir)
         
     def _create_data_list(self) -> List[Dict]:
         """
@@ -199,32 +220,39 @@ class MAEDataModule(BaseDataModule):
         """
         logger.info(f"Creating data list from {self.data_dir}")
         logger.info(f"This may take a while...")
-        
+
+        explorer = GenericNiftiDataExplorer(self.data_dir)
+
         data_list = []
+        subjects = set()
+        sessions = set()
+        modalities = set()
         
-        for file_path in tqdm(self.data_dir.glob("*.npy"), desc="Creating data list"):
-            metadata = parse_filename(file_path)
-            if metadata:
-                brain_mask_path = (
-                    self.masks_dir / 
-                    f"{metadata['sub_id']}_ses_{metadata['ses_id']}_mask.npy"
-                )
-                if not brain_mask_path.exists():
-                    logger.warning(f"Mask file {brain_mask_path} does not exist")
-                    brain_mask_path = None
-                
-                data_entry = {
-                    'img': metadata['filepath'],
-                    'brain_mask': str(brain_mask_path) if brain_mask_path else None,
-                    'sub_id': metadata['sub_id'],
-                    'ses_id': metadata['ses_id'],
-                    'modality_suffix': metadata['modality_suffix'],
-                    'modality': metadata['modality'],
-                    'count': metadata['count']
-                }
-                data_list.append(data_entry)
-                
-        logger.info(f"Data collection completed; returning n={len(data_list)} items")
+        for file_path in explorer.get_all_image_files(as_list=True):
+            metadata = parse_filename_nested_nifti(file_path)
+            subjects.add(metadata['sub_id'])
+            sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
+            modalities.add(metadata['modality'])
+
+            brain_mask_path = (
+                self.masks_dir / file_path.relative_to(self.data_dir)
+            )
+            if not brain_mask_path.exists():
+                logger.warning(f"Mask file {brain_mask_path} does not exist")
+                brain_mask_path = None
+            
+            data_entry = {
+                'file_name': metadata['file_name'],
+                'brain_mask': str(brain_mask_path) if brain_mask_path else None,
+                'sub_id': metadata['sub_id'],
+                'ses_id': metadata['ses_id'],
+                'modality': metadata['modality'],
+            }
+            data_list.append(data_entry)
+        
+        logger.info(f"Dataset contains {len(subjects)} subjects, "
+                    f"{len(sessions)} sessions, {len(modalities)} modalities")
+        logger.info(f"Data collection completed")
         
         return data_list
         
@@ -242,7 +270,7 @@ class MAEDataModule(BaseDataModule):
         train_data, val_data, test_data = split_data_by_subjects(
             all_data, 
             train_val_test_split=self.train_val_test_split,
-            random_state=self.R,
+            seed=self.seed, # use seed instead of rng for continuing experiments
         )
         
         if stage == "fit":
@@ -261,10 +289,8 @@ class MAEDataModule(BaseDataModule):
             logger.error("train_data is None. Make sure setup('fit') was called.")
             raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
         
-        train_transforms = self.transform_manager.get_train_transforms()
-
         # Create dataset with transforms
-        dataset = MONAIDataset(data=self.train_data, transform=train_transforms)
+        dataset = MONAIDataset(data=self.train_data, transform=self.train_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -279,9 +305,7 @@ class MAEDataModule(BaseDataModule):
             logger.error("val_data is None. Make sure setup('validate') was called.")
             raise RuntimeError("val_data is None. Make sure setup() was called.")
             
-        val_transforms = self.transform_manager.get_val_transforms()
-
-        dataset = MONAIDataset(data=self.val_data, transform=val_transforms)
+        dataset = MONAIDataset(data=self.val_data, transform=self.val_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -296,9 +320,7 @@ class MAEDataModule(BaseDataModule):
             logger.error("test_data is None. Make sure setup('test') was called.")
             raise RuntimeError("test_data is None. Make sure setup('test') was called.")
             
-        test_transforms = self.transform_manager.get_val_transforms()
-
-        dataset = MONAIDataset(data=self.test_data, transform=test_transforms)
+        dataset = MONAIDataset(data=self.test_data, transform=self.test_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -313,9 +335,7 @@ class MAEDataModule(BaseDataModule):
             logger.error("predict_data is None. Make sure setup('predict') was called.")
             raise RuntimeError("predict_data is None. Make sure setup('predict') was called.")
             
-        predict_transforms = self.transform_manager.get_val_transforms()
-
-        dataset = MONAIDataset(data=self.predict_data, transform=predict_transforms)
+        dataset = MONAIDataset(data=self.predict_data, transform=self.predict_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -343,15 +363,20 @@ class ContrastiveDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
-        transform_config: Dict[str, Any],  # Now required - loaded from YAML
+        transform_config: Dict[str, Any],
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        seed: int | None = None,
+        random_state: np.random.RandomState | None = None,
     ):
-        super().__init__(data_dir, batch_size, num_workers, train_val_test_split)
+        super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
         
-        # Create transform manager
-        self.transform_manager = ContrastiveTransformManager(transform_config)
+        # Get transforms
+        self.train_transforms = DeterministicCompose(get_contrastive_train_transforms(), master_seed=seed)
+        self.val_transforms = DeterministicCompose(get_contrastive_val_transforms(), master_seed=seed)
+        self.test_transforms = DeterministicCompose(get_contrastive_val_transforms(), master_seed=seed)
+        self.predict_transforms = DeterministicCompose(get_contrastive_val_transforms(), master_seed=seed)
     
     def prepare_data(self):
         """
@@ -360,42 +385,51 @@ class ContrastiveDataModule(BaseDataModule):
 
         Check if data_dir contains the .npy files and log basic statistics.
         """
-        check_flat_npy_data_dir(self.data_dir)
+        trivial_check_nested_nifti_dataset(self.data_dir)
     
     def _create_data_list(self) -> List[Dict]:
         """Create data list for contrastive - group by session."""
         logger.info(f"Grouping data by session from {self.data_dir}")
         logger.info(f"This may take a while...")
-        
+
+        explorer = GenericNiftiDataExplorer(self.data_dir)
+
         session_groups = defaultdict(list)
-        
+        subjects = set()
+        sessions = set()
+        modalities = set()
+
         # Group by session
-        for file_path in tqdm(self.data_dir.glob("*.npy"), desc="Grouping data"):
-            metadata = parse_filename(file_path)
-            if metadata:
-                session_key = f"{metadata['sub_id']}_ses_{metadata['ses_id']}"
-                session_groups[session_key].append(metadata)
+        for file_path in tqdm(explorer.get_all_image_files(as_list=True), desc="Retrieving subjects"):
+            metadata = parse_filename_nested_nifti(file_path)
+            subjects.add(metadata['sub_id'])
+            sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
+            modalities.add(metadata['modality'])
+
+            session_key = f"{metadata['sub_id']}_ses_{metadata['ses_id']}"
+            session_groups[session_key].append(metadata)
         
         data_list = []
+
         for session_key, session_files in tqdm(session_groups.items(), desc="Creating data list"):
             if len(session_files) == 0:
                 continue
-                
+            
             session_entry = {
                 'sub_id': session_files[0]['sub_id'],
                 'ses_id': session_files[0]['ses_id'],
-                'modality_suffix': session_files[0]['modality_suffix'],
                 'modality': session_files[0]['modality'],
-                'count': session_files[0]['count'],
             }
             
             # Add each scan with img_i key
             for i, file_metadata in enumerate(session_files):
-                session_entry[f"img_{i}"] = file_metadata['filepath']
+                session_entry[f"img_{i}"] = file_metadata['file_name']
             
             data_list.append(session_entry)
         
-        logger.info(f"Data collection completed; returning n={len(data_list)} items")
+        logger.info(f"Dataset contains {len(subjects)} subjects, "
+                    f"{len(sessions)} sessions, {len(modalities)} modalities")
+        logger.info(f"Data collection completed")
         
         return data_list
         
@@ -413,7 +447,7 @@ class ContrastiveDataModule(BaseDataModule):
         train_data, val_data, test_data = split_data_by_subjects(
             all_data, 
             train_val_test_split=self.train_val_test_split,
-            random_state=self.R,
+            seed=self.seed, # use seed instead of rng for continuing experiments
         )
         
         if stage == "fit":
@@ -432,10 +466,8 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("train_data is None. Make sure setup('fit') was called.")
             raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
         
-        train_transforms = self.transform_manager.get_train_transforms()
-
         # Create dataset with transforms
-        dataset = MONAIDataset(data=self.train_data, transform=train_transforms)
+        dataset = MONAIDataset(data=self.train_data, transform=self.train_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -450,9 +482,7 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("val_data is None. Make sure setup('validate') was called.")
             raise RuntimeError("val_data is None. Make sure setup() was called.")
             
-        val_transforms = self.transform_manager.get_val_transforms()
-
-        dataset = MONAIDataset(data=self.val_data, transform=val_transforms)
+        dataset = MONAIDataset(data=self.val_data, transform=self.val_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -467,9 +497,7 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("test_data is None. Make sure setup('test') was called.")
             raise RuntimeError("test_data is None. Make sure setup('test') was called.")
             
-        test_transforms = self.transform_manager.get_val_transforms()
-
-        dataset = MONAIDataset(data=self.test_data, transform=test_transforms)
+        dataset = MONAIDataset(data=self.test_data, transform=self.test_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -484,9 +512,7 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("predict_data is None. Make sure setup('predict') was called.")
             raise RuntimeError("predict_data is None. Make sure setup('predict') was called.")
             
-        predict_transforms = self.transform_manager.get_val_transforms()
-
-        dataset = MONAIDataset(data=self.predict_data, transform=predict_transforms)
+        dataset = MONAIDataset(data=self.predict_data, transform=self.predict_transforms)
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,

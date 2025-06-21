@@ -11,7 +11,11 @@ from collections import deque
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import Compose, Randomizable
 
-def reseed(comp: Compose, master_seed: int):
+def reseed(
+    comp: Compose, 
+    master_seed: int | None = None, 
+    rng: np.random.RandomState | None = None,
+) -> None:
     """
     Walk through `comp` (including any nested Compose) and give every
     Randomizable transform a unique, repeatable seed that is *derived*
@@ -21,7 +25,7 @@ def reseed(comp: Compose, master_seed: int):
     _np_state    = np.random.get_state()
     _torch_state = torch.random.get_rng_state()
 
-    rng = np.random.RandomState(master_seed)
+    rng = np.random.RandomState(master_seed) if rng is None else rng
     for t in comp.flatten().transforms:          # depth-first, left-to-right
         if isinstance(t, Randomizable):
             # Give every Randomizable an independent, reproducible seed.

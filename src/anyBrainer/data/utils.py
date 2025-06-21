@@ -9,7 +9,25 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-def parse_filename(file_path: Path | str) -> Optional[Dict]:
+def parse_filename_nested_nifti(file_path: Path | str) -> dict:
+    """
+    Parse filename with pattern: root/sub_x/ses_y/ModalityName_CountIfMoreThanOne.nii.gz
+    """
+    file_path = Path(file_path)
+
+    file_name = file_path.name
+    modality = file_name.split('_')[0]
+    ses_dir = file_path.parent
+    sub_dir = ses_dir.parent
+
+    return {
+        'sub_id': sub_dir.name,
+        'ses_id': ses_dir.name,
+        'modality': modality,
+        'file_name': file_name
+    }
+
+def parse_filename_flat_npy(file_path: Path | str) -> Optional[Dict]:
     """
     Parse filename with pattern: sub_x_ses_y_ModalityName_CountIfMoreThanOne.npy
     
@@ -79,7 +97,7 @@ def check_flat_npy_data_dir(data_dir: Path | str) -> None:
     modalities = set()
     
     for file_path in npy_files:
-        metadata = parse_filename(file_path)
+        metadata = parse_filename_flat_npy(file_path)
         if metadata:
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
@@ -88,6 +106,15 @@ def check_flat_npy_data_dir(data_dir: Path | str) -> None:
     logger.info(f"Dataset contains {len(subjects)} subjects, "
                 f"{len(sessions)} sessions, {len(modalities)} modalities")
 
+def trivial_check_nested_nifti_dataset(data_dir: Path | str) -> None:
+    """
+    Trivial check for nested nifti dataset.
+    """
+    data_path = Path(data_dir)
+    if not data_path.exists():
+        logger.error(f"Data directory {data_dir} does not exist")
+        raise FileNotFoundError(f"Data directory {data_dir} does not exist")
+    
 def split_data_by_subjects(
     data_list: list[dict], 
     train_val_test_split: tuple = (0.7, 0.15, 0.15), 
