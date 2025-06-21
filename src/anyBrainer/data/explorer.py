@@ -65,61 +65,6 @@ class DataExplorer:
         raise NotImplementedError()
 
 
-class BIDSDataExplorer(DataExplorer):
-    """
-    Handles datasets in BIDS format with optional sessions and modality subfolders.
-    """
-    def get_subject_dirs(self) -> list[Path]:
-        return [d for d in self.base_dir.iterdir()
-                if d.is_dir() and d.name.startswith("sub-")]
-
-    def get_session_dirs(self, subject_dir: Path) -> list[Path]:
-        entries = [d for d in subject_dir.iterdir()
-                   if d.is_dir() and d.name.startswith("ses")]
-        return entries if entries else [subject_dir]
-
-    def get_image_files(self, 
-                        session_dir: Path, 
-                        files_suffix: str | None = None,
-                        files_dir: str | None = None, 
-                        exts: Sequence[str] = (".nii.gz", ".nii"),
-                        **kwargs) -> list[Path]:
-        modality_dirs = []
-        if files_dir is None:
-            modality_dirs = [d for d in session_dir.iterdir() if d.is_dir()]
-        else:
-            modality_dir = session_dir / files_dir
-            if modality_dir.is_dir():
-                modality_dirs = [modality_dir]
-                
-        files = []
-        for folder in modality_dirs:
-            for f in folder.iterdir():
-                if f.is_file():
-                    if files_suffix is None:
-                        if any(f.name.endswith(ext) for ext in exts):
-                            files.append(f)
-                    else:
-                        if any(f.name.endswith(f"{files_suffix}{ext}") for ext in exts):
-                            files.append(f)
-        return files
-    
-    def _iter_image_files(self, files_suffix, files_dir, exts) -> Iterator[Path]:
-        for subject in tqdm(self.get_subject_dirs(), desc="Retrieving subjects"):
-            for session in self.get_session_dirs(subject):
-                for f in self.get_image_files(session, files_suffix, files_dir, exts):
-                    yield f
-
-    def get_all_image_files(self, 
-                            files_suffix: str | None = None,
-                            files_dir: str | None = None,
-                            exts: Sequence[str] = (".nii.gz", ".nii"), 
-                            as_list: bool = True,
-                            **kwargs) -> list[Path] | Iterator[Path]:
-        it = self._iter_image_files(files_suffix, files_dir, exts)
-        return list(it) if as_list else it
-
-
 class GenericNiftiDataExplorer(DataExplorer):
     """
     Handles generic datasets with subject/session format:
