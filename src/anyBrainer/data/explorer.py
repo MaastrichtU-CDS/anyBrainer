@@ -7,7 +7,6 @@ generic NIfTI one (root->subject->session->files).
 
 __all__ = [
     'DataHandler',
-    'BIDSDataExplorer',
     'GenericNiftiDataExplorer',
 ]
 
@@ -34,9 +33,7 @@ class DataHandler:
         self.explorer = self._init_explorer()
 
     def _init_explorer(self):
-        if self.format == "BIDS":
-            return BIDSDataExplorer(base_dir=self.base_dir)
-        elif self.format == "GenericNifti":
+        if self.format == "GenericNifti":
             return GenericNiftiDataExplorer(base_dir=self.base_dir)
         else:
             logger.error(f"Invalid data format.")
