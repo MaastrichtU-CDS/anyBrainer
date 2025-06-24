@@ -228,7 +228,7 @@ class MAEDataModule(BaseDataModule):
         sessions = set()
         modalities = set()
         
-        for file_path in explorer.get_all_image_files(as_list=True):
+        for file_path in explorer.get_all_image_files(as_list=True, exts=(".npy")):
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
@@ -400,7 +400,7 @@ class ContrastiveDataModule(BaseDataModule):
         modalities = set()
 
         # Group by session
-        for file_path in tqdm(explorer.get_all_image_files(as_list=True), desc="Retrieving subjects"):
+        for file_path in explorer.get_all_image_files(as_list=True, exts=(".npy")):
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
