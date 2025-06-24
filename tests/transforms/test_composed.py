@@ -147,6 +147,7 @@ ref_contrastive_val_transforms = [
         RandAdjustContrastd(keys=['key'], gamma=(0.9, 1.1), prob=0.3),
         RandSimulateLowResolutiond(keys=['key'], prob=0.1, zoom_range=(0.5, 1.0)),
     ]
+    
 
 @pytest.mark.slow
 class TestMAETrainTransforms:
@@ -211,6 +212,8 @@ class TestMAEValTransforms:
         assert (out['brain_mask'] == out_expected['brain_mask']).all() # type: ignore
         assert (out['mask'] == out_expected['mask']).all() # type: ignore
         assert (out['recon'] == out_expected['recon']).all() # type: ignore
+
+
 
 @pytest.mark.slow
 class TestContrastiveTrainTransforms:
