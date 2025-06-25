@@ -11,7 +11,11 @@ from typing import Dict, Any, Sequence
 import logging
 
 # pyright: reportPrivateImportUsage=false
-from monai.transforms import Compose, Transform
+from monai.transforms import (
+    Compose, 
+    Transform,
+    RandSpatialCropd,
+)
 
 from .interfaces import TransformManagerInterface
 from .builders import (
@@ -142,10 +146,14 @@ class MAETransformManager(TransformManagerInterface):
             
     def get_val_transforms(self) -> Transform:
         """Get validation transforms for masked autoencoder."""
-        return Compose([
-            self.load_composer.build(['img', 'brain_mask'], allow_missing_keys=True),
-            self.masking_composer.build(['img'], allow_missing_keys=True),
-        ])
+        transforms = [self.load_composer.build(['img', 'brain_mask'], allow_missing_keys=True)]
+        
+        if self.config.get('spatial_transforms', {}).get('crop', False):
+            spatial_composer = SpatialTransformBuilder({'patch_size': self.config['patch_size']})
+            transforms.append(spatial_composer.build(['img', 'brain_mask'], allow_missing_keys=True))
+        
+        transforms.append(self.masking_composer.build(['img'], allow_missing_keys=True))
+        return Compose(transforms)
         
     def _configure_mae_spatial_transforms(self, spatial_config: Dict[str, Any]) -> Dict[str, Any]:
         """
