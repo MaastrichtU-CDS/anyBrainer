@@ -75,7 +75,7 @@ def sample_config():
                 'enabled': True,
                 'params': {
                     'mask_ratio': 0.3, # should replace default values
-                    'mask_patch_size': 6,
+                    'mask_patch_size': 16,
                 }
             },
         },
@@ -303,7 +303,7 @@ class TestMaskingTransformBuilder:
             'allow_missing_keys': False,
             'mask_key': 'mask',
             'mask_ratio': 0.3,
-            'mask_patch_size': 6,
+            'mask_patch_size': 16,
         }
     }
 

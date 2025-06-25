@@ -119,7 +119,7 @@ raw_mae_train_transforms = [
     RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128)),
     SaveReconstructionTargetd(keys=['img'], recon_key='recon'),
     CreateRandomMaskd(keys=['img'], mask_key='mask', mask_ratio=0.6,
-                        mask_patch_size=4),
+                        mask_patch_size=32),
     RandScaleIntensityFixedMeand(keys=['img'], factors=0.1, prob=0.3),
     RandGaussianNoised(keys=['img'], std=0.01, prob=0.2),
     RandGaussianSmoothd(keys=['img'], sigma_x=(0.5, 1.0), prob=0.2),
@@ -133,7 +133,7 @@ raw_mae_val_transforms = [
     LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', ensure_channel_first=True),
     SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), mode='constant'),
     SaveReconstructionTargetd(keys=['img'], recon_key='recon'),
-    CreateRandomMaskd(keys=['img'], mask_key='mask', mask_ratio=0.6, mask_patch_size=4),
+    CreateRandomMaskd(keys=['img'], mask_key='mask', mask_ratio=0.6, mask_patch_size=32),
 ]
 
 

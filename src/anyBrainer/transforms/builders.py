@@ -152,7 +152,7 @@ class MaskingTransformBuilder(TransformBuilderInterface):
             'random_mask': (CreateRandomMaskd, {
                 'mask_key': 'mask',
                 'mask_ratio': 0.6,
-                'mask_patch_size': 4,
+                'mask_patch_size': 32,
             }),
         }
         
