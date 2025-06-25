@@ -7,7 +7,6 @@ __all__ = [
     'pick_volume_slice',
 ]
 
-import numbers
 from typing import Sequence, Mapping, Union, Optional
 
 import numpy as np
@@ -58,7 +57,7 @@ def pick_volume_slice(
 
 def visualize_transform_stage(
     pipeline: Compose,
-    sample: Mapping[str, Union[np.ndarray, torch.Tensor]],
+    sample: dict,
     keys: Sequence[str],
     stage: Optional[int] = None,
     slice_indices: Optional[Sequence[int]] = None,

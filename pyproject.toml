@@ -47,10 +47,14 @@ include = ["anyBrainer*"]
 
 [tool.pytest]
 testpaths = ["tests"]
+
+[tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "viz: marks tests as visualization-only (deselect with '-m \"not viz\"')",
     "serial",
 ]
+addopts = "-m 'not viz'"
 
 [tool.black]
 line-length = 88

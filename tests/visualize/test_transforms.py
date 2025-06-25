@@ -2,14 +2,16 @@
 Visualize transforms.
 """
 
+import pytest
+
 from anyBrainer.transforms import get_mae_train_transforms
 from anyBrainer.transforms import DeterministicCompose
-from visualize.utils import visualize_transform_stage
+from .utils import visualize_transform_stage
 
 
 sample_data = {
-    "img": 'visualize/examples/t1.npy', 
-    "brain_mask": 'visualize/examples/mask.npy',
+    "img": 'tests/examples/t1.npy', 
+    "brain_mask": 'tests/examples/mask.npy',
 }
 
 viz_settings = {
@@ -23,7 +25,8 @@ viz_settings = {
         'save_path': None,
     }
 
-def visualize_transforms(sample_data, viz_settings):
+@pytest.mark.viz
+def test_visualize_transforms():
     """Visualize the reference transforms"""
     transforms = DeterministicCompose(viz_settings['transforms'], 
                                       master_seed=viz_settings['master_seed'])
@@ -36,6 +39,3 @@ def visualize_transforms(sample_data, viz_settings):
         axis=viz_settings['axis'],
         channel=viz_settings['channel'],
         save_path=viz_settings['save_path'])
-
-if __name__ == "__main__":
-    visualize_transforms(sample_data, viz_settings)
