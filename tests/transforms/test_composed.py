@@ -80,6 +80,11 @@ def sample_data_contrastive():
 ref_mae_train_transforms = [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), mode='constant'),
+        RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3),
+        RandAffined(keys=['img', 'brain_mask'], rotate_range=(0.3, 0.3, 0.3),
+                    scale_range=(0.1, 0.1, 0.1), shear_range=(0.3, 0.3, 0.3),
+                    mode=['bilinear', 'nearest'], padding_mode='zeros', prob=1.0),
+        RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128)),
         SaveReconstructionTargetd(keys=['img'], recon_key='recon'),
         CreateRandomMaskd(keys=['img'], mask_key='mask', mask_ratio=0.6,
                           mask_patch_size=32),

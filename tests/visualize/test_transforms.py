@@ -18,7 +18,7 @@ viz_settings = {
         'transforms': get_mae_train_transforms(),
         'keys': ['img', 'mask', 'recon', 'brain_mask'],
         'stage': None,
-        'master_seed': 12345,
+        'master_seed': 2,
         'slice_indices': [30, 50, 70],
         'axis': 2,
         'channel': 0,
