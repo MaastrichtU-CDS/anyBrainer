@@ -235,7 +235,7 @@ class MAEDataModule(BaseDataModule):
             modalities.add(metadata['modality'])
 
             brain_mask_path = (
-                self.masks_dir / file_path.relative_to(self.data_dir)
+                self.masks_dir / file_path.relative_to(self.data_dir).parent / "mask.npy"
             )
             if not brain_mask_path.exists():
                 logger.warning(f"Mask file {brain_mask_path} does not exist")
