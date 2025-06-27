@@ -234,13 +234,6 @@ class MAEDataModule(BaseDataModule):
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
             modalities.add(metadata['modality'])
 
-            brain_mask_path = (
-                self.masks_dir / file_path.relative_to(self.data_dir).parent / "mask.npy"
-            )
-            if not brain_mask_path.exists():
-                logger.warning(f"Mask file {brain_mask_path} does not exist")
-                brain_mask_path = None
-            
             data_entry = {
                 'file_name': metadata['file_name'],
                 'brain_mask': str(brain_mask_path) if brain_mask_path else None,
@@ -248,6 +241,15 @@ class MAEDataModule(BaseDataModule):
                 'ses_id': metadata['ses_id'],
                 'modality': metadata['modality'],
             }
+
+            brain_mask_path = (
+                self.masks_dir / file_path.relative_to(self.data_dir).parent / "mask.npy"
+            )
+            if brain_mask_path.exists():
+                data_entry['brain_mask'] = str(brain_mask_path)
+            else:
+                logger.warning(f"Mask file {brain_mask_path} does not exist")
+    
             data_list.append(data_entry)
         
         logger.info(f"Dataset contains {len(subjects)} subjects, "
@@ -418,12 +420,12 @@ class ContrastiveDataModule(BaseDataModule):
             session_entry = {
                 'sub_id': session_files[0]['sub_id'],
                 'ses_id': session_files[0]['ses_id'],
-                'modality': session_files[0]['modality'],
             }
             
             # Add each scan with img_i key
             for i, file_metadata in enumerate(session_files):
                 session_entry[f"img_{i}"] = file_metadata['file_name']
+                session_entry[f"mod_{i}"] = file_metadata['modality']
             
             data_list.append(session_entry)
         
