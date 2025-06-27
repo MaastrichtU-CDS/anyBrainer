@@ -420,9 +420,10 @@ class ContrastiveDataModule(BaseDataModule):
             session_entry = {
                 'sub_id': session_files[0]['sub_id'],
                 'ses_id': session_files[0]['ses_id'],
+                'total': len(session_files),
             }
             
-            # Add each scan with img_i key
+            # Add each scan and modality with img_i key
             for i, file_metadata in enumerate(session_files):
                 session_entry[f"img_{i}"] = file_metadata['file_name']
                 session_entry[f"mod_{i}"] = file_metadata['modality']
