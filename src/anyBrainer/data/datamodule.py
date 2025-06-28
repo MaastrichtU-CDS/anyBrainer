@@ -197,10 +197,18 @@ class MAEDataModule(BaseDataModule):
         self.masks_dir = resolve_path(masks_dir)
         
         # Get transforms
-        self.train_transforms = DeterministicCompose(get_mae_train_transforms(), master_seed=seed)
-        self.val_transforms = DeterministicCompose(get_mae_val_transforms(), master_seed=seed)
-        self.test_transforms = DeterministicCompose(get_mae_val_transforms(), master_seed=seed)
-        self.predict_transforms = DeterministicCompose(get_mae_val_transforms(), master_seed=seed)
+        self.train_transforms = DeterministicCompose(
+            get_mae_train_transforms(), 
+            master_seed=seed
+        )
+        self.val_transforms = DeterministicCompose(
+            get_mae_val_transforms(), 
+            master_seed=seed
+        )
+        self.test_transforms = DeterministicCompose(
+            get_mae_val_transforms(), 
+            master_seed=seed
+        )
     
     def prepare_data(self):
         """
@@ -375,10 +383,18 @@ class ContrastiveDataModule(BaseDataModule):
         super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
         
         # Get transforms
-        self.train_transforms = DeterministicCompose(get_contrastive_train_transforms(), master_seed=seed)
-        self.val_transforms = DeterministicCompose(get_contrastive_val_transforms(), master_seed=seed)
-        self.test_transforms = DeterministicCompose(get_contrastive_val_transforms(), master_seed=seed)
-        self.predict_transforms = DeterministicCompose(get_contrastive_val_transforms(), master_seed=seed)
+        self.train_transforms = DeterministicCompose(
+            get_contrastive_train_transforms(), 
+            master_seed=seed
+        )
+        self.val_transforms = DeterministicCompose(
+            get_contrastive_val_transforms(), 
+            master_seed=seed
+        )
+        self.test_transforms = DeterministicCompose(
+            get_contrastive_val_transforms(), 
+            master_seed=seed
+        )
     
     def prepare_data(self):
         """
