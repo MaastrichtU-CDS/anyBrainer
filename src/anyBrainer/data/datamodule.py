@@ -25,7 +25,6 @@ from anyBrainer.utils.utils import resolve_path
 from anyBrainer.data.utils import (
     trivial_check_nested_nifti_dataset,
     parse_filename_nested_nifti,
-    check_flat_npy_data_dir,
     split_data_by_subjects,
 )
 from anyBrainer.data.explorer import (
