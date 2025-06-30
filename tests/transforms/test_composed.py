@@ -52,31 +52,6 @@ def mock_load_image(monkeypatch):
 
     monkeypatch.setattr(LoadImage, "__call__", _dummy_call, raising=True)
 
-@pytest.fixture(scope="module")
-def sample_data():
-    img, seg = create_test_image_3d(120, 120, 120, channel_dim=0)
-    return {
-        "img": torch.tensor(img), 
-        "img_1": torch.tensor(img),
-        "brain_mask": torch.tensor(seg).long(),
-        "sub_id": "1",
-        "ses_id": "1",
-        "modality": "t1",
-        "count": 2,
-    }
-
-@pytest.fixture(scope="module")
-def sample_data_contrastive():
-    img, _ = create_test_image_3d(120, 120, 120, channel_dim=0)
-    return {
-        "query": torch.tensor(img), 
-        "key": torch.tensor(img),
-        "sub_id": "1",
-        "ses_id": "1",
-        "modality": "t1",
-        "count": 2,
-    }
-
 ref_mae_train_transforms = [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), mode='constant'),

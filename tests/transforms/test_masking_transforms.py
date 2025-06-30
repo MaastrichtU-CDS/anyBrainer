@@ -11,19 +11,7 @@ from anyBrainer.transforms.masking_transforms import (
     SaveReconstructionTargetd,
 )
 
-@pytest.fixture(scope="module")
-def sample_item():
-    img, seg = create_test_image_3d(120, 120, 120, channel_dim=0)
-    return {
-        "img": torch.tensor(img), 
-        "brain_mask": torch.tensor(seg).long(),
-        "sub_id": "1",
-        "ses_id": "1",
-        "modality": "t1",
-        "count": 2,
-    }
-
-@pytest.mark.usefixtures("sample_item")
+@pytest.mark.usefixtures("sample_data")
 @pytest.mark.parametrize("mask_ratio,mask_patch_size", [
         (0.1, 4),
         (0.3, 8),
@@ -35,29 +23,29 @@ class TestCreateRandomMaskd:
     def op(self, mask_ratio, mask_patch_size):
         return CreateRandomMaskd(mask_ratio=mask_ratio, mask_patch_size=mask_patch_size)
     
-    def test_output_keys(self, op, sample_item):
-        out = op(sample_item)
-        assert out.keys() == {"img", "mask", "brain_mask", "sub_id", 
+    def test_output_keys(self, op, sample_data):
+        out = op(sample_data)
+        assert out.keys() == {"img", "img_1", "mask", "brain_mask", "sub_id", 
                               "ses_id", "modality", "count"}
 
-    def test_shapes(self, op, sample_item):
-        out = op(sample_item)
+    def test_shapes(self, op, sample_data):
+        out = op(sample_data)
         assert out["img"].shape == (1, 120, 120, 120)
         assert out["mask"].shape == (1, 120, 120, 120)
 
-    def test_mask_ratio(self, op, sample_item, mask_ratio):
+    def test_mask_ratio(self, op, sample_data, mask_ratio):
         """NOTE: it fails with mask_patch_size > img_size/2 due to expected rounding errors"""
-        out = op(sample_item)
+        out = op(sample_data)
         mask_ratio_actual = out["mask"].float().mean().item()
         assert (1- mask_ratio) - 0.1 < mask_ratio_actual < (1- mask_ratio) + 0.1, \
             f"Expected {mask_ratio} +/- 0.1 mask ratio, got {mask_ratio_actual}"
     
-    def test_patch_uniformity(self, op, sample_item, mask_patch_size):
+    def test_patch_uniformity(self, op, sample_data, mask_patch_size):
         """
         Check that every non-overlapping patch of size mask_patch_size^3
         is entirely masked or entirely un-masked.
         """
-        out = op(sample_item)
+        out = op(sample_data)
         mask = out["mask"].float()
 
         mask_5d = mask.unsqueeze(0) # add batch dim for pooling: (N, C, D, H, W)
@@ -72,18 +60,18 @@ class TestCreateRandomMaskd:
             (pooled == 0) | (pooled == 1)
         ), "Found a patch that is only partially masked"
 
-
+@pytest.mark.usefixtures("sample_data")
 class TestSaveReconstructionTargetd:
     @pytest.fixture
     def op(self):
         return SaveReconstructionTargetd(recon_key="recon")
     
-    def test_output_keys(self, op, sample_item):
-        out = op(sample_item)
-        assert out.keys() == {"img", "recon", "brain_mask", "sub_id", 
+    def test_output_keys(self, op, sample_data):
+        out = op(sample_data)
+        assert out.keys() == {"img", "img_1", "recon", "brain_mask", "sub_id", 
                               "ses_id", "modality", "count"}
     
-    def test_shapes(self, op, sample_item):
-        out = op(sample_item)
+    def test_shapes(self, op, sample_data):
+        out = op(sample_data)
         assert out["img"].shape == (1, 120, 120, 120)
         assert out["recon"].shape == (1, 120, 120, 120)

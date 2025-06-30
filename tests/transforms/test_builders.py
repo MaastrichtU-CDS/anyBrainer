@@ -81,19 +81,6 @@ def sample_config():
         },
     }
 
-@pytest.fixture(scope="module")
-def sample_data():
-    img, seg = create_test_image_3d(120, 120, 120, channel_dim=0)
-    return {
-        "img": torch.tensor(img), 
-        "img_1": torch.tensor(img),
-        "brain_mask": torch.tensor(seg).long(),
-        "sub_id": "1",
-        "ses_id": "1",
-        "modality": "t1",
-        "count": 2,
-    }
-
 @pytest.fixture(autouse=True)
 def mock_load_image(monkeypatch):
     """
