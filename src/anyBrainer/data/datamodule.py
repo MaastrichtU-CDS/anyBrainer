@@ -185,7 +185,6 @@ class MAEDataModule(BaseDataModule):
         self,
         data_dir: Path | str,
         masks_dir: Path | str,
-        transform_config: Dict[str, Any],  # Now required - loaded from YAML
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
