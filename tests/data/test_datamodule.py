@@ -10,7 +10,7 @@ from anyBrainer.data import (
 )
 
 @pytest.fixture(autouse=True)
-def mock_load_image(monkeypatch):
+def mock_data_explorer(monkeypatch):
     """
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
