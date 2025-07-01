@@ -242,7 +242,6 @@ class MAEDataModule(BaseDataModule):
 
             data_entry = {
                 'file_name': metadata['file_name'],
-                'brain_mask': str(brain_mask_path) if brain_mask_path else None,
                 'sub_id': metadata['sub_id'],
                 'ses_id': metadata['ses_id'],
                 'modality': metadata['modality'],
