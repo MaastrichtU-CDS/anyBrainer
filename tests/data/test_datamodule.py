@@ -3,6 +3,11 @@
 from pathlib import Path
 
 import pytest
+import torch
+# pyright: reportPrivateImportUsage=false
+from monai.transforms import (
+    LoadImage,
+)
 
 from anyBrainer.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.data import (
@@ -16,7 +21,7 @@ def mock_data_explorer(monkeypatch):
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
     """
-    def _dummy_call(self, as_list, exts, *args, **kwargs): 
+    def _dummy_call(self, *args, **kwargs): 
         # 10 subjects, 11 sessions, 15 images
         return [
             Path('/Users/project/dataset/sub_1/ses_1/t1.npy'),
@@ -39,6 +44,21 @@ def mock_data_explorer(monkeypatch):
     monkeypatch.setattr(
         GenericNiftiDataExplorer, "get_all_image_files", _dummy_call, raising=True
     )
+
+@pytest.fixture(autouse=True)
+def mock_load_image(monkeypatch):
+    """
+    Monkey-patch LoadImage so every attempt to read a file
+    yields a synthetic 3-D volume instead of touching the disk.
+    """
+    def _dummy_call(self, filename, *args, **kwargs):
+        # Create data with the shape the pipeline expects
+        gen = torch.Generator().manual_seed(hash(filename) & 0xFFFF_FFFF)
+        img = torch.rand((1, 120, 120, 120), dtype=torch.float32, generator=gen)
+        # LoadImage normally returns (np.ndarray, meta_dict)
+        return img
+
+    monkeypatch.setattr(LoadImage, "__call__", _dummy_call, raising=True)
 
 data_settings = {
     'data_dir': '/Users/project/dataset',
