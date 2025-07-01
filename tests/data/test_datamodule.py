@@ -1,5 +1,7 @@
 """Tests datamodule methods"""
 
+from pathlib import Path
+
 import pytest
 
 from anyBrainer.data.explorer import GenericNiftiDataExplorer
@@ -15,16 +17,16 @@ def mock_load_image(monkeypatch):
     """
     def _dummy_call(self, as_list, exts, *args, **kwargs):
         return [
-            '/Users/project/dataset/sub_1/ses_1/t1.npy',
-            '/Users/project/dataset/sub_1/ses_1/t1_2.npy',
-            '/Users/project/dataset/sub_1/ses_1/t2.npy',
-            '/Users/project/dataset/sub_1/ses_1/dwi.npy',
-            '/Users/project/dataset/sub_1/ses_2/t1.npy',
-            '/Users/project/dataset/sub_12/ses_1/flair.npy',
-            '/Users/project/dataset/sub_123/ses_1/dwi.npy',
-            '/Users/project/dataset/sub_123/ses_1/dwi_2.npy',
-            '/Users/project/dataset/sub_123/ses_2/dwi.npy',
-            '/Users/project/dataset/sub_123/ses_3/dwi.npy',
+            Path('/Users/project/dataset/sub_1/ses_1/t1.npy'),
+            Path('/Users/project/dataset/sub_1/ses_1/t1_2.npy'),
+            Path('/Users/project/dataset/sub_1/ses_1/t2.npy'),
+            Path('/Users/project/dataset/sub_1/ses_1/dwi.npy'),
+            Path('/Users/project/dataset/sub_1/ses_2/t1.npy'),
+            Path('/Users/project/dataset/sub_12/ses_1/flair.npy'),
+            Path('/Users/project/dataset/sub_123/ses_1/dwi.npy'),
+            Path('/Users/project/dataset/sub_123/ses_1/dwi_2.npy'),
+            Path('/Users/project/dataset/sub_123/ses_2/dwi.npy'),
+            Path('/Users/project/dataset/sub_123/ses_3/dwi.npy'),
         ]
 
     monkeypatch.setattr(
