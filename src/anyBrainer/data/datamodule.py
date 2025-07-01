@@ -190,6 +190,7 @@ class MAEDataModule(BaseDataModule):
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
+        **kwargs
     ):
         super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
         self.masks_dir = resolve_path(masks_dir)
@@ -370,12 +371,12 @@ class ContrastiveDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
-        transform_config: Dict[str, Any],
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
+        **kwargs
     ):
         super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
         

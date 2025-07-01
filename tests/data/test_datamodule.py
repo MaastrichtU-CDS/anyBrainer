@@ -6,7 +6,8 @@ import pytest
 
 from anyBrainer.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.data import (
-    MAEDataModule
+    MAEDataModule,
+    ContrastiveDataModule,
 )
 
 @pytest.fixture(autouse=True)
@@ -61,6 +62,24 @@ class TestMAEDataModule:
         assert len(data_module.val_data) == 2 # specific to seed; ...
         assert len(data_module.test_data) == 2 # specific to seed; sub_123 (2 scans), ...
     
+    def test_data_list(self, data_module):
+        data_module.setup(stage="fit")
+        for i in data_module.train_data:
+            assert set(i.keys()) == {'file_name', 'sub_id', 'ses_id', 'modality'}
+
+
+class TestContrastiveDataModule: 
+    @pytest.fixture
+    def data_module(self):
+        return ContrastiveDataModule(**mae_data_settings)
+
+    def test_data_splits(self, data_module):
+        data_module.setup(stage="fit")
+        data_module.setup(stage="test")
+        assert len(data_module.train_data) == 11 # specific to seed; sub_1 (5 scans), ...
+        assert len(data_module.val_data) == 2 # specific to seed; ...
+        assert len(data_module.test_data) == 2 # specific to seed; sub_123 (2 scans), ...
+
     def test_data_list(self, data_module):
         data_module.setup(stage="fit")
         for i in data_module.train_data:
