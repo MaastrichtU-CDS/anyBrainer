@@ -143,15 +143,14 @@ def split_data_by_subjects(
                 f"{current_state[1][:5]}") # pyright: ignore[reportArgumentType]
     
     # Get unique subjects
-    subjects = list(set([item['sub_id'] for item in data_list]))
+    subjects = sorted({item['sub_id'] for item in data_list})
     
     # Shuffle subjects for random split
     R.shuffle(subjects)
     
     # Calculate split indices
-    n_subjects = len(subjects)
-    train_end = int(n_subjects * train_val_test_split[0])
-    val_end = train_end + int(n_subjects * train_val_test_split[1])
+    train_end = int(len(subjects) * train_val_test_split[0])
+    val_end = train_end + int(len(subjects) * train_val_test_split[1])
     
     train_subjects = set(subjects[:train_end])
     val_subjects = set(subjects[train_end:val_end])

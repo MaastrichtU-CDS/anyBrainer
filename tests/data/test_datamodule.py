@@ -15,7 +15,8 @@ def mock_load_image(monkeypatch):
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
     """
-    def _dummy_call(self, as_list, exts, *args, **kwargs):
+    def _dummy_call(self, as_list, exts, *args, **kwargs): 
+        # 10 subjects, 11 sessions, 15 images
         return [
             Path('/Users/project/dataset/sub_1/ses_1/t1.npy'),
             Path('/Users/project/dataset/sub_1/ses_1/t1_2.npy'),
@@ -25,8 +26,13 @@ def mock_load_image(monkeypatch):
             Path('/Users/project/dataset/sub_12/ses_1/flair.npy'),
             Path('/Users/project/dataset/sub_123/ses_1/dwi.npy'),
             Path('/Users/project/dataset/sub_123/ses_1/dwi_2.npy'),
-            Path('/Users/project/dataset/sub_123/ses_2/dwi.npy'),
-            Path('/Users/project/dataset/sub_123/ses_3/dwi.npy'),
+            Path('/Users/project/dataset/sub_1234/ses_2/dwi.npy'),
+            Path('/Users/project/dataset/sub_1235/ses_1/t1.npy'),
+            Path('/Users/project/dataset/sub_2235/ses_11/dwi.npy'),
+            Path('/Users/project/dataset/sub_3235/ses_1/flair.npy'),
+            Path('/Users/project/dataset/sub_4235/ses_1/t2.npy'),
+            Path('/Users/project/dataset/sub_5235/ses_2/dwi.npy'),
+            Path('/Users/project/dataset/sub_6235/ses_3/dwi.npy'),
         ]
 
     monkeypatch.setattr(
@@ -51,13 +57,12 @@ class TestMAEDataModule:
     def test_data_splits(self, data_module):
         data_module.setup(stage="fit")
         data_module.setup(stage="test")
-        assert len(data_module.train_data) == 7
-        assert len(data_module.val_data) == 2
-        assert len(data_module.test_data) == 1
+        assert len(data_module.train_data) == 11 # specific to seed; sub_1 (5 scans), ...
+        assert len(data_module.val_data) == 2 # specific to seed; ...
+        assert len(data_module.test_data) == 2 # specific to seed; sub_123 (2 scans), ...
     
     def test_data_list(self, data_module):
         data_module.setup(stage="fit")
         for i in data_module.train_data:
-            assert i.keys() == ['file_name', 'brain_mask', 'sub_id', 
-                                'ses_id', 'modality']
+            assert set(i.keys()) == {'file_name', 'sub_id', 'ses_id', 'modality'}
 
