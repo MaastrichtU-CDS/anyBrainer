@@ -245,7 +245,7 @@ class MAEDataModule(BaseDataModule):
                 'img': metadata['file_name'],
                 'sub_id': metadata['sub_id'],
                 'ses_id': metadata['ses_id'],
-                'modality': metadata['modality'],
+                'mod': metadata['modality'],
             }
 
             brain_mask_path = (
