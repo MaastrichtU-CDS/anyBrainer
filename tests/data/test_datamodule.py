@@ -85,7 +85,13 @@ class TestMAEDataModule:
     def test_data_list(self, data_module):
         data_module.setup(stage="fit")
         for i in data_module.train_data:
-            assert set(i.keys()) == {'file_name', 'sub_id', 'ses_id', 'modality'}
+            assert set(i.keys()) == {'img', 'sub_id', 'ses_id', 'modality'}
+    
+    def test_train_loader(self, data_module):
+        data_module.setup(stage="fit")
+        train_loader = data_module.train_dataloader()
+        out = next(iter(train_loader))
+        print(out)
 
 
 class TestContrastiveDataModule: 

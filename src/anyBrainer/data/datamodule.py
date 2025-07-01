@@ -242,7 +242,7 @@ class MAEDataModule(BaseDataModule):
             modalities.add(metadata['modality'])
 
             data_entry = {
-                'file_name': metadata['file_name'],
+                'img': metadata['file_name'],
                 'sub_id': metadata['sub_id'],
                 'ses_id': metadata['ses_id'],
                 'modality': metadata['modality'],
