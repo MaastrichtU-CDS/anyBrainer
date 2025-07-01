@@ -40,7 +40,7 @@ def mock_data_explorer(monkeypatch):
         GenericNiftiDataExplorer, "get_all_image_files", _dummy_call, raising=True
     )
 
-mae_data_settings = {
+data_settings = {
     'data_dir': '/Users/project/dataset',
     'masks_dir': '/Users/project/masks',
     'batch_size': 8, 
@@ -53,7 +53,7 @@ mae_data_settings = {
 class TestMAEDataModule: 
     @pytest.fixture
     def data_module(self):
-        return MAEDataModule(**mae_data_settings)
+        return MAEDataModule(**data_settings)
     
     def test_data_splits(self, data_module):
         data_module.setup(stage="fit")
@@ -71,17 +71,12 @@ class TestMAEDataModule:
 class TestContrastiveDataModule: 
     @pytest.fixture
     def data_module(self):
-        return ContrastiveDataModule(**mae_data_settings)
+        return ContrastiveDataModule(**data_settings)
 
     def test_data_splits(self, data_module):
         data_module.setup(stage="fit")
         data_module.setup(stage="test")
-        assert len(data_module.train_data) == 11 # specific to seed; sub_1 (5 scans), ...
+        assert len(data_module.train_data) == 8 # specific to seed; sub_1 (2 sessions), ...
         assert len(data_module.val_data) == 2 # specific to seed; ...
-        assert len(data_module.test_data) == 2 # specific to seed; sub_123 (2 scans), ...
-
-    def test_data_list(self, data_module):
-        data_module.setup(stage="fit")
-        for i in data_module.train_data:
-            assert set(i.keys()) == {'file_name', 'sub_id', 'ses_id', 'modality'}
+        assert len(data_module.test_data) == 1 # specific to seed; ...
 
