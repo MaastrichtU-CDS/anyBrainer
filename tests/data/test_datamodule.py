@@ -24,6 +24,7 @@ def mock_load_image(monkeypatch):
             '/Users/project/dataset/sub_123/ses_1/dwi.npy',
             '/Users/project/dataset/sub_123/ses_1/dwi_2.npy',
             '/Users/project/dataset/sub_123/ses_2/dwi.npy',
+            '/Users/project/dataset/sub_123/ses_3/dwi.npy',
         ]
 
     monkeypatch.setattr(
@@ -35,12 +36,26 @@ mae_data_settings = {
     'masks_dir': '/Users/project/masks',
     'batch_size': 8, 
     'num_workers': 32, 
-    'train_val_test_split': (0.7, 0.15, 0.15),
+    'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
 
 }
 
 class TestMAEDataModule: 
     @pytest.fixture
-    def data_module():
+    def data_module(self):
         return MAEDataModule(**mae_data_settings)
+    
+    def test_data_splits(self, data_module):
+        data_module.setup(stage="fit")
+        data_module.setup(stage="test")
+        assert len(data_module.train_data) == 7
+        assert len(data_module.val_data) == 2
+        assert len(data_module.test_data) == 1
+    
+    def test_data_list(self, data_module):
+        data_module.setup(stage="fit")
+        for i in data_module.train_data:
+            assert i.keys() == ['file_name', 'brain_mask', 'sub_id', 
+                                'ses_id', 'modality']
+
