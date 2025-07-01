@@ -5,11 +5,15 @@ __all__ = [
     "reseed",
 ]
 
+import logging
+
 import numpy as np
 import torch
 from collections import deque
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import Compose, Randomizable
+
+logger = logging.getLogger(__name__)
 
 def reseed(
     comp: Compose, 
@@ -24,7 +28,7 @@ def reseed(
     # Save the *process-wide* RNG states so our reseeding doesn’t pollute them.
     _np_state    = np.random.get_state()
     _torch_state = torch.random.get_rng_state()
-
+    
     rng = np.random.RandomState(master_seed) if rng is None else rng
     for t in comp.flatten().transforms:          # depth-first, left-to-right
         if isinstance(t, Randomizable):
@@ -40,4 +44,3 @@ class DeterministicCompose(Compose):
     def __init__(self, transforms, master_seed, **kwargs):
         super().__init__(transforms, **kwargs)
         reseed(self, master_seed)
-

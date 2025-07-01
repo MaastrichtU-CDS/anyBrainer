@@ -45,9 +45,9 @@ def mock_load_image(monkeypatch):
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
     """
-    def _dummy_call(self, filename, *args, **kwargs):
+    def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
-        gen = torch.Generator().manual_seed(hash(filename) & 0xFFFF_FFFF)
+        gen = torch.Generator().manual_seed(42)
         img = torch.rand((1, 120, 120, 120), dtype=torch.float32, generator=gen)
         # LoadImage normally returns (np.ndarray, meta_dict)
         return img

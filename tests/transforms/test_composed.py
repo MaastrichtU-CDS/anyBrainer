@@ -3,7 +3,6 @@
 import pytest
 import torch
 # pyright: reportPrivateImportUsage=false
-from monai.data import create_test_image_3d
 from monai.utils import set_determinism
 from monai.data import MetaTensor
 from monai.transforms import (
@@ -27,9 +26,9 @@ def mock_load_image(monkeypatch):
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
     """
-    def _dummy_call(self, filename, *args, **kwargs):
+    def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
-        gen = torch.Generator().manual_seed(hash(filename) & 0xFFFF_FFFF)
+        gen = torch.Generator().manual_seed(42)
         img = torch.rand((1, 120, 120, 120), dtype=torch.float32, generator=gen)
         # LoadImage normally returns (np.ndarray, meta_dict)
         return img
@@ -43,7 +42,7 @@ class TestMAETrainTransforms:
         op = Compose(get_mae_train_transforms())
         out = op(sample_data)
         assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'mask', 'recon', # type: ignore
-                                   'sub_id', 'ses_id', 'modality', 'count'} # type: ignore
+                                   'sub_id', 'ses_id', 'mod', 'count'} # type: ignore
     
     def test_output_types(self, sample_data):
         op = Compose(get_mae_train_transforms())
@@ -55,7 +54,7 @@ class TestMAETrainTransforms:
         assert isinstance(out['recon'], MetaTensor) # type: ignore
         assert isinstance(out['sub_id'], str) # type: ignore
         assert isinstance(out['ses_id'], str) # type: ignore
-        assert isinstance(out['modality'], str) # type: ignore
+        assert isinstance(out['mod'], str) # type: ignore
         assert isinstance(out['count'], int) # type: ignore
     
     def test_output_values(self, ref_mae_train_transforms, sample_data):
@@ -75,7 +74,7 @@ class TestMAEValTransforms:
         op = Compose(get_mae_val_transforms())
         out = op(sample_data)
         assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'mask', 'recon', # type: ignore
-                                   'sub_id', 'ses_id', 'modality', 'count'} # type: ignore
+                                   'sub_id', 'ses_id', 'mod', 'count'} # type: ignore
     
     def test_output_types(self, sample_data):
         op = Compose(get_mae_val_transforms())
@@ -87,7 +86,7 @@ class TestMAEValTransforms:
         assert isinstance(out['recon'], MetaTensor) # type: ignore
         assert isinstance(out['sub_id'], str) # type: ignore
         assert isinstance(out['ses_id'], str) # type: ignore
-        assert isinstance(out['modality'], str) # type: ignore
+        assert isinstance(out['mod'], str) # type: ignore
         assert isinstance(out['count'], int) # type: ignore
     
     def test_output_values(self, ref_mae_val_transforms, sample_data):
@@ -108,7 +107,7 @@ class TestContrastiveTrainTransforms:
     def test_output_keys(self, sample_data_contrastive):
         op = Compose(get_contrastive_train_transforms())
         out = op(sample_data_contrastive)
-        assert set(out.keys()) == {'query', 'key', 'sub_id', 'ses_id', 'modality', 'count'} # type: ignore
+        assert set(out.keys()) == {'query', 'key', 'sub_id', 'ses_id', 'mod', 'count'} # type: ignore
 
     def test_output_types(self, sample_data_contrastive):
         op = Compose(get_contrastive_train_transforms())
@@ -117,7 +116,7 @@ class TestContrastiveTrainTransforms:
         assert isinstance(out['key'], MetaTensor) # type: ignore
         assert isinstance(out['sub_id'], str) # type: ignore
         assert isinstance(out['ses_id'], str) # type: ignore
-        assert isinstance(out['modality'], str) # type: ignore
+        assert isinstance(out['mod'], str) # type: ignore
         assert isinstance(out['count'], int) # type: ignore
     
     def test_output_values(self, ref_contrastive_train_transforms, sample_data_contrastive):
@@ -134,7 +133,7 @@ class TestContrastiveValTransforms:
     def test_output_keys(self, sample_data_contrastive):
         op = Compose(get_contrastive_val_transforms())
         out = op(sample_data_contrastive)
-        assert set(out.keys()) == {'query', 'key', 'sub_id', 'ses_id', 'modality', 'count'} # type: ignore
+        assert set(out.keys()) == {'query', 'key', 'sub_id', 'ses_id', 'mod', 'count'} # type: ignore
 
     def test_output_types(self, sample_data_contrastive):
         op = Compose(get_contrastive_val_transforms())
@@ -143,7 +142,7 @@ class TestContrastiveValTransforms:
         assert isinstance(out['key'], MetaTensor) # type: ignore
         assert isinstance(out['sub_id'], str) # type: ignore
         assert isinstance(out['ses_id'], str) # type: ignore
-        assert isinstance(out['modality'], str) # type: ignore
+        assert isinstance(out['mod'], str) # type: ignore
         assert isinstance(out['count'], int) # type: ignore
     
     def test_output_values(self, ref_contrastive_val_transforms, sample_data_contrastive):

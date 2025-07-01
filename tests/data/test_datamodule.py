@@ -8,11 +8,18 @@ import torch
 from monai.transforms import (
     LoadImage,
 )
+from monai.data import DataLoader, Dataset
+from monai.utils.misc import first
+from monai.utils import set_determinism
+from monai.transforms import Randomizable
 
 from anyBrainer.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.data import (
     MAEDataModule,
     ContrastiveDataModule,
+)
+from anyBrainer.transforms import (
+    DeterministicCompose,
 )
 
 @pytest.fixture(autouse=True)
@@ -50,13 +57,11 @@ def mock_load_image(monkeypatch):
     """
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
-    TODO: check monkeypatch with multiple workers
     """
-    def _dummy_call(self, filename, *args, **kwargs):
+    def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
-        gen = torch.Generator().manual_seed(hash(filename) & 0xFFFF_FFFF)
+        gen = torch.Generator().manual_seed(42)
         img = torch.rand((1, 120, 120, 120), dtype=torch.float32, generator=gen)
-        # LoadImage normally returns (np.ndarray, meta_dict)
         return img
 
     monkeypatch.setattr(LoadImage, "__call__", _dummy_call, raising=True)
@@ -65,10 +70,9 @@ data_settings = {
     'data_dir': '/Users/project/dataset',
     'masks_dir': '/Users/project/masks',
     'batch_size': 8, 
-    'num_workers': 0, 
+    'num_workers': 4, 
     'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
-
 }
 
 class TestMAEDataModule: 
@@ -88,11 +92,27 @@ class TestMAEDataModule:
         for i in data_module.train_data:
             assert set(i.keys()) == {'img', 'sub_id', 'ses_id', 'mod'}
     
-    def test_train_loader(self, data_module):
+    def test_train_loader(self, data_module, ref_mae_train_transforms):
+        import torch.multiprocessing as mp
+        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
+
+        # Datamodule
+        set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
         train_loader = data_module.train_dataloader()
-        out = next(iter(train_loader))
-        print(out)
+        out = first(train_loader)
+
+        # Reference transforms
+        set_determinism(seed=data_settings['seed'])
+        ref_transforms = DeterministicCompose(ref_mae_train_transforms, master_seed=data_settings['seed'])
+        ref_dataset = Dataset(data=data_module.train_data, transform=ref_transforms)
+        ref_loader = DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
+                                num_workers=data_settings['num_workers'], shuffle=True)
+        ref_out = first(ref_loader)
+        
+        # Ensure outputs match for each sample
+        for i, j in zip(out['img'], ref_out['img']): # type: ignore
+            assert (i == j).all()
 
 
 class TestContrastiveDataModule: 

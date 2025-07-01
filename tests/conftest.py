@@ -51,7 +51,7 @@ def sample_data():
         "brain_mask": torch.tensor(seg).long(),
         "sub_id": "1",
         "ses_id": "1",
-        "modality": "t1",
+        "mod": "t1",
         "count": 2,
     }
 
@@ -63,20 +63,25 @@ def sample_data_contrastive():
         "key": torch.tensor(img),
         "sub_id": "1",
         "ses_id": "1",
-        "modality": "t1",
+        "mod": "t1",
         "count": 2,
     }
 
 @pytest.fixture(scope="session")
 def ref_mae_train_transforms():
     return [
-        LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', ensure_channel_first=True),
-        SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), mode='constant'),
-        RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3),
+        LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
+                   ensure_channel_first=True, allow_missing_keys=True),
+        SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
+                   mode='constant', allow_missing_keys=True),
+        RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3, 
+                  allow_missing_keys=True),
         RandAffined(keys=['img', 'brain_mask'], rotate_range=(0.3, 0.3, 0.3),
                     scale_range=(0.1, 0.1, 0.1), shear_range=(0.3, 0.3, 0.3),
-                    mode=['bilinear', 'nearest'], padding_mode='zeros', prob=1.0),
-        RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128)),
+                    mode=['bilinear', 'nearest'], padding_mode='zeros', prob=1.0, 
+                    allow_missing_keys=True),
+        RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128), 
+                         allow_missing_keys=True),
         SaveReconstructionTargetd(keys=['img'], recon_key='recon'),
         CreateRandomMaskd(keys=['img'], mask_key='mask', mask_ratio=0.6,
                           mask_patch_size=32),
@@ -88,6 +93,7 @@ def ref_mae_train_transforms():
         RandAdjustContrastd(keys=['img'], gamma=(0.9, 1.1), prob=0.3),
         RandSimulateLowResolutiond(keys=['img'], prob=0.1, zoom_range=(0.5, 1.0)),
     ]
+
 
 @pytest.fixture(scope="session")
 def ref_mae_val_transforms():

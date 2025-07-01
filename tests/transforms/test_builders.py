@@ -87,9 +87,9 @@ def mock_load_image(monkeypatch):
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
     """
-    def _dummy_call(self, filename, *args, **kwargs):
+    def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
-        gen = torch.Generator().manual_seed(hash(filename) & 0xFFFF_FFFF)
+        gen = torch.Generator().manual_seed(42)
         img = torch.rand((1, 120, 120, 120), dtype=torch.float32, generator=gen)
         # LoadImage normally returns (np.ndarray, meta_dict)
         return img
@@ -132,7 +132,7 @@ class TestLoadTransformBuilder:
         out = transforms(sample_data)
         assert isinstance(out, dict)
         assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'sub_id', 
-                                   'ses_id', 'modality', 'count'}
+                                   'ses_id', 'mod', 'count'}
 
     def test_output_types(self, builder, sample_data):
         transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
@@ -142,7 +142,7 @@ class TestLoadTransformBuilder:
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
-        assert isinstance(out['modality'], str)
+        assert isinstance(out['mod'], str)
         assert isinstance(out['count'], int)
     
     def test_outputs_directly(self, builder, sample_data):
@@ -199,7 +199,7 @@ class TestSpatialTransformBuilder:
         out = transforms(sample_data)
         assert isinstance(out, dict)
         assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'sub_id', 
-                                   'ses_id', 'modality', 'count'}
+                                   'ses_id', 'mod', 'count'}
 
     def test_output_types(self, builder, sample_data):
         transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
@@ -209,7 +209,7 @@ class TestSpatialTransformBuilder:
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
-        assert isinstance(out['modality'], str)
+        assert isinstance(out['mod'], str)
         assert isinstance(out['count'], int)
     
     def test_outputs_directly(self, builder, sample_data):
@@ -256,7 +256,7 @@ class TestIntensityTransformBuilder:
         out = transforms(sample_data)
         assert isinstance(out, dict)
         assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'sub_id', 
-                                   'ses_id', 'modality', 'count'}
+                                   'ses_id', 'mod', 'count'}
 
     def test_output_types(self, builder, sample_data):
         transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
@@ -266,7 +266,7 @@ class TestIntensityTransformBuilder:
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
-        assert isinstance(out['modality'], str)
+        assert isinstance(out['mod'], str)
         assert isinstance(out['count'], int)
     
     def test_outputs_directly(self, builder, sample_data):  
@@ -313,7 +313,7 @@ class TestMaskingTransformBuilder:
         out = transforms(sample_data)
         assert isinstance(out, dict)
         assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'mask',
-                                   'sub_id', 'ses_id', 'modality', 'count'}
+                                   'sub_id', 'ses_id', 'mod', 'count'}
 
     def test_output_types(self, builder, sample_data):
         transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
@@ -324,7 +324,7 @@ class TestMaskingTransformBuilder:
         assert isinstance(out['mask'], torch.Tensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
-        assert isinstance(out['modality'], str)
+        assert isinstance(out['mod'], str)
         assert isinstance(out['count'], int)
 
     def test_outputs_directly(self, builder, sample_data):

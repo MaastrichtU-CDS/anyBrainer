@@ -26,7 +26,7 @@ class TestCreateRandomMaskd:
     def test_output_keys(self, op, sample_data):
         out = op(sample_data)
         assert out.keys() == {"img", "img_1", "mask", "brain_mask", "sub_id", 
-                              "ses_id", "modality", "count"}
+                              "ses_id", "mod", "count"}
 
     def test_shapes(self, op, sample_data):
         out = op(sample_data)
@@ -69,7 +69,7 @@ class TestSaveReconstructionTargetd:
     def test_output_keys(self, op, sample_data):
         out = op(sample_data)
         assert out.keys() == {"img", "img_1", "recon", "brain_mask", "sub_id", 
-                              "ses_id", "modality", "count"}
+                              "ses_id", "mod", "count"}
     
     def test_shapes(self, op, sample_data):
         out = op(sample_data)

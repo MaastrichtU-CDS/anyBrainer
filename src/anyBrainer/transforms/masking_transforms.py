@@ -51,7 +51,23 @@ class CreateRandomMaskd(MapTransform, Randomizable):
         self.mask_key = mask_key
         self.mask_ratio = mask_ratio
         self.mask_patch_size = mask_patch_size
-        
+    
+    def randomize(self, img_shape):
+        # Calculate number of patches in each dimension
+        d1, d2, d3 = img_shape[-3:]
+        n_patches = (np.array([d1, d2, d3]) + self.mask_patch_size - 1) // self.mask_patch_size
+        total_patches = np.prod(n_patches)
+
+        # Sample which patches to mask
+        n_masked = int(total_patches * self.mask_ratio)
+        patch_mask = torch.ones(int(total_patches), dtype=torch.bool)
+
+        idx = torch.as_tensor(
+            self.R.choice(int(total_patches), n_masked, replace=False)
+        )
+        patch_mask[idx] = False
+        self._patch_mask = patch_mask.view(*map(int, n_patches))
+    
     def __call__(self, data):
         d = dict(data)
         
@@ -65,23 +81,10 @@ class CreateRandomMaskd(MapTransform, Randomizable):
                 logger.error(msg)
                 raise ValueError(msg) from e
             
-            # Calculate number of patches in each dimension
-            n_patches = (np.array([d1, d2, d3]) + self.mask_patch_size - 1) // self.mask_patch_size
-            total_patches = np.prod(n_patches)
-
-            # Sample which patches to mask
-            n_masked = int(total_patches * self.mask_ratio)
-            patch_mask = torch.ones(int(total_patches), dtype=torch.bool)
-
-            last_rng = self.R.get_state()[1][:5] # pyright: ignore[reportArgumentType]
-            idx = torch.as_tensor(
-                self.R.choice(int(total_patches), n_masked, replace=False)
-            )
-            patch_mask[idx] = False
-            patch_mask = patch_mask.view(*map(int, n_patches))
+            self.randomize(img_shape)
 
             # Vectorised up-sampling back to voxel space
-            mask = patch_mask.repeat_interleave(self.mask_patch_size, 0) \
+            mask = self._patch_mask.repeat_interleave(self.mask_patch_size, 0) \
                                  .repeat_interleave(self.mask_patch_size, 1) \
                                  .repeat_interleave(self.mask_patch_size, 2)                  
 
@@ -91,17 +94,17 @@ class CreateRandomMaskd(MapTransform, Randomizable):
             # Get original dims
             while mask.ndim < img.ndim:
                 mask = mask.unsqueeze(0)
-                
+            
+            _, mt_state, pos, *_ = self.R.get_state()
             logger.debug(f"mask shape: {mask.shape}, "
                          f"mask ratio: {1 - mask.float().mean().item()}, "
-                         f"rng: {last_rng}")
+                         f"rng: pos={pos:3d}, first5={mt_state[:5]}")
  
             # Keep metadata
             if isinstance(img, MetaTensor):
                 d[self.mask_key] = MetaTensor(mask, meta=img.meta)
             else:
                 d[self.mask_key] = mask
-             
         return d
 
 
@@ -123,5 +126,6 @@ class SaveReconstructionTargetd(MapTransform):
         d = dict(data)
         for key in self.key_iterator(d):
             d[self.recon_key] = d[key].clone()
+        logger.debug(f"{d.keys()}")
         return d
 
