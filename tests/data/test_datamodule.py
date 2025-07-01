@@ -50,6 +50,7 @@ def mock_load_image(monkeypatch):
     """
     Monkey-patch LoadImage so every attempt to read a file
     yields a synthetic 3-D volume instead of touching the disk.
+    TODO: check monkeypatch with multiple workers
     """
     def _dummy_call(self, filename, *args, **kwargs):
         # Create data with the shape the pipeline expects
@@ -64,7 +65,7 @@ data_settings = {
     'data_dir': '/Users/project/dataset',
     'masks_dir': '/Users/project/masks',
     'batch_size': 8, 
-    'num_workers': 4, 
+    'num_workers': 0, 
     'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
 
@@ -85,7 +86,7 @@ class TestMAEDataModule:
     def test_data_list(self, data_module):
         data_module.setup(stage="fit")
         for i in data_module.train_data:
-            assert set(i.keys()) == {'img', 'sub_id', 'ses_id', 'modality'}
+            assert set(i.keys()) == {'img', 'sub_id', 'ses_id', 'mod'}
     
     def test_train_loader(self, data_module):
         data_module.setup(stage="fit")
