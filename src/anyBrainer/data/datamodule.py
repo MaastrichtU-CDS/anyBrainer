@@ -208,6 +208,10 @@ class MAEDataModule(BaseDataModule):
             get_mae_val_transforms(), 
             master_seed=seed
         )
+        self.predict_transforms = DeterministicCompose(
+            get_mae_val_transforms(), 
+            master_seed=seed
+        )
     
     def prepare_data(self):
         """
@@ -390,6 +394,10 @@ class ContrastiveDataModule(BaseDataModule):
             master_seed=seed
         )
         self.test_transforms = DeterministicCompose(
+            get_contrastive_val_transforms(), 
+            master_seed=seed
+        )
+        self.predict_transforms = DeterministicCompose(
             get_contrastive_val_transforms(), 
             master_seed=seed
         )
