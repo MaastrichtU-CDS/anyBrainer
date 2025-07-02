@@ -20,6 +20,7 @@ from tqdm import tqdm
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
+from monai.transforms import Compose
 
 from anyBrainer.utils.utils import resolve_path
 from anyBrainer.data.utils import (
@@ -196,22 +197,10 @@ class MAEDataModule(BaseDataModule):
         self.masks_dir = resolve_path(masks_dir)
         
         # Get transforms
-        self.train_transforms = DeterministicCompose(
-            get_mae_train_transforms(), 
-            master_seed=seed
-        )
-        self.val_transforms = DeterministicCompose(
-            get_mae_val_transforms(), 
-            master_seed=seed
-        )
-        self.test_transforms = DeterministicCompose(
-            get_mae_val_transforms(), 
-            master_seed=seed
-        )
-        self.predict_transforms = DeterministicCompose(
-            get_mae_val_transforms(), 
-            master_seed=seed
-        )
+        self.train_transforms = get_mae_train_transforms()
+        self.val_transforms = get_mae_val_transforms()
+        self.test_transforms = get_mae_val_transforms()
+        self.predict_transforms = get_mae_val_transforms()
     
     def prepare_data(self):
         """
@@ -302,7 +291,10 @@ class MAEDataModule(BaseDataModule):
             raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
         
         # Create dataset with transforms
-        dataset = MONAIDataset(data=self.train_data, transform=self.train_transforms)
+        dataset = MONAIDataset(
+            data=self.train_data, 
+            transform=Compose(self.train_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -317,7 +309,10 @@ class MAEDataModule(BaseDataModule):
             logger.error("val_data is None. Make sure setup('validate') was called.")
             raise RuntimeError("val_data is None. Make sure setup() was called.")
             
-        dataset = MONAIDataset(data=self.val_data, transform=self.val_transforms)
+        dataset = MONAIDataset(
+            data=self.val_data, 
+            transform=Compose(self.val_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -332,7 +327,10 @@ class MAEDataModule(BaseDataModule):
             logger.error("test_data is None. Make sure setup('test') was called.")
             raise RuntimeError("test_data is None. Make sure setup('test') was called.")
             
-        dataset = MONAIDataset(data=self.test_data, transform=self.test_transforms)
+        dataset = MONAIDataset(
+            data=self.test_data, 
+            transform=Compose(self.test_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -347,7 +345,10 @@ class MAEDataModule(BaseDataModule):
             logger.error("predict_data is None. Make sure setup('predict') was called.")
             raise RuntimeError("predict_data is None. Make sure setup('predict') was called.")
             
-        dataset = MONAIDataset(data=self.predict_data, transform=self.predict_transforms)
+        dataset = MONAIDataset(
+            data=self.predict_data, 
+            transform=Compose(self.predict_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -385,22 +386,10 @@ class ContrastiveDataModule(BaseDataModule):
         super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
         
         # Get transforms
-        self.train_transforms = DeterministicCompose(
-            get_contrastive_train_transforms(), 
-            master_seed=seed
-        )
-        self.val_transforms = DeterministicCompose(
-            get_contrastive_val_transforms(), 
-            master_seed=seed
-        )
-        self.test_transforms = DeterministicCompose(
-            get_contrastive_val_transforms(), 
-            master_seed=seed
-        )
-        self.predict_transforms = DeterministicCompose(
-            get_contrastive_val_transforms(), 
-            master_seed=seed
-        )
+        self.train_transforms = get_contrastive_train_transforms()
+        self.val_transforms = get_contrastive_val_transforms()
+        self.test_transforms = get_contrastive_val_transforms()
+        self.predict_transforms = get_contrastive_val_transforms()
     
     def prepare_data(self):
         """
@@ -492,7 +481,10 @@ class ContrastiveDataModule(BaseDataModule):
             raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
         
         # Create dataset with transforms
-        dataset = MONAIDataset(data=self.train_data, transform=self.train_transforms)
+        dataset = MONAIDataset(
+            data=self.train_data, 
+            transform=Compose(self.train_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -507,7 +499,10 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("val_data is None. Make sure setup('validate') was called.")
             raise RuntimeError("val_data is None. Make sure setup() was called.")
             
-        dataset = MONAIDataset(data=self.val_data, transform=self.val_transforms)
+        dataset = MONAIDataset(
+            data=self.val_data, 
+            transform=Compose(self.val_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -522,7 +517,10 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("test_data is None. Make sure setup('test') was called.")
             raise RuntimeError("test_data is None. Make sure setup('test') was called.")
             
-        dataset = MONAIDataset(data=self.test_data, transform=self.test_transforms)
+        dataset = MONAIDataset(
+            data=self.test_data, 
+            transform=Compose(self.test_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -537,7 +535,10 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("predict_data is None. Make sure setup('predict') was called.")
             raise RuntimeError("predict_data is None. Make sure setup('predict') was called.")
             
-        dataset = MONAIDataset(data=self.predict_data, transform=self.predict_transforms)
+        dataset = MONAIDataset(
+            data=self.predict_data, 
+            transform=Compose(self.predict_transforms).set_random_state(seed=self.seed)
+        )
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,

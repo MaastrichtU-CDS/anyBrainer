@@ -81,6 +81,7 @@ class CreateRandomMaskd(MapTransform, Randomizable):
                 logger.error(msg)
                 raise ValueError(msg) from e
             
+            _, mt_state, pos, *_ = self.R.get_state()
             self.randomize(img_shape)
 
             # Vectorised up-sampling back to voxel space
@@ -95,7 +96,6 @@ class CreateRandomMaskd(MapTransform, Randomizable):
             while mask.ndim < img.ndim:
                 mask = mask.unsqueeze(0)
             
-            _, mt_state, pos, *_ = self.R.get_state()
             logger.debug(f"mask shape: {mask.shape}, "
                          f"mask ratio: {1 - mask.float().mean().item()}, "
                          f"rng: pos={pos:3d}, first5={mt_state[:5]}")

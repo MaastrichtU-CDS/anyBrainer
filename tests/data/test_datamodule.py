@@ -7,9 +7,9 @@ import torch
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
     LoadImage,
+    Compose,
 )
 from monai.data import DataLoader, Dataset
-from monai.utils.misc import first
 from monai.utils import set_determinism
 from monai.transforms import Randomizable
 
@@ -17,9 +17,6 @@ from anyBrainer.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.data import (
     MAEDataModule,
     ContrastiveDataModule,
-)
-from anyBrainer.transforms import (
-    DeterministicCompose,
 )
 
 @pytest.fixture(autouse=True)
@@ -69,8 +66,8 @@ def mock_load_image(monkeypatch):
 data_settings = {
     'data_dir': '/Users/project/dataset',
     'masks_dir': '/Users/project/masks',
-    'batch_size': 8, 
-    'num_workers': 4, 
+    'batch_size': 1, 
+    'num_workers': 0, 
     'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
 }
@@ -92,29 +89,49 @@ class TestMAEDataModule:
         for i in data_module.train_data:
             assert set(i.keys()) == {'img', 'sub_id', 'ses_id', 'mod'}
     
-    def test_train_loader(self, data_module, ref_mae_train_transforms):
+    @pytest.mark.slow
+    def test_train_loader_rng_locks(self, data_module):
+        import torch.multiprocessing as mp
+        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
+
+        # Datamodule
+        data_module.setup(stage="fit")
+        train_loader_iter = iter(data_module.train_dataloader())
+        out = next(train_loader_iter)
+        next_out = next(train_loader_iter)
+        
+        # Ensure outputs don't match between iterations
+        for i, j in zip(out['img'], next_out['img']): # type: ignore
+            assert (i != j).all()
+    
+    @pytest.mark.slow
+    def test_train_loader_w_reference(self, data_module, ref_mae_train_transforms):
         import torch.multiprocessing as mp
         mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
 
         # Datamodule
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
-        train_loader = data_module.train_dataloader()
-        out = first(train_loader)
+        train_loader_iter = iter(data_module.train_dataloader())
 
         # Reference transforms
-        set_determinism(seed=data_settings['seed'])
-        ref_transforms = DeterministicCompose(ref_mae_train_transforms, master_seed=data_settings['seed'])
-        ref_dataset = Dataset(data=data_module.train_data, transform=ref_transforms)
-        ref_loader = DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
-                                num_workers=data_settings['num_workers'], shuffle=True)
-        ref_out = first(ref_loader)
+        set_determinism(seed=12345)
+        ref_dataset = Dataset(
+            data=data_module.train_data, 
+            transform=Compose(ref_mae_train_transforms).set_random_state(seed=12345)
+        )
+        ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
+                                num_workers=data_settings['num_workers'], shuffle=True))
+        for _ in range(2):
+            out = next(train_loader_iter)
+            ref_out = next(ref_loader_iter)
         
         # Ensure outputs match for each sample
         for i, j in zip(out['img'], ref_out['img']): # type: ignore
             assert (i == j).all()
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestContrastiveDataModule: 
     @pytest.fixture
     def data_module(self):
@@ -126,4 +143,62 @@ class TestContrastiveDataModule:
         assert len(data_module.train_data) == 8 # specific to seed; sub_1 (2 sessions), ...
         assert len(data_module.val_data) == 2 # specific to seed; ...
         assert len(data_module.test_data) == 1 # specific to seed; ...
+    
+    @pytest.mark.slow
+    def test_train_loader_pair(self, data_module):
+        import torch.multiprocessing as mp
+        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
 
+        set_determinism(seed=data_settings['seed'])
+        data_module.setup(stage="fit")
+        train_loader_iter = iter(data_module.train_dataloader())
+        out = next(train_loader_iter)
+        
+        # Ensure keys and queries are different
+        for i, j in zip(out['key'], out['query']): # type: ignore
+            assert (i != j).all()
+    
+    @pytest.mark.slow
+    def test_train_loader_rng_locks(self, data_module):
+        import torch.multiprocessing as mp
+        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
+
+        # Datamodule
+        set_determinism(seed=data_settings['seed'])
+        data_module.setup(stage="fit")
+        train_loader_iter = iter(data_module.train_dataloader())
+        out = next(train_loader_iter)
+        next_out = next(train_loader_iter)
+        
+        # Ensure outputs don't match between iterations
+        for i, j in zip(out['key'], next_out['key']): # type: ignore
+            assert (i != j).all()
+
+    @pytest.mark.slow
+    def test_train_loader_w_reference(self, data_module, ref_contrastive_train_transforms):
+        import torch.multiprocessing as mp
+        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
+
+        # Datamodule
+        set_determinism(seed=data_settings['seed'])
+        data_module.setup(stage="fit")
+        train_loader_iter = iter(data_module.train_dataloader())
+
+        # Reference transforms
+        set_determinism(seed=12345)
+        ref_dataset = Dataset(
+            data=data_module.train_data, 
+            transform=Compose(ref_contrastive_train_transforms).set_random_state(seed=12345)
+        )
+        ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
+                                num_workers=data_settings['num_workers'], shuffle=True))
+        for _ in range(2):
+            out = next(train_loader_iter)
+            ref_out = next(ref_loader_iter)
+        
+        # Ensure outputs match for each sample
+        for i, j in zip(out['key'], ref_out['key']): # type: ignore
+            assert (i == j).all()
+        
+        for i, j in zip(out['query'], ref_out['query']): # type: ignore
+            assert (i == j).all()

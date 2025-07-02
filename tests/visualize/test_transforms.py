@@ -8,7 +8,9 @@ from anyBrainer.transforms import (
     get_mae_train_transforms, 
     get_contrastive_train_transforms,
 )
-from anyBrainer.transforms import DeterministicCompose
+# pyright: reportPrivateImportUsage=false
+from monai.transforms import Compose
+
 from .utils import visualize_transform_stage
 
 mae_settings = {
@@ -49,8 +51,10 @@ contrastive_settings = {
 @pytest.mark.viz
 def test_visualize_mae_transforms():
     """Visualize the reference transforms"""
-    transforms = DeterministicCompose(mae_settings['settings']['transforms'], 
-                                      master_seed=mae_settings['settings']['master_seed'])
+    transforms = Compose(
+        mae_settings['settings']['transforms']
+    ).set_random_state(seed=mae_settings['settings']['master_seed'])
+
     visualize_transform_stage(
         pipeline=transforms, 
         sample=mae_settings['data'], 
@@ -64,8 +68,10 @@ def test_visualize_mae_transforms():
 @pytest.mark.viz
 def test_visualize_contrastive_transforms():
     """Visualize the reference transforms"""
-    transforms = DeterministicCompose(contrastive_settings['settings']['transforms'], 
-                                      master_seed=contrastive_settings['settings']['master_seed'])
+    transforms = Compose(
+        contrastive_settings['settings']['transforms']
+    ).set_random_state(seed=contrastive_settings['settings']['master_seed'])
+    
     visualize_transform_stage(
         pipeline=transforms, 
         sample=contrastive_settings['data'], 

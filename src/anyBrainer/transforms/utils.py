@@ -44,3 +44,4 @@ class DeterministicCompose(Compose):
     def __init__(self, transforms, master_seed, **kwargs):
         super().__init__(transforms, **kwargs)
         reseed(self, master_seed)
+
