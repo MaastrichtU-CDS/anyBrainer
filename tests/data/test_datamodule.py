@@ -66,8 +66,8 @@ def mock_load_image(monkeypatch):
 data_settings = {
     'data_dir': '/Users/project/dataset',
     'masks_dir': '/Users/project/masks',
-    'batch_size': 1, 
-    'num_workers': 0, 
+    'batch_size': 8, 
+    'num_workers': 4, 
     'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
 }
