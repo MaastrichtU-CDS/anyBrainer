@@ -9,7 +9,6 @@ __all__ = [
 
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
-    Compose,
     LoadImaged,
     SpatialPadd,
     RandFlipd, 
@@ -24,15 +23,17 @@ from monai.transforms import (
     RandAdjustContrastd,
 )
 
-from .masking_transforms import (
+from .unit_transforms import (
     SaveReconstructionTargetd, 
     CreateRandomMaskd,
+    EmptyMaskd,
 )
 
 def get_mae_train_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
+        EmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
                    mode='constant', allow_missing_keys=True),
         RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3, 
@@ -59,6 +60,7 @@ def get_mae_val_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
+        EmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
                    mode='constant', allow_missing_keys=True),
         RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128), 

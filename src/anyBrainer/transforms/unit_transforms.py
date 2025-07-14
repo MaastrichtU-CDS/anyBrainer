@@ -5,6 +5,7 @@ Contains masking transforms for masked autoencoder training.
 __all__ = [
     "CreateRandomMaskd",
     "SaveReconstructionTargetd",
+    "EmptyMaskd",
 ]
 
 from typing import Sequence
@@ -115,7 +116,7 @@ class SaveReconstructionTargetd(MapTransform):
     """
     def __init__(
         self, 
-        keys: Sequence[str] = ("img",), 
+        keys: Sequence[str] | str = "img", 
         recon_key: str = "recon",
         allow_missing_keys: bool = False
     ) -> None:
@@ -126,6 +127,36 @@ class SaveReconstructionTargetd(MapTransform):
         d = dict(data)
         for key in self.key_iterator(d):
             d[self.recon_key] = d[key].clone()
-        logger.debug(f"{d.keys()}")
         return d
 
+
+class EmptyMaskd(MapTransform):
+    """
+    Create an empty mask.
+    """
+    def __init__(
+        self, 
+        keys: Sequence[str] | str = "img", 
+        mask_key: str = "brain_mask", 
+        skip_if_exists: bool = True,
+        allow_missing_keys: bool = False
+    ) -> None:
+        super().__init__(keys, allow_missing_keys)
+        self.mask_key = mask_key
+        self.skip_if_exists = skip_if_exists
+
+    def __call__(self, data):
+        d = dict(data)
+
+        if self.skip_if_exists and self.mask_key in d:
+            return d
+        
+        for key in self.key_iterator(d):
+            img = d[key]
+            if isinstance(img, MetaTensor):
+                d[self.mask_key] = MetaTensor(
+                    torch.zeros_like(img), meta=img.meta
+                )
+            else:
+                d[self.mask_key] = torch.zeros_like(img)
+        return d

@@ -1,14 +1,17 @@
 """Unit tests for masking transforms."""
 
+from copy import deepcopy
+
 import pytest
 import torch
 import torch.nn.functional as F
 # pyright: reportPrivateImportUsage=false
 from monai.data import create_test_image_3d
 
-from anyBrainer.transforms.masking_transforms import (
+from anyBrainer.transforms.unit_transforms import (
     CreateRandomMaskd,
     SaveReconstructionTargetd,
+    EmptyMaskd,
 )
 
 @pytest.mark.usefixtures("sample_data")
@@ -60,6 +63,7 @@ class TestCreateRandomMaskd:
             (pooled == 0) | (pooled == 1)
         ), "Found a patch that is only partially masked"
 
+
 @pytest.mark.usefixtures("sample_data")
 class TestSaveReconstructionTargetd:
     @pytest.fixture
@@ -75,3 +79,31 @@ class TestSaveReconstructionTargetd:
         out = op(sample_data)
         assert out["img"].shape == (1, 120, 120, 120)
         assert out["recon"].shape == (1, 120, 120, 120)
+
+
+@pytest.mark.usefixtures("sample_data")
+class TestEmptyMaskd:
+    @pytest.fixture
+    def get_data(self, sample_data):
+        data = deepcopy(sample_data)
+        data.pop("brain_mask")
+        return data
+    
+    def test_skip_if_exists(self, sample_data):
+        out = EmptyMaskd(mask_key="brain_mask")(sample_data)
+        ref = torch.zeros_like(sample_data["img"])
+        assert (out["brain_mask"] != ref).any()
+    
+    def test_mask_key(self, get_data):
+        out = EmptyMaskd(mask_key="brain_mask")(get_data)
+        assert "brain_mask" in out
+    
+    def test_empty_mask(self, get_data):
+        out = EmptyMaskd(mask_key="brain_mask")(get_data)
+        ref = torch.zeros_like(get_data["img"])
+        assert (out["brain_mask"] == ref).all()
+    
+    def test_empty_mask_shape(self, get_data):
+        out = EmptyMaskd(mask_key="brain_mask")(get_data)
+        assert out["brain_mask"].shape == get_data["img"].shape
+    

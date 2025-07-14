@@ -25,6 +25,7 @@ from monai.data import create_test_image_3d
 from anyBrainer.transforms import (
     SaveReconstructionTargetd, 
     CreateRandomMaskd,
+    EmptyMaskd,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -72,6 +73,7 @@ def ref_mae_train_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
+        EmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
                    mode='constant', allow_missing_keys=True),
         RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3, 
@@ -99,6 +101,7 @@ def ref_mae_train_transforms():
 def ref_mae_val_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', ensure_channel_first=True),
+        EmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), mode='constant'),
         RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128)),
         SaveReconstructionTargetd(keys=['img'], recon_key='recon'),
