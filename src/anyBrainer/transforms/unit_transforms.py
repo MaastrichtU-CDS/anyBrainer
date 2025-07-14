@@ -5,7 +5,8 @@ Contains masking transforms for masked autoencoder training.
 __all__ = [
     "CreateRandomMaskd",
     "SaveReconstructionTargetd",
-    "EmptyMaskd",
+    "CreateEmptyMaskd",
+    "GetKeyQueryd",
 ]
 
 from typing import Sequence
@@ -17,10 +18,13 @@ import torch
 # pyright: reportPrivateImportUsage=false
 from monai.transforms.utils import TransformBackends
 from monai.transforms import (
+    Transform,
     MapTransform,
     Randomizable,
 )
 from monai.data import MetaTensor
+
+from .utils import assign_key
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +134,7 @@ class SaveReconstructionTargetd(MapTransform):
         return d
 
 
-class EmptyMaskd(MapTransform):
+class CreateEmptyMaskd(MapTransform):
     """
     Create an empty mask.
     """
@@ -160,3 +164,105 @@ class EmptyMaskd(MapTransform):
             else:
                 d[self.mask_key] = torch.zeros_like(img)
         return d
+
+
+class GetKeyQueryd(MapTransform, Randomizable):
+    """
+    Create a key-query pair for contrastive learning by randomly assigning
+    query and key or by always assigning augmented view to key. 
+
+    Random assignment does not prevent key-query pair from being the same.
+    Can specify additional extra keys that can be either query/key-specific or fixed.
+
+    Args:
+        keys_prefix: Prefix for the img keys to be used for the key-query pair.
+        count_key: Key for the number of modalities.
+        extra_iters: Prefix for the extra keys to be used for the key-query pair.
+        always_augment_query: Whether to always augment the query.
+        query_key: Key for the query.
+        extra_keys: Non-iterable extra keys to be used for the key-query pair.
+        track: Whether to track the query and key indices.
+    """
+    def __init__(
+        self,
+        keys_prefix: str | None = "img",
+        count_key: str | None = "count",
+        extra_iters: Sequence[str] | None = ["mod"],
+        always_augment_query: bool = False,
+        query_key: str | None = None,
+        extra_keys: Sequence[str] | None = ["sub_id", "ses_id"],
+        track: bool = False,
+    ) -> None:
+        
+        if always_augment_query and query_key is None:
+            msg = "query_key must be provided if always_augment_query is True"
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        if always_augment_query and keys_prefix is not None:
+            logger.warning("keys_prefix is ignored if always_augment_query is True")
+        
+        if keys_prefix is None and always_augment_query == False:
+            msg = "keys_prefix must be provided if always_augment_query is False"
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        if keys_prefix is not None and count_key is None:
+            msg = "count_key must be provided if keys_prefix is provided"
+            logger.error(msg)
+            raise ValueError(msg)
+
+        super().__init__(keys="img", allow_missing_keys=False)
+        self.keys_prefix = keys_prefix
+        self.count_key = count_key
+        self.extra_iters = extra_iters
+        self.always_augment_query = always_augment_query
+        self.query_key = query_key
+        self.extra_keys = extra_keys
+        self.track = track
+
+    def randomize(self, count: int):
+        query_idx, key_idx = self.R.randint(0, count, size=2)
+        return query_idx, key_idx
+
+    def __call__(self, data):
+        d = dict(data)
+        new_d = {}
+
+        # Typical contrastive; fixed key for query, augmented view for key
+        if self.always_augment_query:
+            new_d["query"] = assign_key(d, self.query_key)
+            new_d["key"] = assign_key(d, self.query_key)
+            
+            if self.extra_keys is not None:
+                for key in self.extra_keys:
+                    new_d[key] = assign_key(d, key)
+
+            return new_d
+        
+        # Randomly assign query and key
+        if self.count_key not in d:
+            msg = f"count_key {self.count_key} not found in data"
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        query_idx, key_idx = self.randomize(d[self.count_key])
+        new_d['query'] = assign_key(d, f"{self.keys_prefix}_{query_idx}")
+        new_d['key'] = assign_key(d, f"{self.keys_prefix}_{key_idx}")
+        
+        # Assign query/key-specific extra keys; e.g. modality
+        if self.extra_iters is not None:
+            for key in self.extra_iters:
+                new_d[key] = assign_key(d, f"{key}_{query_idx}")
+        
+        if self.extra_keys is not None:
+            for key in self.extra_keys:
+                new_d[key] = assign_key(d, key)
+        
+        if self.track:
+            new_d["track"] = {
+                "query_idx": query_idx,
+                "key_idx": key_idx,
+            }
+        
+        return new_d

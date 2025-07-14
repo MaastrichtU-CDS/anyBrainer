@@ -3,6 +3,7 @@
 __all__ = [
     "DeterministicCompose",
     "reseed",
+    "assign_key",
 ]
 
 import logging
@@ -39,6 +40,14 @@ def reseed(
     # unaffected by the per-transform reseeding above.
     np.random.set_state(_np_state)
     torch.random.set_rng_state(_torch_state)
+
+def assign_key(data, key):
+    try:
+        return data[key]
+    except Exception as e:
+        msg = f"key {key} not found in data"
+        logger.error(msg)
+        raise ValueError(msg) from e
 
 class DeterministicCompose(Compose):
     def __init__(self, transforms, master_seed, **kwargs):

@@ -26,14 +26,15 @@ from monai.transforms import (
 from .unit_transforms import (
     SaveReconstructionTargetd, 
     CreateRandomMaskd,
-    EmptyMaskd,
+    CreateEmptyMaskd,
+    GetKeyQueryd,
 )
 
 def get_mae_train_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
-        EmptyMaskd(mask_key='brain_mask'),
+        CreateEmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
                    mode='constant', allow_missing_keys=True),
         RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3, 
@@ -60,7 +61,7 @@ def get_mae_val_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
-        EmptyMaskd(mask_key='brain_mask'),
+        CreateEmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
                    mode='constant', allow_missing_keys=True),
         RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128), 
@@ -72,6 +73,8 @@ def get_mae_val_transforms():
 
 def get_contrastive_train_transforms():
     return [
+        GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
+                     extra_keys=['sub_id', 'ses_id']),
         LoadImaged(keys=['query', 'key'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['query', 'key'], spatial_size=(128, 128, 128), mode='constant'),
         RandFlipd(keys=['query'], spatial_axis=(0, 1), prob=0.3),
@@ -102,6 +105,8 @@ def get_contrastive_train_transforms():
 
 def get_contrastive_val_transforms():
     return [
+        GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
+                     extra_keys=['sub_id', 'ses_id']),
         LoadImaged(keys=['query', 'key'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['query', 'key'], spatial_size=(128, 128, 128), mode='constant'),
         RandFlipd(keys=['key'], spatial_axis=(0, 1), prob=0.3),

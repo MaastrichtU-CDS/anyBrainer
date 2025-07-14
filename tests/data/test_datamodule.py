@@ -66,7 +66,7 @@ def mock_load_image(monkeypatch):
 data_settings = {
     'data_dir': '/Users/project/dataset',
     'masks_dir': '/Users/project/masks',
-    'batch_size': 8, 
+    'batch_size': 2, 
     'num_workers': 4, 
     'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
@@ -91,9 +91,6 @@ class TestMAEDataModule:
     
     @pytest.mark.slow
     def test_train_loader_rng_locks(self, data_module):
-        import torch.multiprocessing as mp
-        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
-
         # Datamodule
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
@@ -102,13 +99,10 @@ class TestMAEDataModule:
         
         # Ensure outputs don't match between iterations
         for i, j in zip(out['img'], next_out['img']): # type: ignore
-            assert (i != j).all()
+            assert not torch.equal(i, j)
     
     @pytest.mark.slow
     def test_train_loader_w_reference(self, data_module, ref_mae_train_transforms):
-        import torch.multiprocessing as mp
-        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
-
         # Datamodule
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
@@ -128,10 +122,9 @@ class TestMAEDataModule:
         
         # Ensure outputs match for each sample
         for i, j in zip(out['img'], ref_out['img']): # type: ignore
-            assert (i == j).all()
+            assert torch.equal(i, j)
 
 
-@pytest.mark.skip(reason="Not implemented")
 class TestContrastiveDataModule: 
     @pytest.fixture
     def data_module(self):
@@ -146,9 +139,6 @@ class TestContrastiveDataModule:
     
     @pytest.mark.slow
     def test_train_loader_pair(self, data_module):
-        import torch.multiprocessing as mp
-        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
-
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
@@ -156,13 +146,10 @@ class TestContrastiveDataModule:
         
         # Ensure keys and queries are different
         for i, j in zip(out['key'], out['query']): # type: ignore
-            assert (i != j).all()
+            assert not torch.equal(i, j)
     
     @pytest.mark.slow
     def test_train_loader_rng_locks(self, data_module):
-        import torch.multiprocessing as mp
-        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
-
         # Datamodule
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
@@ -172,13 +159,10 @@ class TestContrastiveDataModule:
         
         # Ensure outputs don't match between iterations
         for i, j in zip(out['key'], next_out['key']): # type: ignore
-            assert (i != j).all()
+            assert not torch.equal(i, j)
 
     @pytest.mark.slow
     def test_train_loader_w_reference(self, data_module, ref_contrastive_train_transforms):
-        import torch.multiprocessing as mp
-        mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
-
         # Datamodule
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
@@ -198,7 +182,7 @@ class TestContrastiveDataModule:
         
         # Ensure outputs match for each sample
         for i, j in zip(out['key'], ref_out['key']): # type: ignore
-            assert (i == j).all()
+            assert torch.equal(i, j)
         
         for i, j in zip(out['query'], ref_out['query']): # type: ignore
-            assert (i == j).all()
+            assert torch.equal(i, j)

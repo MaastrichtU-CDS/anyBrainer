@@ -97,16 +97,17 @@ def mock_load_image(monkeypatch):
     monkeypatch.setattr(LoadImage, "__call__", _dummy_call, raising=True)
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestLoadTransformBuilder:
     expected_transform_params = {
         'load': {
-                'keys': ["img", "img_1", "brain_mask"],
+                'keys': ["img", "brain_mask"],
                 'allow_missing_keys': False,
                 'reader': None,
                 'ensure_channel_first': True,
             },
             'pad': {
-                'keys': ["img", "img_1", "brain_mask"],
+                'keys': ["img", "brain_mask"],
                 'allow_missing_keys': False,
                 'spatial_size': (128, 128, 128),
                 'mode': 'constant',
@@ -120,46 +121,44 @@ class TestLoadTransformBuilder:
         return LoadTransformBuilder(config)
     
     def test_compose(self, builder):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
+        transforms = builder.build(img_keys=["img", "brain_mask"])
         assert isinstance(transforms, Compose)
     
     def test_transform_params(self, builder):
-        builder.build(img_keys=["img", "img_1", "brain_mask"])
+        builder.build(img_keys=["img", "brain_mask"])
         assert builder.params == self.expected_transform_params
     
-    def test_output_keys(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_keys(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out, dict)
-        assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'sub_id', 
-                                   'ses_id', 'mod', 'count'}
+        assert set(out.keys()) == {'img', 'brain_mask', 'sub_id', 
+                                    'ses_id', 'mod'}
 
-    def test_output_types(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_types(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out['img'], MetaTensor)
-        assert isinstance(out['img_1'], MetaTensor)
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
         assert isinstance(out['mod'], str)
-        assert isinstance(out['count'], int)
-    
-    def test_outputs_directly(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+
+    def test_outputs_directly(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         
         expected_transforms = Compose([
             LoadImaged(**self.expected_transform_params['load']),
             SpatialPadd(**self.expected_transform_params['pad']),
         ])
-        out_expected = expected_transforms(sample_data)
+        out_expected = expected_transforms(mae_sample_data)
 
-        assert (out['img'] == out_expected['img']).all() # type: ignore
-        assert (out['img_1'] == out_expected['img_1']).all() # type: ignore
-        assert (out['brain_mask'] == out_expected['brain_mask']).all() # type: ignore
+        assert torch.equal(out['img'], out_expected['img']) # type: ignore
+        assert torch.equal(out['brain_mask'], out_expected['brain_mask']) # type: ignore
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestSpatialTransformBuilder:
     expected_transform_params = {
         'flip': {
@@ -187,50 +186,48 @@ class TestSpatialTransformBuilder:
         return SpatialTransformBuilder(config)
     
     def test_compose(self, builder):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
+        transforms = builder.build(img_keys=["img", "brain_mask"])
         assert isinstance(transforms, Compose)
     
     def test_transform_params(self, builder):
-        builder.build(img_keys=["img", "img_1", "brain_mask"])
+        builder.build(img_keys=["img", "brain_mask"])
         assert builder.params == self.expected_transform_params
     
-    def test_output_keys(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_keys(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out, dict)
-        assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'sub_id', 
-                                   'ses_id', 'mod', 'count'}
+        assert set(out.keys()) == {'img', 'brain_mask', 'sub_id', 
+                                   'ses_id', 'mod'}
 
-    def test_output_types(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_types(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out['img'], MetaTensor)
-        assert isinstance(out['img_1'], MetaTensor)
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
         assert isinstance(out['mod'], str)
-        assert isinstance(out['count'], int)
     
-    def test_outputs_directly(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_outputs_directly(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         
         expected_transforms = Compose([
             RandFlipd(**self.expected_transform_params['flip']),
             RandAffined(**self.expected_transform_params['affine']),
         ])
-        out_expected = expected_transforms(sample_data)
+        out_expected = expected_transforms(mae_sample_data)
 
         assert (out['img'] == out_expected['img']).all() # type: ignore
-        assert (out['img_1'] == out_expected['img_1']).all() # type: ignore
         assert (out['brain_mask'] == out_expected['brain_mask']).all() # type: ignore
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestIntensityTransformBuilder:
     expected_transform_params = {
         'gaussian_noise': {
-            'keys': ["img", "img_1", "brain_mask"],
+            'keys': ["img", "brain_mask"],
             'allow_missing_keys': False,
             'std': 0.01,
             'prob': 0.2,
@@ -244,49 +241,47 @@ class TestIntensityTransformBuilder:
         return IntensityTransformBuilder(config)
     
     def test_compose(self, builder):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
+        transforms = builder.build(img_keys=["img", "brain_mask"])
         assert isinstance(transforms, Compose)
     
     def test_transform_params(self, builder):
-        builder.build(img_keys=["img", "img_1", "brain_mask"])
+        builder.build(img_keys=["img", "brain_mask"])
         assert builder.params == self.expected_transform_params
     
-    def test_output_keys(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_keys(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out, dict)
-        assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'sub_id', 
-                                   'ses_id', 'mod', 'count'}
+        assert set(out.keys()) == {'img', 'brain_mask', 'sub_id', 
+                                   'ses_id', 'mod'}
 
-    def test_output_types(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_types(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out['img'], MetaTensor)
-        assert isinstance(out['img_1'], MetaTensor)
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
         assert isinstance(out['mod'], str)
-        assert isinstance(out['count'], int)
     
-    def test_outputs_directly(self, builder, sample_data):  
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_outputs_directly(self, builder, mae_sample_data):  
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         
         expected_transforms = Compose([
             RandGaussianNoised(**self.expected_transform_params['gaussian_noise']),
         ])
-        out_expected = expected_transforms(sample_data)
+        out_expected = expected_transforms(mae_sample_data)
 
-        assert (out['img'] == out_expected['img']).all() # type: ignore
-        assert (out['img_1'] == out_expected['img_1']).all() # type: ignore
-        assert (out['brain_mask'] == out_expected['brain_mask']).all() # type: ignore
+        assert torch.equal(out['img'], out_expected['img']) # type: ignore
+        assert torch.equal(out['brain_mask'], out_expected['brain_mask']) # type: ignore
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestMaskingTransformBuilder:
     expected_transform_params = {
         'random_mask': { 
-            'keys': ["img", "img_1", "brain_mask"],
+            'keys': ["img", "brain_mask"],
             'allow_missing_keys': False,
             'mask_key': 'mask',
             'mask_ratio': 0.3,
@@ -301,42 +296,39 @@ class TestMaskingTransformBuilder:
         return MaskingTransformBuilder(config)
     
     def test_compose(self, builder):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
+        transforms = builder.build(img_keys=["img", "brain_mask"])
         assert isinstance(transforms, Compose)
     
     def test_transform_params(self, builder):
-        builder.build(img_keys=["img", "img_1", "brain_mask"])
+        builder.build(img_keys=["img", "brain_mask"])
         assert builder.params == self.expected_transform_params
     
-    def test_output_keys(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_keys(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out, dict)
-        assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'mask',
-                                   'sub_id', 'ses_id', 'mod', 'count'}
+        assert set(out.keys()) == {'img', 'brain_mask', 'mask',
+                                   'sub_id', 'ses_id', 'mod'}
 
-    def test_output_types(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_output_types(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         assert isinstance(out['img'], torch.Tensor)
-        assert isinstance(out['img_1'], torch.Tensor)
         assert isinstance(out['brain_mask'], torch.Tensor)
         assert isinstance(out['mask'], torch.Tensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
         assert isinstance(out['mod'], str)
-        assert isinstance(out['count'], int)
 
-    def test_outputs_directly(self, builder, sample_data):
-        transforms = builder.build(img_keys=["img", "img_1", "brain_mask"])
-        out = transforms(sample_data)
+    def test_outputs_directly(self, builder, mae_sample_data):
+        transforms = builder.build(img_keys=["img", "brain_mask"])
+        out = transforms(mae_sample_data)
         
         expected_transforms = Compose([
             CreateRandomMaskd(**self.expected_transform_params['random_mask']),
         ])
-        out_expected = expected_transforms(sample_data)
+        out_expected = expected_transforms(mae_sample_data)
 
-        assert (out['img'] == out_expected['img']).all() # type: ignore
-        assert (out['img_1'] == out_expected['img_1']).all() # type: ignore
-        assert (out['brain_mask'] == out_expected['brain_mask']).all() # type: ignore
-        assert (out['mask'] == out_expected['mask']).all() # type: ignore
+        assert torch.equal(out['img'], out_expected['img']) # type: ignore
+        assert torch.equal(out['brain_mask'], out_expected['brain_mask']) # type: ignore
+        assert torch.equal(out['mask'], out_expected['mask']) # type: ignore

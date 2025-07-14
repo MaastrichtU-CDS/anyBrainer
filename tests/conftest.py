@@ -1,7 +1,7 @@
-from ast import Return
 import sys
 from pathlib import Path
 import logging
+import torch.multiprocessing as mp
 
 import pytest
 import torch
@@ -25,12 +25,15 @@ from monai.data import create_test_image_3d
 from anyBrainer.transforms import (
     SaveReconstructionTargetd, 
     CreateRandomMaskd,
-    EmptyMaskd,
+    CreateEmptyMaskd,
+    GetKeyQueryd,
 )
+
+logger = logging.getLogger("anyBrainer")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-logger = logging.getLogger("anyBrainer")
+mp.set_start_method("fork", force=True) # Replace with worker_init_fn when seeding ready.
 
 if not logger.handlers:
     logger.setLevel(logging.DEBUG)
@@ -44,28 +47,28 @@ if not logger.handlers:
 
 
 @pytest.fixture(scope="session")
-def sample_data():
+def mae_sample_data():
     img, seg = create_test_image_3d(120, 120, 120, channel_dim=0)
     return {
         "img": torch.tensor(img), 
-        "img_1": torch.tensor(img),
         "brain_mask": torch.tensor(seg).long(),
         "sub_id": "1",
         "ses_id": "1",
         "mod": "t1",
-        "count": 2,
     }
 
 @pytest.fixture(scope="session")
-def sample_data_contrastive():
-    img, _ = create_test_image_3d(120, 120, 120, channel_dim=0)
+def contrastive_sample_data():
     return {
-        "query": torch.tensor(img), 
-        "key": torch.tensor(img),
+        "img_0": create_test_image_3d(120, 120, 120, channel_dim=0)[0], 
+        "img_1": create_test_image_3d(120, 120, 120, channel_dim=0)[0],
+        "img_2": create_test_image_3d(120, 120, 120, channel_dim=0)[0],
+        "mod_0": "t1",
+        "mod_1": "t2",
+        "mod_2": "flair",
         "sub_id": "1",
         "ses_id": "1",
-        "mod": "t1",
-        "count": 2,
+        "count": 3,
     }
 
 @pytest.fixture(scope="session")
@@ -73,7 +76,7 @@ def ref_mae_train_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
-        EmptyMaskd(mask_key='brain_mask'),
+        CreateEmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), 
                    mode='constant', allow_missing_keys=True),
         RandFlipd(keys=['img', 'brain_mask'], spatial_axis=(0, 1), prob=0.3, 
@@ -101,7 +104,7 @@ def ref_mae_train_transforms():
 def ref_mae_val_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', ensure_channel_first=True),
-        EmptyMaskd(mask_key='brain_mask'),
+        CreateEmptyMaskd(mask_key='brain_mask'),
         SpatialPadd(keys=['img', 'brain_mask'], spatial_size=(128, 128, 128), mode='constant'),
         RandSpatialCropd(keys=['img', 'brain_mask'], roi_size=(128, 128, 128)),
         SaveReconstructionTargetd(keys=['img'], recon_key='recon'),
@@ -112,6 +115,8 @@ def ref_mae_val_transforms():
 @pytest.fixture(scope="session")
 def ref_contrastive_train_transforms():
     return [
+        GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
+                     extra_keys=['sub_id', 'ses_id']),
         LoadImaged(keys=['query', 'key'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['query', 'key'], spatial_size=(128, 128, 128), mode='constant'),
         RandFlipd(keys=['query'], spatial_axis=(0, 1), prob=0.3),
@@ -143,6 +148,8 @@ def ref_contrastive_train_transforms():
 @pytest.fixture(scope="session")
 def ref_contrastive_val_transforms():
     return [
+        GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
+                     extra_keys=['sub_id', 'ses_id']),
         LoadImaged(keys=['query', 'key'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['query', 'key'], spatial_size=(128, 128, 128), mode='constant'),
         RandFlipd(keys=['key'], spatial_axis=(0, 1), prob=0.3),

@@ -83,34 +83,32 @@ class TestMAETransformManager:
         transforms = mae_transforms
         assert isinstance(transforms, Compose)
     
-    def test_output_keys(self, mae_transforms, sample_data):
+    def test_output_keys(self, mae_transforms, mae_sample_data):
         transforms = mae_transforms
-        out = transforms(sample_data)
-        assert set(out.keys()) == {'img', 'img_1', 'brain_mask', 'mask', 'recon',
-                                   'sub_id', 'ses_id', 'modality', 'count'}
+        out = transforms(mae_sample_data)
+        assert set(out.keys()) == {'img', 'brain_mask', 'mask', 'recon',
+                                   'sub_id', 'ses_id', 'mod'}
 
-    def test_output_types(self, mae_transforms, sample_data):
+    def test_output_types(self, mae_transforms, mae_sample_data):
         transforms = mae_transforms
-        out = transforms(sample_data)
+        out = transforms(mae_sample_data)
         assert isinstance(out['img'], MetaTensor)
-        assert isinstance(out['img_1'], torch.Tensor)
         assert isinstance(out['brain_mask'], MetaTensor)
         assert isinstance(out['mask'], MetaTensor)
         assert isinstance(out['sub_id'], str)
         assert isinstance(out['ses_id'], str)
-        assert isinstance(out['modality'], str)
-        assert isinstance(out['count'], int)
+        assert isinstance(out['mod'], str)
     
-    def test_output_values(self, ref_mae_train_transforms, mae_transforms, sample_data):
+    def test_output_values(self, ref_mae_train_transforms, mae_transforms, mae_sample_data):
         transforms = DeterministicCompose(mae_transforms, master_seed=12345)
         ref_transforms = DeterministicCompose(ref_mae_train_transforms, master_seed=12345)
-        out = transforms(sample_data)
-        out_expected = ref_transforms(sample_data)
+        out = transforms(mae_sample_data)
+        out_expected = ref_transforms(mae_sample_data)
         
-        assert (out['img'] == out_expected['img']).all() # type: ignore
-        assert (out['brain_mask'] == out_expected['brain_mask']).all() # type: ignore
-        assert (out['mask'] == out_expected['mask']).all() # type: ignore
-        assert (out['recon'] == out_expected['recon']).all() # type: ignore
+        assert torch.equal(out['img'], out_expected['img']) # type: ignore
+        assert torch.equal(out['brain_mask'], out_expected['brain_mask']) # type: ignore
+        assert torch.equal(out['mask'], out_expected['mask']) # type: ignore
+        assert torch.equal(out['recon'], out_expected['recon']) # type: ignore
 
 
 @pytest.mark.slow
@@ -123,24 +121,23 @@ class TestMAETransformManagerVal:
     def test_compose(self, mae_val_transforms):
         assert isinstance(mae_val_transforms, Compose)
 
-    def test_output_keys(self, mae_val_transforms, sample_data):
-        out = mae_val_transforms(sample_data)
-        assert set(out.keys()) == {"img", "img_1", "brain_mask", "mask", "recon",
-                                   "sub_id", "ses_id", "modality", "count"}
+    def test_output_keys(self, mae_val_transforms, mae_sample_data):
+        out = mae_val_transforms(mae_sample_data)
+        assert set(out.keys()) == {"img", "brain_mask", "mask", "recon",
+                                   "sub_id", "ses_id", "mod"}
 
-    def test_output_types(self, mae_val_transforms, sample_data):
-        out = mae_val_transforms(sample_data)
-        assert isinstance(out["img"], MetaTensor)
-        assert isinstance(out["img_1"], torch.Tensor)
+    def test_output_types(self, mae_val_transforms, mae_sample_data):
+        out = mae_val_transforms(mae_sample_data)
+        assert isinstance(out["img"], MetaTensor)   
         assert isinstance(out["brain_mask"], MetaTensor)
         assert isinstance(out["mask"], MetaTensor)
 
-    def test_output_values(self, ref_mae_val_transforms, sample_config, sample_data):
+    def test_output_values(self, ref_mae_val_transforms, sample_config, mae_sample_data):
         transforms = DeterministicCompose(MAETransformManager(sample_config).get_val_transforms(), master_seed=12345)
         ref_transforms = DeterministicCompose(ref_mae_val_transforms, master_seed=12345)
-        out = transforms(sample_data)
-        out_expected = ref_transforms(sample_data)
-        assert (out["img"] == out_expected["img"]).all()  # type: ignore
-        assert (out["brain_mask"] == out_expected["brain_mask"]).all()  # type: ignore
-        assert (out["mask"] == out_expected["mask"]).all()  # type: ignore
-        assert (out["recon"] == out_expected["recon"]).all()  # type: ignore
+        out = transforms(mae_sample_data)
+        out_expected = ref_transforms(mae_sample_data)
+        assert torch.equal(out["img"], out_expected["img"])  # type: ignore
+        assert torch.equal(out["brain_mask"], out_expected["brain_mask"])  # type: ignore
+        assert torch.equal(out["mask"], out_expected["mask"])  # type: ignore
+        assert torch.equal(out["recon"], out_expected["recon"])  # type: ignore

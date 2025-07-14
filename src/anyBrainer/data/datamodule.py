@@ -431,7 +431,7 @@ class ContrastiveDataModule(BaseDataModule):
             session_entry = {
                 'sub_id': session_files[0]['sub_id'],
                 'ses_id': session_files[0]['ses_id'],
-                'total': len(session_files),
+                'count': len(session_files),
             }
             
             # Add each scan and modality with img_i key
