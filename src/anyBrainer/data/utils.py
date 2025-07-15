@@ -3,9 +3,10 @@
 import logging
 from pathlib import Path
 import re
-from typing import Optional, Dict
+from typing import Optional, Dict, Callable
 
 import numpy as np
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +166,20 @@ def split_data_by_subjects(
                 f"Val: {len(val_data)}, Test: {len(test_data)}")
     
     return train_data, val_data, test_data
+
+def worker_init_fn(
+    seed: int | None,
+    setup_logging_fn: Callable | None,
+    seeding_fn: Callable | None,
+) -> None:
+    """
+    Initialize worker with logging setup and input file.
+    """
+    worker_info = torch.utils.data.get_worker_info()
+
+    if setup_logging_fn:
+        setup_logging_fn()
+    
+    if seeding_fn and worker_info is not None:
+        seed = seed + worker_info.id if seed is not None else worker_info.seed
+        seeding_fn(seed=seed)

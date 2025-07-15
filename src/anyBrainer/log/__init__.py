@@ -1,7 +1,7 @@
 from .logging_manager import LoggingManager
-from .utils import setup_worker_logging
+from .utils import get_safe_logger
 
 __all__ = [
     'LoggingManager',
-    'setup_worker_logging',
+    'get_safe_logger',
 ]
