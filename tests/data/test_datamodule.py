@@ -10,6 +10,7 @@ from monai.transforms import (
     Compose,
 )
 from monai.data import DataLoader, Dataset
+from monai.data.utils import set_rnd
 from monai.utils import set_determinism
 from monai.transforms import Randomizable
 
@@ -18,6 +19,7 @@ from anyBrainer.data import (
     MAEDataModule,
     ContrastiveDataModule,
 )
+from anyBrainer.data.utils import make_worker_init_fn
 
 @pytest.fixture(autouse=True)
 def mock_data_explorer(monkeypatch):
@@ -72,6 +74,15 @@ data_settings = {
     'seed': 12345
 }
 
+@pytest.fixture(scope="module")
+def worker_init_fn():
+    """Make a worker init function."""
+    return make_worker_init_fn(
+        seed=data_settings['seed'],
+        setup_logging_fn=None,
+        seeding_fn=set_rnd,
+    )
+
 class TestMAEDataModule: 
     @pytest.fixture
     def data_module(self):
@@ -102,7 +113,7 @@ class TestMAEDataModule:
             assert not torch.equal(i, j)
     
     @pytest.mark.slow
-    def test_train_loader_w_reference(self, data_module, ref_mae_train_transforms):
+    def test_train_loader_w_reference(self, data_module, ref_mae_train_transforms, worker_init_fn):
         # Datamodule
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
@@ -115,7 +126,8 @@ class TestMAEDataModule:
             transform=Compose(ref_mae_train_transforms).set_random_state(seed=12345)
         )
         ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
-                                num_workers=data_settings['num_workers'], shuffle=True))
+                                num_workers=data_settings['num_workers'], shuffle=True, 
+                                worker_init_fn=worker_init_fn))
         for _ in range(2):
             out = next(train_loader_iter)
             ref_out = next(ref_loader_iter)
@@ -162,7 +174,7 @@ class TestContrastiveDataModule:
             assert not torch.equal(i, j)
 
     @pytest.mark.slow
-    def test_train_loader_w_reference(self, data_module, ref_contrastive_train_transforms):
+    def test_train_loader_w_reference(self, data_module, ref_contrastive_train_transforms, worker_init_fn):
         # Datamodule
         set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
@@ -175,7 +187,8 @@ class TestContrastiveDataModule:
             transform=Compose(ref_contrastive_train_transforms).set_random_state(seed=12345)
         )
         ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
-                                num_workers=data_settings['num_workers'], shuffle=True))
+                                num_workers=data_settings['num_workers'], shuffle=True, 
+                                worker_init_fn=worker_init_fn))
         for _ in range(2):
             out = next(train_loader_iter)
             ref_out = next(ref_loader_iter)
