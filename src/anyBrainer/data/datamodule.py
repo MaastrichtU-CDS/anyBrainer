@@ -10,7 +10,7 @@ __all__ = [
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable
 from collections import defaultdict
 
 import lightning as L
@@ -20,6 +20,7 @@ from tqdm import tqdm
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
+from monai.data.utils import set_rnd
 from monai.transforms import Compose
 
 from anyBrainer.utils.utils import resolve_path
@@ -37,9 +38,7 @@ from anyBrainer.transforms import(
     get_contrastive_train_transforms,
     get_contrastive_val_transforms,
 )
-from anyBrainer.transforms import (
-    DeterministicCompose,
-)
+from anyBrainer.data.utils import make_worker_init_fn
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +61,8 @@ class BaseDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        worker_logging_fn: Callable | None = None,
+        worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
     ):
@@ -72,6 +73,8 @@ class BaseDataModule(L.LightningDataModule):
         self.train_val_test_split = train_val_test_split
         self.seed = seed
         self.set_random_state(seed, random_state)
+        self.worker_logging_fn = worker_logging_fn
+        self.worker_seeding_fn = worker_seeding_fn
 
         # Will be populated in setup()
         self.train_data = None
@@ -83,6 +86,9 @@ class BaseDataModule(L.LightningDataModule):
         self.val_transforms = None
         self.test_transforms = None
         self.predict_transforms = None
+
+        # Will get updated by trainer.fit()
+        self._current_epoch = 0
 
     def set_random_state(
         self, 
@@ -106,6 +112,16 @@ class BaseDataModule(L.LightningDataModule):
 
         self.R = np.random.RandomState()
         return self
+    
+    def _make_worker_init_fn(self):
+        """Make a worker init function."""
+        seed = (self.seed + self._current_epoch * self.num_workers 
+                if self.seed is not None else None)
+        return make_worker_init_fn(
+            seed=seed,
+            setup_logging_fn=self.worker_logging_fn,
+            seeding_fn=self.worker_seeding_fn,
+        )
     
     def prepare_data(self):
         """
@@ -185,16 +201,26 @@ class MAEDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: Path | str,
-        masks_dir: Path | str,
+        masks_dir: Path | str | None,
+        *,
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        worker_logging_fn: Callable | None = None,
+        worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
         **kwargs
     ):
-        super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
-        self.masks_dir = resolve_path(masks_dir)
+        super().__init__(
+            data_dir=data_dir, 
+            batch_size=batch_size, 
+            num_workers=num_workers, 
+            train_val_test_split=train_val_test_split, 
+            worker_logging_fn=worker_logging_fn, 
+            worker_seeding_fn=worker_seeding_fn, 
+            seed=seed, random_state=random_state)
+        self.masks_dir = resolve_path(masks_dir) if masks_dir is not None else None
         
         # Get transforms
         self.train_transforms = get_mae_train_transforms()
@@ -241,10 +267,11 @@ class MAEDataModule(BaseDataModule):
                 'mod': metadata['modality'],
             }
 
-            brain_mask_path = (
-                self.masks_dir / file_path.relative_to(self.data_dir).parent / "mask.npy"
-            )
-            if brain_mask_path.exists():
+            if self.masks_dir is not None:
+                brain_mask_path = (
+                    self.masks_dir / file_path.relative_to(self.data_dir).parent / "mask.npy"
+                )
+            if self.masks_dir is not None and brain_mask_path.exists():
                 data_entry['brain_mask'] = str(brain_mask_path)
             else:
                 logger.warning(f"Mask file {brain_mask_path} does not exist")
@@ -289,6 +316,8 @@ class MAEDataModule(BaseDataModule):
         if self.train_data is None:
             logger.error("train_data is None. Make sure setup('fit') was called.")
             raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
+
+        logger.debug(f"Epoch {self._current_epoch}: Creating new DataLoader")
         
         # Create dataset with transforms
         dataset = MONAIDataset(
@@ -300,7 +329,8 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
     
     def val_dataloader(self):
@@ -318,7 +348,8 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
     
     def test_dataloader(self):
@@ -336,7 +367,8 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
     
     def predict_dataloader(self):
@@ -354,7 +386,8 @@ class MAEDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
 
 
@@ -376,14 +409,24 @@ class ContrastiveDataModule(BaseDataModule):
     def __init__(
         self,
         data_dir: str,
+        *,
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        worker_logging_fn: Callable | None = None,
+        worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
         **kwargs
     ):
-        super().__init__(data_dir, batch_size, num_workers, train_val_test_split, seed, random_state)
+        super().__init__(
+            data_dir=data_dir, 
+            batch_size=batch_size, 
+            num_workers=num_workers, 
+            train_val_test_split=train_val_test_split, 
+            worker_logging_fn=worker_logging_fn, 
+            worker_seeding_fn=worker_seeding_fn, 
+            seed=seed, random_state=random_state)
         
         # Get transforms
         self.train_transforms = get_contrastive_train_transforms()
@@ -480,6 +523,8 @@ class ContrastiveDataModule(BaseDataModule):
             logger.error("train_data is None. Make sure setup('fit') was called.")
             raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
         
+        logger.debug(f"Epoch {self._current_epoch}: Creating new DataLoader")
+        
         # Create dataset with transforms
         dataset = MONAIDataset(
             data=self.train_data, 
@@ -490,7 +535,8 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
     
     def val_dataloader(self):
@@ -508,7 +554,8 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
     
     def test_dataloader(self):
@@ -526,7 +573,8 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )
     
     def predict_dataloader(self):
@@ -544,5 +592,6 @@ class ContrastiveDataModule(BaseDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False
+            pin_memory=False,
+            worker_init_fn=self._make_worker_init_fn(),
         )

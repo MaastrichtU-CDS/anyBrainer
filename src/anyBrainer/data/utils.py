@@ -167,19 +167,26 @@ def split_data_by_subjects(
     
     return train_data, val_data, test_data
 
-def worker_init_fn(
+def make_worker_init_fn(
     seed: int | None,
     setup_logging_fn: Callable | None,
     seeding_fn: Callable | None,
-) -> None:
-    """
-    Initialize worker with logging setup and input file.
-    """
-    worker_info = torch.utils.data.get_worker_info()
-
-    if setup_logging_fn:
-        setup_logging_fn()
+) -> Callable:
+    """Make a worker init function."""
     
-    if seeding_fn and worker_info is not None:
-        seed = seed + worker_info.id if seed is not None else worker_info.seed
-        seeding_fn(seed=seed)
+    def custom_worker_init_fn(worker_id: int) -> None:
+        """
+        Initialize worker with logging setup and input file.
+        """
+        worker_info = torch.utils.data.get_worker_info()
+
+        if setup_logging_fn:
+            setup_logging_fn()
+        
+        if seeding_fn and worker_info is not None:
+            base_seed = seed + worker_info.id if seed is not None else worker_info.seed
+            seeding_fn(worker_info.dataset, seed=base_seed)
+        
+        logger.debug(f"Worker {worker_id} initialized with seed {base_seed}")
+    
+    return custom_worker_init_fn
