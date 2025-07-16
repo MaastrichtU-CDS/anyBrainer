@@ -170,8 +170,8 @@ def split_data_by_subjects(
     return train_data, val_data, test_data
 
 def make_worker_init_fn(
-    seed: int | None,
-    setup_logging_fn: Callable | None,
+    seed: int | None = None,
+    setup_logging_fn: Callable | None = None,
     seeding_fn: Callable | None = set_rnd,
 ) -> Callable:
     """Make a worker init function."""
@@ -200,6 +200,6 @@ def make_worker_init_fn(
         random.seed(base_seed)
         torch.manual_seed(base_seed)
 
-        logger.debug(f"Worker {worker_id} initialized with seed {base_seed}")
+        logger.info(f"Worker {worker_id} initialized with seed {base_seed}")
     
     return custom_worker_init_fn

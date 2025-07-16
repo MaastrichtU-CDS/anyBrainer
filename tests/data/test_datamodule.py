@@ -7,12 +7,8 @@ import torch
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
     LoadImage,
-    Compose,
 )
 from monai.data import DataLoader, Dataset
-from monai.data.utils import set_rnd
-from monai.utils import set_determinism
-from monai.transforms import Randomizable
 
 from anyBrainer.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.data import (
@@ -60,7 +56,7 @@ def mock_load_image(monkeypatch):
     def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
         gen = torch.Generator().manual_seed(42)
-        img = torch.rand((1, 120, 120, 120), dtype=torch.float32, generator=gen)
+        img = torch.rand((1, 150, 150, 150), dtype=torch.float32, generator=gen)
         return img
 
     monkeypatch.setattr(LoadImage, "__call__", _dummy_call, raising=True)
@@ -73,15 +69,6 @@ data_settings = {
     'train_val_test_split': (0.7, 0.2, 0.1),
     'seed': 12345
 }
-
-@pytest.fixture(scope="module")
-def worker_init_fn():
-    """Make a worker init function."""
-    return make_worker_init_fn(
-        seed=data_settings['seed'],
-        setup_logging_fn=None,
-        seeding_fn=set_rnd,
-    )
 
 class TestMAEDataModule: 
     @pytest.fixture
@@ -102,6 +89,7 @@ class TestMAEDataModule:
     
     @pytest.mark.slow
     def test_train_loader_rng_locks(self, data_module):
+        """Check that RNG changes in every iter"""
         # Datamodule
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
@@ -109,32 +97,30 @@ class TestMAEDataModule:
         next_out = next(train_loader_iter)
         
         # Ensure outputs don't match between iterations
-        for i, j in zip(out['img'], next_out['img']): # type: ignore
-            assert not torch.equal(i, j)
+        assert not torch.equal(out['img'], next_out['img'])
     
     @pytest.mark.slow
-    def test_train_loader_w_reference(self, data_module, ref_mae_train_transforms, worker_init_fn):
+    def test_train_loader_w_reference(self, data_module, ref_mae_train_transforms):
+        """Check that dataloader transforms are deterministic"""
         # Datamodule
-        set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
 
         # Reference transforms
-        set_determinism(seed=12345)
         ref_dataset = Dataset(
             data=data_module.train_data, 
-            transform=Compose(ref_mae_train_transforms).set_random_state(seed=12345)
+            transform=ref_mae_train_transforms
         )
         ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
                                 num_workers=data_settings['num_workers'], shuffle=True, 
-                                worker_init_fn=worker_init_fn))
+                                worker_init_fn=make_worker_init_fn(data_settings['seed']), 
+                                generator=torch.Generator().manual_seed(12345)))
         for _ in range(2):
             out = next(train_loader_iter)
             ref_out = next(ref_loader_iter)
         
         # Ensure outputs match for each sample
-        for i, j in zip(out['img'], ref_out['img']): # type: ignore
-            assert torch.equal(i, j)
+        assert torch.equal(out['img'], ref_out['img'])
 
 
 class TestContrastiveDataModule: 
@@ -151,51 +137,128 @@ class TestContrastiveDataModule:
     
     @pytest.mark.slow
     def test_train_loader_pair(self, data_module):
-        set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
         out = next(train_loader_iter)
         
         # Ensure keys and queries are different
-        for i, j in zip(out['key'], out['query']): # type: ignore
-            assert not torch.equal(i, j)
+        assert not torch.equal(out['key'], out['query'])
     
     @pytest.mark.slow
     def test_train_loader_rng_locks(self, data_module):
+        """Check that RNG changes in every iter"""
         # Datamodule
-        set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
         out = next(train_loader_iter)
         next_out = next(train_loader_iter)
         
         # Ensure outputs don't match between iterations
-        for i, j in zip(out['key'], next_out['key']): # type: ignore
-            assert not torch.equal(i, j)
+        assert not torch.equal(out['key'], next_out['key'])
 
     @pytest.mark.slow
-    def test_train_loader_w_reference(self, data_module, ref_contrastive_train_transforms, worker_init_fn):
+    def test_train_loader_w_reference(self, data_module, ref_contrastive_train_transforms):
+        """Check that dataloader transforms are deterministic"""
         # Datamodule
-        set_determinism(seed=data_settings['seed'])
         data_module.setup(stage="fit")
         train_loader_iter = iter(data_module.train_dataloader())
 
         # Reference transforms
-        set_determinism(seed=12345)
         ref_dataset = Dataset(
             data=data_module.train_data, 
-            transform=Compose(ref_contrastive_train_transforms).set_random_state(seed=12345)
+            transform=ref_contrastive_train_transforms
         )
         ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
                                 num_workers=data_settings['num_workers'], shuffle=True, 
-                                worker_init_fn=worker_init_fn))
+                                worker_init_fn=make_worker_init_fn(data_settings['seed']), 
+                                generator=torch.Generator().manual_seed(12345)))
         for _ in range(2):
             out = next(train_loader_iter)
             ref_out = next(ref_loader_iter)
         
         # Ensure outputs match for each sample
-        for i, j in zip(out['key'], ref_out['key']): # type: ignore
-            assert torch.equal(i, j)
+        assert torch.equal(out['key'], ref_out['key'])
+        assert torch.equal(out['query'], ref_out['query'])
+
+@pytest.mark.slow
+class TestEpochAwareDeterminism:
+    @pytest.fixture
+    def data_module(self):
+        return MAEDataModule(**data_settings)
+    
+    def test_different_seeds_per_stage(self, data_module):
+        """Check that different stages have different seeds"""
+        data_module.setup(stage="fit")
+        train_loader_iter = iter(data_module.train_dataloader())
+        out = next(train_loader_iter)
         
-        for i, j in zip(out['query'], ref_out['query']): # type: ignore
-            assert torch.equal(i, j)
+        data_module.setup(stage="validate")
+        val_loader_iter = iter(data_module.val_dataloader())
+        val_out = next(val_loader_iter)
+
+        data_module.setup(stage="test")
+        test_loader_iter = iter(data_module.test_dataloader())
+        test_out = next(test_loader_iter)
+
+        data_module.setup(stage="predict")
+        predict_loader_iter = iter(data_module.predict_dataloader())
+        predict_out = next(predict_loader_iter)
+        
+        assert not torch.equal(out['img'], val_out['img'])
+        assert not torch.equal(out['img'], test_out['img'])
+        assert not torch.equal(out['img'], predict_out['img'])
+        assert not torch.equal(val_out['img'], test_out['img'])
+        assert not torch.equal(val_out['img'], predict_out['img'])
+        assert not torch.equal(test_out['img'], predict_out['img'])
+
+    def test_different_seeds_per_epoch(self, data_module):
+        """Check that different epochs have different seeds"""
+        data_module.setup(stage="fit")
+        train_loader_iter = iter(data_module.train_dataloader())
+        out_0 = next(train_loader_iter)
+        
+        data_module._current_epoch = 1
+        train_loader_iter = iter(data_module.train_dataloader())
+        out_1 = next(train_loader_iter)
+
+        assert not torch.equal(out_0['img'], out_1['img'])
+    
+    def test_epoch_determinism_vs_ref(self, data_module, ref_mae_train_transforms):
+        """Check that dataloader transforms are epoch-aware deterministic"""
+        data_module.setup(stage="fit")
+        data_module._current_epoch = 3
+        train_loader_iter = iter(data_module.train_dataloader())
+        out = next(train_loader_iter)
+
+        ref_dataset = Dataset(
+            data=data_module.train_data, 
+            transform=ref_mae_train_transforms
+        )
+        ref_seed = data_settings['seed'] + 3 * data_settings['num_workers']
+        ref_loader_iter = iter(DataLoader(ref_dataset, batch_size=data_settings['batch_size'], 
+                                num_workers=data_settings['num_workers'], shuffle=True, 
+                                worker_init_fn=make_worker_init_fn(ref_seed), 
+                                generator=torch.Generator().manual_seed(ref_seed)))
+        ref_out = next(ref_loader_iter)
+        
+        assert torch.equal(out['img'], ref_out['img'])
+    
+    def test_resumed_training_from_ckpt(self, data_module):
+        """
+        Check that dataloading resumed from a checkpoint has identical behavior
+        with single training run.
+        """
+        data_module.setup(stage="fit")
+        data_module._current_epoch = 4
+        train_loader_iter = iter(data_module.train_dataloader())
+        single_run_out = next(train_loader_iter)
+        state = data_module.state_dict()
+        state['epoch'] = 4
+        
+        new_data_module = MAEDataModule(**data_settings)
+        new_data_module.setup(stage="fit")
+        new_data_module.load_state_dict(state)
+        train_loader_iter = iter(new_data_module.train_dataloader())
+        resumed_out = next(train_loader_iter)
+
+        assert torch.equal(single_run_out['img'], resumed_out['img'])

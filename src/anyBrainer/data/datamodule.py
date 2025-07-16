@@ -15,13 +15,15 @@ from collections import defaultdict
 
 import lightning as L
 import numpy as np
+import torch
 from tqdm import tqdm
 
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
-from monai.data.utils import set_rnd
 from monai.transforms import Compose
+from monai.data.utils import set_rnd
+from monai.utils import MAX_SEED
 
 from anyBrainer.utils.utils import resolve_path
 from anyBrainer.data.utils import (
@@ -40,6 +42,13 @@ from anyBrainer.transforms import(
 )
 from anyBrainer.data.utils import make_worker_init_fn
 
+STAGE_SEED_OFFSET = {
+    "fit": 0,
+    "validate": 1000,
+    "test": 2000,
+    "predict": 3000,
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,7 +63,6 @@ class BaseDataModule(L.LightningDataModule):
         train_val_test_split: train/val/test split
         seed: random seed for reproducibility
     """
-
     def __init__(
         self,
         data_dir: Path | str,
@@ -113,16 +121,26 @@ class BaseDataModule(L.LightningDataModule):
         self.R = np.random.RandomState()
         return self
     
-    def _make_worker_init_fn(self):
-        """Make a worker init function."""
-        seed = (self.seed + self._current_epoch * self.num_workers 
+    def _epoch_aware_determinism(self, stage: str) -> tuple[Callable, torch.Generator | None]:
+        """
+        Make a worker init function and a torch generator for epoch-aware determinism.
+        """
+        stage_offset = STAGE_SEED_OFFSET.get(stage, 3000) * self.num_workers
+        
+        epoch_offset = self._current_epoch * self.num_workers
+
+        seed = ((self.seed + stage_offset + epoch_offset) % MAX_SEED
                 if self.seed is not None else None)
-        return make_worker_init_fn(
-            seed=seed,
-            setup_logging_fn=self.worker_logging_fn,
-            seeding_fn=self.worker_seeding_fn,
-        )
     
+        return (
+            make_worker_init_fn(
+                seed=seed,
+                setup_logging_fn=self.worker_logging_fn,
+                seeding_fn=self.worker_seeding_fn,
+            ), 
+            torch.Generator().manual_seed(seed) if seed is not None else None
+        )
+        
     def prepare_data(self):
         """
         One time only (downloading or preprocessing), not intended for 
@@ -162,7 +180,7 @@ class BaseDataModule(L.LightningDataModule):
         """
         state = {
             "train_val_test_split": self.train_val_test_split,
-            "rng": self.R.get_state()
+            "datamodule_base_seed": self.seed,
         }
         return state
 
@@ -175,9 +193,10 @@ class BaseDataModule(L.LightningDataModule):
             "train_val_test_split", self.train_val_test_split
         )
         
-        rng_state = state_dict.get("rng", None)
-        if rng_state is not None:
-            self.R.set_state(rng_state)
+        base_seed = state_dict.get("datamodule_base_seed", None)
+        if base_seed is not None:
+            self.seed = base_seed
+        self._current_epoch = state_dict.get("epoch", 0)
 
 
 class MAEDataModule(BaseDataModule):
@@ -322,15 +341,19 @@ class MAEDataModule(BaseDataModule):
         # Create dataset with transforms
         dataset = MONAIDataset(
             data=self.train_data, 
-            transform=Compose(self.train_transforms).set_random_state(seed=self.seed)
+            transform=self.train_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("fit")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
     
     def val_dataloader(self):
@@ -341,15 +364,19 @@ class MAEDataModule(BaseDataModule):
             
         dataset = MONAIDataset(
             data=self.val_data, 
-            transform=Compose(self.val_transforms).set_random_state(seed=self.seed)
+            transform=self.val_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("validate")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
     
     def test_dataloader(self):
@@ -360,15 +387,19 @@ class MAEDataModule(BaseDataModule):
             
         dataset = MONAIDataset(
             data=self.test_data, 
-            transform=Compose(self.test_transforms).set_random_state(seed=self.seed)
+            transform=self.test_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("test")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
     
     def predict_dataloader(self):
@@ -379,15 +410,19 @@ class MAEDataModule(BaseDataModule):
             
         dataset = MONAIDataset(
             data=self.predict_data, 
-            transform=Compose(self.predict_transforms).set_random_state(seed=self.seed)
+            transform=self.predict_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("predict")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
 
 
@@ -528,15 +563,19 @@ class ContrastiveDataModule(BaseDataModule):
         # Create dataset with transforms
         dataset = MONAIDataset(
             data=self.train_data, 
-            transform=Compose(self.train_transforms).set_random_state(seed=self.seed)
+            transform=self.train_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("fit")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
     
     def val_dataloader(self):
@@ -547,15 +586,19 @@ class ContrastiveDataModule(BaseDataModule):
             
         dataset = MONAIDataset(
             data=self.val_data, 
-            transform=Compose(self.val_transforms).set_random_state(seed=self.seed)
+            transform=self.val_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("validate")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
     
     def test_dataloader(self):
@@ -566,15 +609,19 @@ class ContrastiveDataModule(BaseDataModule):
             
         dataset = MONAIDataset(
             data=self.test_data, 
-            transform=Compose(self.test_transforms).set_random_state(seed=self.seed)
+            transform=self.test_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("test")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
     
     def predict_dataloader(self):
@@ -585,13 +632,17 @@ class ContrastiveDataModule(BaseDataModule):
             
         dataset = MONAIDataset(
             data=self.predict_data, 
-            transform=Compose(self.predict_transforms).set_random_state(seed=self.seed)
+            transform=self.predict_transforms
         )
+
+        worker_init_fn, generator = self._epoch_aware_determinism("predict")
+
         return MONAIDataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=False,
-            worker_init_fn=self._make_worker_init_fn(),
+            generator=generator,
+            worker_init_fn=worker_init_fn,
         )
