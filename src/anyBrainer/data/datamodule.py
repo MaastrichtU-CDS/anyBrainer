@@ -1,5 +1,18 @@
 """
-PyTorch DataModule to control datasets, dataloaders, and splits alltogether. 
+PyTorch Lightning DataModules to control datasets, dataloaders, and 
+splits alltogether. 
+
+Includes:
+- BaseDataModule: Base class for all datamodules
+- MAEDataModule: DataModule for masked autoencoder
+- ContrastiveDataModule: DataModule for contrastive learning
+
+The datamodule is responsible for:
+- Creating and managing datasets
+- Creating and managing dataloaders
+- Splitting data into train/val/test sets
+- Setting random seeds for reproducibility
+- Saving and loading state_dicts
 """
 
 __all__ = [

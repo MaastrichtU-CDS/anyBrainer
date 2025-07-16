@@ -5,14 +5,21 @@ Logging utility functions
 __all__ = [
     'setup_worker_logging',
     'get_safe_logger',
+    'WandbFilter',
 ]
 
 from pathlib import Path
 import logging
 from logging.handlers import QueueHandler
 from multiprocessing import Queue
+from threading import Lock
+import time
+
+import wandb
 
 from anyBrainer.utils.utils import resolve_path
+
+logger = logging.getLogger(__name__)
 
 def setup_worker_logging(
         log_queue: Queue, 
@@ -29,6 +36,7 @@ def setup_worker_logging(
             level = logging.INFO
         else: 
             level = logging.WARNING
+        
         root_logger = logging.getLogger()
         root_logger.setLevel(level)
         root_logger.handlers = []
@@ -63,4 +71,72 @@ def get_safe_logger(
             logger.addHandler(file_handler)
 
     return logger
+
+
+class WandbFilter(logging.Filter):
+    """
+    Filter to aggregate logs from multiple workers and sync them to W&B.
+
+    Supports both sync and async modes.
+    Sync mode: logs are aggregated and synced to W&B after a timeout or when the
+    expected number of workers have logged.
+    Async mode: logs are logged to W&B immediately.
+    """
+    def __init__(
+        self,
+        enable_wandb: bool = False,
+        num_expected_sync: int = 0,
+        sync_timeout: float = 5.0,
+    ):
+        super().__init__()
+        self.enable_wandb = enable_wandb
+        self.num_expected_sync = num_expected_sync
+        self.sync_timeout = sync_timeout
+
+        # Sync mode tracking
+        self.aggregated_sync = {}
+        self._sync_count = 0
+        self._sync_first_time = None
+        self._lock = Lock()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not self.enable_wandb:
+            return True
+
+        if not hasattr(record, "wandb") or not isinstance(record.wandb, dict): # type: ignore
+            return True
+
+        data = dict(record.wandb) # type: ignore
+        mode = data.pop("_wandb_mode", "sync")
+
+        if mode == "async":
+            wandb.log(data)
+            return True
+
+        # Default: sync
+        with self._lock:
+            if self._sync_first_time is None:
+                self._sync_first_time = time.time()
+
+            self.aggregated_sync.update(data)
+            self._sync_count += 1
+
+            now = time.time()
+            elapsed = now - self._sync_first_time
+
+            if self._sync_count >= self.num_expected_sync:
+                self._flush_sync_log()
+            elif elapsed >= self.sync_timeout:
+                logger.warning(f"[WandbFilter] Timeout after {elapsed:.1f}s — partial sync log to W&B")
+                self._flush_sync_log()
+
+        return True
+
+    def _flush_sync_log(self):
+        if self.aggregated_sync:
+            wandb.log(self.aggregated_sync, step=0)
+
+        self.aggregated_sync.clear()
+        self._sync_count = 0
+        self._sync_first_time = None
     
