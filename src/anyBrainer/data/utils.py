@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 import re
 import random
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict, Callable, Any
 
 import numpy as np
 import torch
@@ -171,9 +171,9 @@ def split_data_by_subjects(
 
 def make_worker_init_fn(
     seed: int | None = None,
-    setup_logging_fn: Callable | None = None,
-    seeding_fn: Callable | None = set_rnd,
-) -> Callable:
+    setup_logging_fn: Callable[[], None] | None = None,
+    seeding_fn: Callable[[Any, int], Any] | None = set_rnd,
+) -> Callable[[int], None]:
     """Make a worker init function."""
     
     def custom_worker_init_fn(worker_id: int) -> None:
@@ -193,13 +193,18 @@ def make_worker_init_fn(
 
         # Optional user seeding logic
         if seeding_fn and worker_info is not None:
-            seeding_fn(worker_info.dataset, seed=base_seed)
+            seeding_fn(worker_info.dataset, base_seed)
 
         # Always seed the standard RNGs
         np.random.seed(base_seed)
         random.seed(base_seed)
         torch.manual_seed(base_seed)
 
-        logger.info(f"Worker {worker_id} initialized with seed {base_seed}")
+        logger.info(f"Worker {worker_id} initialized with seed {base_seed}", 
+            extra={"wandb": {
+                "_wandb_mode": "sync",
+                f"worker_{worker_id}_seed": base_seed
+            }}
+        )
     
     return custom_worker_init_fn

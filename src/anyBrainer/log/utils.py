@@ -6,6 +6,7 @@ __all__ = [
     'setup_worker_logging',
     'get_safe_logger',
     'WandbFilter',
+    'WandbOnlyHandler',
 ]
 
 from pathlib import Path
@@ -20,6 +21,7 @@ import wandb
 from anyBrainer.utils.utils import resolve_path
 
 logger = logging.getLogger(__name__)
+
 
 def setup_worker_logging(
         log_queue: Queue, 
@@ -140,3 +142,8 @@ class WandbFilter(logging.Filter):
         self._sync_count = 0
         self._sync_first_time = None
     
+
+class WandbOnlyHandler(logging.Handler):
+    """Handler that only logs to W&B."""
+    def emit(self, record: logging.LogRecord) -> None:
+        pass # Filtering logic is in WandbFilter

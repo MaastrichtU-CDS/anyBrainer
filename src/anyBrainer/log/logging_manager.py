@@ -14,25 +14,29 @@ from dataclasses import dataclass
 from functools import partial
 
 from anyBrainer.utils.utils import resolve_path
-from anyBrainer.log.utils import setup_worker_logging
+from anyBrainer.log.utils import setup_worker_logging 
+from anyBrainer.log.utils import WandbFilter, WandbOnlyHandler
 
 @dataclass
 class LoggingSettings:
     logs_root: Path | None
     worker_logs: bool
     dev_mode: bool
+    enable_wandb: bool
+    num_workers: int
+    sync_timeout: float = 5.0
 
+    def __post_init__(self):
+        if self.logs_root is not None:
+            self.logs_root = resolve_path(self.logs_root)
 
 class LoggingManager:
     def __init__(self, settings: dict):
         self.settings = LoggingSettings(**settings)
-        self.settings.logs_root = (
-            resolve_path(self.settings.logs_root)
-            if self.settings.logs_root else None
-        )
+        self.main_logger = None
         self.log_queue = None
         self.listener = None
-        self.main_logger = None
+        self._wandb_filter = None
 
     def setup_main_logging(self):
         """Sets up the main process logging handlers and loggers."""
@@ -74,7 +78,8 @@ class LoggingManager:
         """Sets up multiprocessing-compatible logging using a Queue."""
         self.log_queue = Queue()
 
-        handlers = [logging.StreamHandler()]
+        handlers: list[logging.Handler] = [logging.StreamHandler()]
+
         if self.settings.logs_root:
             handlers.append(logging.FileHandler(self.settings.logs_root / "workers.log")) # type: ignore
 
@@ -87,6 +92,16 @@ class LoggingManager:
             handler.setFormatter(
                 logging.Formatter(stream_fmt, "%Y-%m-%d %H:%M:%S")
             )
+        
+        # Add WandbFilter to the handler
+        wandb_handler = WandbOnlyHandler()
+        self._wandb_filter = WandbFilter(
+            enable_wandb=self.settings.enable_wandb,
+            num_expected_sync=self.settings.num_workers,
+            sync_timeout=self.settings.sync_timeout
+        )
+        wandb_handler.addFilter(self._wandb_filter)
+        handlers.append(wandb_handler)
 
         self.listener = QueueListener(self.log_queue, *handlers)
         self.listener.start()
@@ -109,3 +124,4 @@ class LoggingManager:
     def stop_parallel_logging(self):
         if self.listener:
             self.listener.stop()
+            self.listener = None
