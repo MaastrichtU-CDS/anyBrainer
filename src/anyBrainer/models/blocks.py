@@ -26,6 +26,8 @@ class ProjectionHead(nn.Module):
         hidden_dim: int = 2048,
         proj_dim: int = 128,
         activation: str = "gelu",
+        *,
+        model_name: str | None = None,
     ):
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool3d(1)
@@ -35,8 +37,13 @@ class ProjectionHead(nn.Module):
             get_activation(activation),
             nn.Linear(hidden_dim, proj_dim, bias=True),
         )
-        logger.info(f"ProjectionHead initialized with in_dim={in_dim}, "
-                    f"hidden_dim={hidden_dim}, proj_dim={proj_dim}")
+
+        # Log hyperparameters
+        msg = (f"ProjectionHead initialized with in_dim={in_dim}, "
+               f"hidden_dim={hidden_dim}, proj_dim={proj_dim}")
+        if model_name is not None:
+            msg = f"[{model_name}] " + msg
+        logger.info(msg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == 5:  # Apply pooling if input is 3D
@@ -58,6 +65,8 @@ class ClassificationHead(nn.Module):
         dropout: float = 0.0,
         hidden_dim: int | None = None,
         activation: str = "gelu",
+        *,
+        model_name: str | None = None,
     ):
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool3d(1)
@@ -74,6 +83,14 @@ class ClassificationHead(nn.Module):
                 nn.Dropout(p=dropout),
                 nn.Linear(in_dim, num_classes)
             )
+        
+        # Log hyperparameters
+        msg = (f"ClassificationHead initialized with in_dim={in_dim}, "
+               f"num_classes={num_classes}, dropout={dropout}, "
+               f"hidden_dim={hidden_dim}, activation={activation}")
+        if model_name is not None:
+            msg = f"[{model_name}] " + msg
+        logger.info(msg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == 5:

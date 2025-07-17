@@ -55,7 +55,7 @@ class TestProjectionHead:
 
 
 class TestClassificationHead:
-    """Test ClassificationHead in terms of shape, norm, and error handling."""
+    """Test ClassificationHead in terms of shape, and error handling."""
     @pytest.mark.parametrize("activation", ["relu", "gelu", "silu"])
     @pytest.mark.parametrize("dropout", [0.0, 0.5])
     @pytest.mark.parametrize("hidden_dim", [None, 1024])

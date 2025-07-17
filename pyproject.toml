@@ -25,6 +25,7 @@ dependencies = [
     "torch>2.4.1",
     "wandb>=0.16.0",
     "matplotlib==3.10.3",
+    "einops==0.8.1",
 ]
 
 [project.optional-dependencies]
