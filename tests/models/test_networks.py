@@ -15,8 +15,9 @@ def input_tensor() -> torch.Tensor:
 @pytest.fixture(autouse=True)
 def mock_swin_vit(monkeypatch):
     """
-    Monkey-patch LoadImage so every attempt to read a file
-    yields a synthetic 3-D volume instead of touching the disk.
+    Monkey-patch MONAI's SwinTransformer so every forward pass of the model
+    yields a synthetic tensor that matches the bottleneck dimensions, given 
+    a feature_size of 48 and 4 stages.
     """
     def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
@@ -29,6 +30,7 @@ def mock_swin_vit(monkeypatch):
 
 class TestSwinv2CL:
     def test_forward_all_heads(self, input_tensor):
+        """Test that the heads are working as expected."""
         model = Swinv2CL(
             in_channels=1,
             depths=(2, 2, 6, 2),
@@ -51,6 +53,7 @@ class TestSwinv2CL:
         assert aux.shape == (8, 7)
     
     def test_forward_no_aux_mlp(self, input_tensor):
+        """Test that the model can skip the auxiliary MLP."""
         model = Swinv2CL(
             in_channels=1,
             depths=(2, 2, 6, 2),

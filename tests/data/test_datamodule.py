@@ -20,8 +20,8 @@ from anyBrainer.data.utils import make_worker_init_fn
 @pytest.fixture(autouse=True)
 def mock_data_explorer(monkeypatch):
     """
-    Monkey-patch LoadImage so every attempt to read a file
-    yields a synthetic 3-D volume instead of touching the disk.
+    Monkey-patch DataModule so every attempt to read a folder
+    returns a synthetic list of files.
     """
     def _dummy_call(self, *args, **kwargs): 
         # 10 subjects, 11 sessions, 15 images
