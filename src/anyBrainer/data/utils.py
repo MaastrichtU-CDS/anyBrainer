@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import re
 import random
+from collections import Counter
 from typing import Optional, Dict, Callable, Any
 
 import numpy as np
@@ -12,14 +13,14 @@ from monai.data.utils import set_rnd
 
 logger = logging.getLogger(__name__)
 
-def parse_filename_nested_nifti(file_path: Path | str) -> dict:
+def parse_filename_nested_nifti(file_path: Path | str, ext: str = ".npy") -> dict:
     """
-    Parse filename with pattern: root/sub_x/ses_y/ModalityName_CountIfMoreThanOne.nii.gz
+    Parse filename with pattern: root/sub_x/ses_y/ModalityName_CountIfMoreThanOne.npy
     """
     file_path = Path(file_path)
 
     file_name = file_path.name
-    modality = file_name.split('_')[0]
+    modality = file_name.split(ext)[0].split('_')[0]
     ses_dir = file_path.parent
     sub_dir = ses_dir.parent
 
@@ -169,6 +170,26 @@ def split_data_by_subjects(
     
     return train_data, val_data, test_data
 
+def get_summary_msg(
+    subjects: set, 
+    sessions: set, 
+    modality_counts: Counter,
+) -> str:
+    """
+    Get summary message for list of data creation.
+    """
+    msg = f"\n#### Data Collection Completed ####\nSummary:"
+    msg += f"\n  - {len(subjects)} subjects"
+    msg += f"\n  - {len(sessions)} sessions"
+    msg += f"\n  - {sum(modality_counts.values())} scans"
+    msg += f"\n  - Modality distribution:"
+    
+    for mod, count in modality_counts.items():
+        msg += (f"\n    - {mod}: {count} files "
+                f"({count/sum(modality_counts.values())*100:.2f}%)")
+
+    return msg
+
 def make_worker_init_fn(
     seed: int | None = None,
     setup_logging_fn: Callable[[], None] | None = None,
@@ -208,3 +229,4 @@ def make_worker_init_fn(
         )
     
     return custom_worker_init_fn
+

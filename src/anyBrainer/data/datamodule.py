@@ -21,10 +21,9 @@ __all__ = [
 ]
 
 import logging
-import re
 from pathlib import Path
-from typing import List, Dict, Any, Callable
-from collections import defaultdict
+from typing import List, Dict, Callable
+from collections import defaultdict, Counter
 
 import lightning as L
 import numpy as np
@@ -43,6 +42,7 @@ from anyBrainer.data.utils import (
     trivial_check_nested_nifti_dataset,
     parse_filename_nested_nifti,
     split_data_by_subjects,
+    get_summary_msg,
 )
 from anyBrainer.data.explorer import (
     GenericNiftiDataExplorer,
@@ -284,13 +284,13 @@ class MAEDataModule(BaseDataModule):
         data_list = []
         subjects = set()
         sessions = set()
-        modalities = set()
+        modality_counts = Counter()
         
         for file_path in explorer.get_all_image_files(as_list=True, exts=(".npy")):
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
-            modalities.add(metadata['modality'])
+            modality_counts[metadata['modality']] += 1
 
             data_entry = {
                 'img': metadata['file_name'],
@@ -310,9 +310,7 @@ class MAEDataModule(BaseDataModule):
     
             data_list.append(data_entry)
         
-        logger.info(f"Dataset contains {len(subjects)} subjects, "
-                    f"{len(sessions)} sessions, {len(modalities)} modalities")
-        logger.info(f"Data collection completed")
+        logger.info(get_summary_msg(subjects, sessions, modality_counts))
         
         return data_list
         
@@ -501,14 +499,14 @@ class ContrastiveDataModule(BaseDataModule):
         session_groups = defaultdict(list)
         subjects = set()
         sessions = set()
-        modalities = set()
+        modality_counts = Counter()
 
         # Group by session
         for file_path in explorer.get_all_image_files(as_list=True, exts=(".npy")):
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
-            modalities.add(metadata['modality'])
+            modality_counts[metadata['modality']] += 1
 
             session_key = f"{metadata['sub_id']}_ses_{metadata['ses_id']}"
             session_groups[session_key].append(metadata)
@@ -532,9 +530,7 @@ class ContrastiveDataModule(BaseDataModule):
             
             data_list.append(session_entry)
         
-        logger.info(f"Dataset contains {len(subjects)} subjects, "
-                    f"{len(sessions)} sessions, {len(modalities)} modalities")
-        logger.info(f"Data collection completed")
+        logger.info(get_summary_msg(subjects, sessions, modality_counts))
         
         return data_list
         
