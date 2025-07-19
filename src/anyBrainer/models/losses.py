@@ -5,7 +5,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 import torch.nn as nn
@@ -33,13 +33,15 @@ class InfoNCELoss(nn.Module):
         postprocess_fn: Callable[
             [torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
         ] | None = None,
-        normalize: bool = True,
+        normalize: bool = False,
+        cross_entropy_args: dict[str, Any] | None = None,
     ):
         super().__init__()
         self.temperature = temperature
         self.top_k_negatives = top_k_negatives
         self.postprocess_fn = postprocess_fn
         self.normalize = normalize
+        self.cross_entropy_args = cross_entropy_args or {}
 
     def forward(
         self,
@@ -79,12 +81,10 @@ class InfoNCELoss(nn.Module):
         # Top-k hard negative selection
         if self.top_k_negatives is not None:
             M = self.top_k_negatives
-            if M <= 0:
-                msg = "top_k_negatives must be positive."
+            if M > K or M <= 0:
+                msg = "top_k_negatives must not exceed queue size and be positive."
                 logger.error(msg)
                 raise ValueError(msg)
-            if M > K:
-                M = K
             # Indices of top-M similarities
             _, idx = torch.topk(l_neg, k=M, dim=1)
             mask = torch.zeros_like(l_neg, dtype=torch.bool)
@@ -100,21 +100,23 @@ class InfoNCELoss(nn.Module):
 
         labels = torch.zeros(B, dtype=torch.long, device=logits.device)
 
-        loss = F.cross_entropy(logits, labels)
+        loss = F.cross_entropy(logits, labels, **self.cross_entropy_args)
 
         # Diagnostics (detached)
         with torch.no_grad():
             # Only consider finite negatives (after masking)
             finite_neg = torch.isfinite(l_neg)
-            neg_mean = l_neg[finite_neg].mean() if finite_neg.any() else torch.tensor(float('nan'), device=logits.device)
+            neg_mean = (
+                l_neg[finite_neg].mean()
+                if finite_neg.any()
+                else torch.tensor(float("nan"), device=logits.device)
+            )
             contrastive_acc = (logits.argmax(dim=1) == 0).float().mean()
 
         stats = {
-            "loss": loss.detach(),
             "pos_mean": l_pos.mean().detach(),
             "neg_mean": neg_mean.detach(),
             "contrastive_acc": contrastive_acc.detach(),
-            "temperature": torch.tensor(self.temperature, device=logits.device),
         }
 
         return loss, stats

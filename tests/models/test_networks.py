@@ -7,10 +7,6 @@ from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
 from anyBrainer.models.networks import Swinv2CL
 
-@pytest.fixture(scope="module")
-def input_tensor() -> torch.Tensor:
-    """Shape (B, C, D, H, W)"""
-    return torch.randn(8, 1, 128, 128, 128)
 
 @pytest.fixture(autouse=True)
 def mock_swin_vit(monkeypatch):

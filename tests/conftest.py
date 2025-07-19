@@ -46,6 +46,10 @@ if not logger.handlers:
     logger.addHandler(stream_handler)
     logger.propagate = False
 
+@pytest.fixture(scope="module")
+def input_tensor() -> torch.Tensor:
+    """Shape (B, C, D, H, W)"""
+    return torch.randn(8, 1, 128, 128, 128)
 
 @pytest.fixture(scope="session")
 def mae_sample_data():
