@@ -7,6 +7,10 @@ import torch.optim as optim
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
 from anyBrainer.models.model import Swinv2CLModel
+from anyBrainer.models.schedulers import (
+    StepwiseParameterScheduler,
+    CosineAnnealingWithWarmup,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -68,12 +72,32 @@ class TestSwinv2CLModel:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
         )
         proj, aux = model(input_tensor)
         assert proj.shape == (8, 128)
         assert aux.shape == (8, 7)
     
+    def test_incorrect_model_kwargs(self):
+        """Test that the model raises a ValueError if the model kwargs are incorrect."""
+        with pytest.raises(Exception):
+            Swinv2CLModel(
+                model_kwargs={"wrong_key": "wrong_value"},
+                optimizer_kwargs=swinv2cl_optimizer_kwargs,
+                lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+                total_steps=10000,
+            )
+    
+    def test_incorrect_total_steps(self):
+        """Test that the model raises a ValueError if the total steps are invalid."""
+        with pytest.raises(ValueError):
+            Swinv2CLModel(
+                model_kwargs=swinv2cl_model_kwargs,
+                optimizer_kwargs=swinv2cl_optimizer_kwargs,
+                lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+                total_steps=None, # type: ignore
+            )
 
 class TestConfigureOptimizers:
     def test_one_optimizer_one_scheduler(self, input_tensor):
@@ -81,7 +105,8 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, dict)
@@ -97,6 +122,7 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
+            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, optim.Optimizer)
@@ -106,6 +132,7 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs, swinv2cl_optimizer_kwargs],
+            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, list)
@@ -118,7 +145,8 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs, swinv2cl_optimizer_kwargs],
-            scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, tuple)
@@ -138,7 +166,8 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs, swinv2cl_optimizer_kwargs],
-            scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
+            lr_scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
+            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, tuple)
@@ -158,7 +187,8 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
+            lr_scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
+            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -168,7 +198,8 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs],
-            scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
+            lr_scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
+            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -178,6 +209,7 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs={"name": "WrongOptim", "lr": 1e-4, "weight_decay": 1e-5},
+            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -187,7 +219,8 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            scheduler_kwargs={"name": "WrongScheduler", "interval": "step", "frequency": 1},
+            lr_scheduler_kwargs={"name": "WrongScheduler", "interval": "step", "frequency": 1},
+            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -197,10 +230,35 @@ class TestConfigureOptimizers:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            scheduler_kwargs={"name": "CosineAnnealingWithWarmup", "frequency": 1},
+            lr_scheduler_kwargs={"name": "CosineAnnealingWithWarmup", "frequency": 1},
+            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
+    
+    def test_incorrect_optimizer_kwargs(self):
+        """Test that the model raises a Exception if the optimizer kwargs are incorrect."""
+        model = Swinv2CLModel(
+                model_kwargs=swinv2cl_model_kwargs,
+                optimizer_kwargs={"name": "AdamW", "wrong_key": 1e-4, "weight_decay": 1e-5},
+                lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+                total_steps=10000,
+            )
+        with pytest.raises(Exception):
+            model.configure_optimizers()
+
+    
+    def test_incorrect_lr_scheduler_kwargs(self):
+        """Test that the model raises a ValueError if the lr scheduler kwargs are incorrect."""
+        model = Swinv2CLModel(
+                model_kwargs=swinv2cl_model_kwargs,
+                optimizer_kwargs=swinv2cl_optimizer_kwargs,
+                lr_scheduler_kwargs={"name": "WrongScheduler", "interval": "step", "frequency": 1},
+                total_steps=10000,
+            )
+        with pytest.raises(Exception):
+            model.configure_optimizers()
+    
 
 class TestOnAfterBatchTransfer:
     def test_modality_to_onehot(self, input_batch):
@@ -208,10 +266,64 @@ class TestOnAfterBatchTransfer:
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
         )
         output_batch = model.on_after_batch_transfer(input_batch, 0)
         assert "aux_labels" in output_batch
         assert output_batch["aux_labels"].shape == (8, 7)
         assert output_batch["aux_labels"].dtype == torch.float32
         assert input_batch["query"].device == output_batch["aux_labels"].device
+
+
+class TestSchedulers:
+    def test_stepwise_parameter_scheduler(self):
+        """Unit test for StepwiseParameterScheduler."""
+        scheduler = StepwiseParameterScheduler(
+            param_name="loss_weight",
+            start_step=0,
+            end_step=1000,
+            start_value=0.0,
+            end_value=1.0,
+            mode="linear",
+        )
+        assert scheduler.get_value(0) == {"loss_weight": 0.0}
+        assert scheduler.get_value(1000) == {"loss_weight": 1.0}
+        assert scheduler.get_value(500) == {"loss_weight": 0.5}
+        assert scheduler.get_value(2000) == {"loss_weight": 1.0}
+        assert scheduler.get_value(10000) == {"loss_weight": 1.0}
+        assert scheduler.get_value(-10) == {"loss_weight": 0.0}
+    
+    def test_stepwise_parameter_scheduler_step_function(self):
+        """Unit test for StepwiseParameterScheduler performing a step function."""
+        scheduler = StepwiseParameterScheduler(
+            param_name="another_param",
+            start_step=1000,
+            end_step=1000,
+            start_value=0.0,
+            end_value=1.0,
+            mode="linear",
+        )
+        assert scheduler.get_value(0) == {"another_param": 0.0}
+        assert scheduler.get_value(500) == {"another_param": 0.0}
+        assert scheduler.get_value(1001) == {"another_param": 1.0}
+        assert scheduler.get_value(2000) == {"another_param": 1.0}
+    
+    def test_initialization_of_hparams(self):
+        """
+        Test that the model initializes with the correct hyperparameters.
+        Ideally run with pytest -s to see the logger output.
+        """
+        model = Swinv2CLModel(
+                model_kwargs=swinv2cl_model_kwargs,
+                optimizer_kwargs=swinv2cl_optimizer_kwargs,
+                lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+                total_steps=10000,
+                loss_kwargs={"temperature": 0.1, "top_k_negatives": 1000},
+                loss_scheduler_kwargs={"loss_weight_step_start_ratio": 0.02, "loss_weight_step_end_ratio": 0.08},
+                momentum_scheduler_kwargs={"momentum_start_value": 0.996, "momentum_end_value": 0.999},
+        )
+        assert model.hparams.loss_scheduler_kwargs["loss_weight_step_start_ratio"] == 0.02 # type: ignore
+        assert model.hparams.loss_scheduler_kwargs["loss_weight_step_end_ratio"] == 0.08 # type: ignore
+        assert model.hparams.momentum_scheduler_kwargs["momentum_start_value"] == 0.996 # type: ignore
+        assert model.hparams.momentum_scheduler_kwargs["momentum_end_value"] == 0.999 # type: ignore

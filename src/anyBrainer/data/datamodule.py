@@ -141,7 +141,7 @@ class BaseDataModule(L.LightningDataModule):
         """
         stage_offset = STAGE_SEED_OFFSET.get(stage, 3000) * self.num_workers
         
-        epoch_offset = self._current_epoch * self.num_workers
+        epoch_offset = self._current_epoch * self.num_workers if stage == "fit" else 0
 
         seed = ((self.seed + stage_offset + epoch_offset) % MAX_SEED
                 if self.seed is not None else None)

@@ -55,3 +55,4 @@ def modality_to_onehot(batch: dict, key: str, device: torch.device) -> torch.Ten
         one_hots[i, index] = 1.0
 
     return one_hots
+
