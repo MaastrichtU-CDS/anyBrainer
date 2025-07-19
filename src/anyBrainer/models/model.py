@@ -21,6 +21,7 @@ __all__ = [
 
 import logging
 from typing import Any, Callable, Sequence
+from copy import deepcopy
 
 import torch
 import torch.nn as nn
@@ -444,7 +445,7 @@ class Swinv2CLModel(BaseModel):
                 "start_step": int(total_steps * 
                                   loss_scheduler_kwargs.get("loss_weight_step_start_ratio", 0.05)),
                 "end_step": int(total_steps *
-                                loss_scheduler_kwargs.get("loss_weight_step_end_ratio", 0.05)),
+                                loss_scheduler_kwargs.get("loss_weight_step_end_ratio", 0.1)),
                 "start_value": 0.0,
                 "end_value": 0.5,
                 "mode": "linear",
@@ -455,7 +456,7 @@ class Swinv2CLModel(BaseModel):
                 "param_name": "momentum",
                 "start_step": 0,
                 "end_step": int(total_steps *
-                                momentum_scheduler_kwargs.get("momentum_step_end_ratio", 0.05)),
+                                momentum_scheduler_kwargs.get("momentum_step_end_ratio", 0.1)),
                 "start_value": momentum_scheduler_kwargs.get("momentum_start_value", 0.99),
                 "end_value": momentum_scheduler_kwargs.get("momentum_end_value", 0.999),
                 "mode": "linear",
@@ -473,6 +474,10 @@ class Swinv2CLModel(BaseModel):
             ignore_hparams=ignore_hparams,
         )
 
+        self.key_encoder = deepcopy(self.model)
+        for param in self.key_encoder.parameters():
+            param.requires_grad = False
+        
         # Initialize InfoNCE loss
         self.info_nce = InfoNCELoss(
             temperature=loss_kwargs.get("temperature", 0.1),
@@ -491,7 +496,6 @@ class Swinv2CLModel(BaseModel):
         logger.info(f"\nLightning module initialized with following "
                     f"hyperparameters:\n{self.hparams}")
     
-    
     def _update_queue(self, q: torch.Tensor) -> None:
         """Update queue."""
         if self.queue is None:
@@ -499,7 +503,17 @@ class Swinv2CLModel(BaseModel):
         else:
             self.queue = torch.cat([self.queue, q.detach()], dim=0)
             self.queue = self.queue[-self.queue_size:]
+        
+        self.log("queue_size", self.queue.shape[0], on_step=True, prog_bar=False)
     
+    def _update_key_encoder(self):
+        """Update key encoder."""
+        momentum = self.get_step_scheduler_values()[1]["momentum"]
+        for param_q, param_k in zip(self.model.parameters(), self.key_encoder.parameters()):
+            param_k.data = param_k.data * momentum + param_q.data * (1.0 - momentum)
+        
+        self.log("momentum", momentum, on_step=True, prog_bar=False)
+
     def _compute_loss(
         self, 
         q: torch.Tensor, 
@@ -508,7 +522,7 @@ class Swinv2CLModel(BaseModel):
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
         q_proj, q_aux = self.model(q)
-        k_proj, _ = self.model(k)
+        k_proj, _ = self.key_encoder(k)
 
         self._update_queue(q_proj)
         
@@ -529,9 +543,16 @@ class Swinv2CLModel(BaseModel):
             batch["aux_labels"] = modality_to_onehot(batch, "mod", batch["query"].device)
         return batch
 
+    def on_before_optimizer_step(self, optimizer: optim.Optimizer, optimizer_idx: int) -> None:
+        self._update_key_encoder()
+    
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
         loss, loss_dict = self._compute_loss(batch["query"], batch["key"], batch["aux_labels"])
-        self.log("train_loss", loss, prog_bar=True)
-        self.log_dict(loss_dict, prog_bar=True)
+        self.log_dict({
+            "train/loss": loss,
+            "train/loss_info_nce": loss_dict["loss_info_nce"],
+            "train/loss_aux": loss_dict["loss_aux"],
+            "train/loss_weight": loss_dict["loss_weight"],
+        }, on_step=True, prog_bar=True)
         return loss

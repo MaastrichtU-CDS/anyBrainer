@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from torch._functorch.vmap import out_dims_t
 import torch.optim as optim
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
@@ -327,3 +328,18 @@ class TestSchedulers:
         assert model.hparams.loss_scheduler_kwargs["loss_weight_step_end_ratio"] == 0.08 # type: ignore
         assert model.hparams.momentum_scheduler_kwargs["momentum_start_value"] == 0.996 # type: ignore
         assert model.hparams.momentum_scheduler_kwargs["momentum_end_value"] == 0.999 # type: ignore
+
+
+class TestTrainingStep:
+    def test_key_encoder_matches_query_encoder(self, input_tensor):
+        """Test that the key encoder matches the query encoder."""
+        model = Swinv2CLModel(
+            model_kwargs=swinv2cl_model_kwargs,
+            optimizer_kwargs=swinv2cl_optimizer_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
+        )
+        proj_1 = model.forward(input_tensor) # type: ignore
+        proj_2 = model.key_encoder(input_tensor) # type: ignore
+        assert proj_1[-1].shape == proj_2[-1].shape
+        assert torch.allclose(proj_1[-1], proj_2[-1])
