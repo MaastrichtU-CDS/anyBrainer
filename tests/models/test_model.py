@@ -24,6 +24,15 @@ def mock_swin_vit(monkeypatch):
 
     monkeypatch.setattr(SwinViT, "forward", _dummy_call, raising=True)
 
+@pytest.fixture(scope="module")
+def input_batch():
+    """Input batch for the model."""
+    return {
+        "query": torch.randn(8, 1, 128, 128, 128),
+        "key": torch.randn(8, 1, 128, 128, 128),
+        "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
+    }
+
 swinv2cl_model_kwargs = {
     "in_channels": 1,
     "depths": (2, 2, 6, 2),
@@ -192,4 +201,17 @@ class TestConfigureOptimizers:
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
-    
+
+class TestOnAfterBatchTransfer:
+    def test_modality_to_onehot(self, input_batch):
+        """Unit test that the model returns a one-hot encoded tensor."""
+        model = Swinv2CLModel(
+            model_kwargs=swinv2cl_model_kwargs,
+            optimizer_kwargs=swinv2cl_optimizer_kwargs,
+            scheduler_kwargs=swinv2cl_scheduler_kwargs,
+        )
+        output_batch = model.on_after_batch_transfer(input_batch, 0)
+        assert "aux_labels" in output_batch
+        assert output_batch["aux_labels"].shape == (8, 7)
+        assert output_batch["aux_labels"].dtype == torch.float32
+        assert input_batch["query"].device == output_batch["aux_labels"].device

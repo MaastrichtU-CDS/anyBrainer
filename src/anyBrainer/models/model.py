@@ -30,6 +30,8 @@ import pytorch_lightning as pl
 
 import anyBrainer.models.networks as nets
 import anyBrainer.models.schedulers as schedulers
+from anyBrainer.models.losses import InfoNCELoss
+from anyBrainer.models.utils import modality_to_onehot
 
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,9 @@ class BaseModel(pl.LightningModule):
         model_kwargs: dict,
         optimizer_kwargs: dict | list[dict],
         scheduler_kwargs: dict | list[dict] | None = None,
+        loss_kwargs: dict[str, Any] = {},
         weights_init_fn: Callable | None = None,
+        logits_postprocess_fn: Callable | None = None,
         ignore_hparams: list[str] = [],
         **kwargs,
     ):
@@ -76,12 +80,17 @@ class BaseModel(pl.LightningModule):
         self.model = self._get_model(model_name, model_kwargs)
         self.optimizer_kwargs = optimizer_kwargs
         self.scheduler_kwargs = scheduler_kwargs
+        self.loss_kwargs = loss_kwargs
+        self.logits_postprocess_fn = logits_postprocess_fn
         
         if weights_init_fn is not None:
             self.model.apply(weights_init_fn)
             ignore_hparams.append("weights_init_fn")
         
-        self.save_hyperparameters(ignore=ignore_hparams, logger=len(self.loggers) > 0)
+        if self.logits_postprocess_fn is not None:
+            ignore_hparams.append("logits_postprocess_fn")
+        
+        self.save_hyperparameters(ignore=ignore_hparams, logger=True)
     
     def _get_model(self, model_name: str, model_kwargs: dict) -> nn.Module:
         """Get model from anyBrainer.models.networks."""
@@ -293,6 +302,8 @@ class Swinv2CLModel(BaseModel):
         optimizer_kwargs: dict | list[dict],
         scheduler_kwargs: dict | list[dict] | None = None,
         weights_init_fn: Callable | None = None,
+        loss_kwargs: dict[str, Any] = {},
+        logits_postprocess_fn: Callable | None = None,
         ignore_hparams: list[str] = [],
         **kwargs,
     ):
@@ -301,12 +312,52 @@ class Swinv2CLModel(BaseModel):
             model_kwargs=model_kwargs,
             optimizer_kwargs=optimizer_kwargs,
             scheduler_kwargs=scheduler_kwargs,
+            loss_kwargs=loss_kwargs,
+            logits_postprocess_fn=logits_postprocess_fn,
             weights_init_fn=weights_init_fn,
             ignore_hparams=ignore_hparams,
             **kwargs,
         )
+    
+        self.info_nce = InfoNCELoss(
+            temperature=0.1,
+            postprocess_fn=self.logits_postprocess_fn,
+            **self.loss_kwargs,
+        )
+        self.queue_size = kwargs.get("queue_size", 16384)
+        self.queue: torch.Tensor | None = None
+    
+    def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
+        """Get modality one-hot labels to device."""
+        if dataloader_idx == 0:  # only for training
+            batch["aux_labels"] = modality_to_onehot(batch, "mod", batch["query"].device)
+        return batch
 
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
-        raise NotImplementedError("Training step not implemented")
+        loss, loss_dict = self._compute_loss(batch["query"], batch["key"])
+        self.log("train_loss", loss, prog_bar=True)
+        self.log_dict(loss_dict, prog_bar=True)
+        return loss
     
+    def _update_queue(self, q: torch.Tensor) -> None:
+        """Update queue."""
+        if self.queue is None:
+            self.queue = q.detach()
+        else:
+            self.queue = torch.cat([self.queue, q.detach()], dim=0)
+            self.queue = self.queue[-self.queue_size:]
+    
+    def _compute_loss(
+        self, 
+        q: torch.Tensor, 
+        k: torch.Tensor,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Compute combined InfoNCE loss with auxiliary CE loss."""
+        q_proj, q_aux_pred = self.model(q)
+        k_proj, _ = self.model(k)
+
+        loss_info_nce = self.info_nce(q_proj, k_proj)
+        loss_aux = F.cross_entropy(k_proj, k_proj.argmax(dim=-1))
+
+        return loss_info_nce + loss_aux, {"loss_info_nce": loss_info_nce, "loss_aux": loss_aux}
