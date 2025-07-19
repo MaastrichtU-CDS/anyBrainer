@@ -5,6 +5,7 @@ __all__ = [
     'get_mae_val_transforms',
     'get_contrastive_train_transforms',
     'get_contrastive_val_transforms',
+    'get_predict_transforms',
 ]
 
 # pyright: reportPrivateImportUsage=false
@@ -118,4 +119,10 @@ def get_contrastive_val_transforms():
         RandGibbsNoised(keys=['key'], alpha=(0.2, 0.4), prob=0.2),
         RandAdjustContrastd(keys=['key'], gamma=(0.9, 1.1), prob=0.3),
         RandSimulateLowResolutiond(keys=['key'], prob=0.1, zoom_range=(0.5, 1.0)),
+    ]
+
+def get_predict_transforms():
+    return [
+        LoadImaged(keys=['img'], reader='NumpyReader', ensure_channel_first=True),
+        SpatialPadd(keys=['img'], spatial_size=(128, 128, 128), mode='constant'),
     ]

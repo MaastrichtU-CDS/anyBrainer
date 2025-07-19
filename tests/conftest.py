@@ -172,3 +172,9 @@ def ref_contrastive_val_transforms():
         RandSimulateLowResolutiond(keys=['key'], prob=0.1, zoom_range=(0.5, 1.0)),
     ]
 
+@pytest.fixture(scope="session")
+def ref_predict_transforms():
+    return [
+        LoadImaged(keys=['img'], reader='NumpyReader', ensure_channel_first=True),
+        SpatialPadd(keys=['img'], spatial_size=(128, 128, 128), mode='constant'),
+    ]

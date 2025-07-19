@@ -52,6 +52,7 @@ from anyBrainer.transforms import(
     get_mae_val_transforms,
     get_contrastive_train_transforms,
     get_contrastive_val_transforms,
+    get_predict_transforms,
 )
 from anyBrainer.data.utils import make_worker_init_fn
 
@@ -258,7 +259,7 @@ class MAEDataModule(BaseDataModule):
         self.train_transforms = get_mae_train_transforms()
         self.val_transforms = get_mae_val_transforms()
         self.test_transforms = get_mae_val_transforms()
-        self.predict_transforms = get_mae_val_transforms()
+        self.predict_transforms = get_predict_transforms()
     
     def prepare_data(self):
         """
@@ -478,7 +479,7 @@ class ContrastiveDataModule(BaseDataModule):
         self.train_transforms = get_contrastive_train_transforms()
         self.val_transforms = get_contrastive_val_transforms()
         self.test_transforms = get_contrastive_val_transforms()
-        self.predict_transforms = get_contrastive_val_transforms()
+        self.predict_transforms = get_predict_transforms()
     
     def prepare_data(self):
         """
