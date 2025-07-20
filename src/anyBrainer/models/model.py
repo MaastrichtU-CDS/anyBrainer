@@ -518,11 +518,6 @@ class Swinv2CLModel(BaseModel):
         logger.info(f"\nLightning module initialized with following "
                     f"hyperparameters:\n{self.hparams}")
 
-        # Initialize inference 
-        self.inferer = get_inferer_from_roi_size(
-            model_kwargs.get("patch_size", (128, 128, 128)),
-        )
-    
     def _update_queue(self, q: torch.Tensor) -> None:
         """Update queue."""
         if self.queue.numel() == 0:
