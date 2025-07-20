@@ -28,6 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import pytorch_lightning as pl
+from torchmetrics.classification import stat_scores
 
 import anyBrainer.models.networks as nets
 import anyBrainer.models.schedulers as schedulers
@@ -556,7 +557,7 @@ class Swinv2CLModel(BaseModel):
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        loss_info_nce = self.info_nce(q_proj, k_proj)
+        loss_info_nce, cl_stats = self.info_nce(q_proj, k_proj)
         loss_aux = self.cross_entropy(q_aux, aux_spr)
 
         loss_weight = self.get_step_scheduler_values()[0]["loss_weight"]
@@ -566,7 +567,8 @@ class Swinv2CLModel(BaseModel):
         
         return combined_loss, {"loss_info_nce": loss_info_nce, 
                                "loss_aux": loss_aux,
-                               "loss_weight": loss_weight}
+                               "loss_weight": loss_weight, 
+                               **cl_stats}
 
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get modality one-hot labels to device."""
@@ -590,11 +592,16 @@ class Swinv2CLModel(BaseModel):
         k_proj, _ = self.key_encoder(batch["key"])
 
         loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
+        
         self.log_dict({
             "train/loss": loss,
             "train/loss_info_nce": loss_dict["loss_info_nce"],
             "train/loss_aux": loss_dict["loss_aux"],
             "train/loss_weight": loss_dict["loss_weight"],
+            "train/pos_mean": loss_dict["pos_mean"],
+            "train/neg_mean": loss_dict["neg_mean"],
+            "train/neg_entropy": loss_dict["neg_entropy"],
+            "train/contrastive_acc": loss_dict["contrastive_acc"],
         }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
 
         self._update_queue(q_proj)

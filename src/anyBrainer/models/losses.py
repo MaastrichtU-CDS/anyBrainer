@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from anyBrainer.models.utils import compute_cl_stats
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,9 +53,12 @@ class InfoNCELoss(nn.Module):
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Args:
-            q: (B, D) query embeddings
-            k: (B, D) positive key embeddings
-            queue: (D, K) negative memory bank (transpose: D x K)
+            q: (B, D) - query embeddings
+            k: (B, D) - positive key embeddings (same samples as q)
+            queue: (K, D) - bank of negative keys, assumed normalized if normalize=True
+        Returns:
+            loss: scalar tensor
+            stats: dict with metrics like contrastive accuracy, pos/neg means
         """
         B, D = q.shape
 
@@ -102,21 +107,4 @@ class InfoNCELoss(nn.Module):
 
         loss = F.cross_entropy(logits, labels, **self.cross_entropy_args)
 
-        # Diagnostics (detached)
-        with torch.no_grad():
-            # Only consider finite negatives (after masking)
-            finite_neg = torch.isfinite(l_neg)
-            neg_mean = (
-                l_neg[finite_neg].mean()
-                if finite_neg.any()
-                else torch.tensor(float("nan"), device=logits.device)
-            )
-            contrastive_acc = (logits.argmax(dim=1) == 0).float().mean()
-
-        stats = {
-            "pos_mean": l_pos.mean().detach(),
-            "neg_mean": neg_mean.detach(),
-            "contrastive_acc": contrastive_acc.detach(),
-        }
-
-        return loss, stats
+        return loss, compute_cl_stats(logits)
