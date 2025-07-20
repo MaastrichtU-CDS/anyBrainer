@@ -32,7 +32,11 @@ import pytorch_lightning as pl
 import anyBrainer.models.networks as nets
 import anyBrainer.models.schedulers as schedulers
 from anyBrainer.models.losses import InfoNCELoss
-from anyBrainer.models.utils import modality_to_onehot
+from anyBrainer.models.utils import (
+    modality_to_onehot,
+    top1_accuracy,
+    get_inferer_from_roi_size,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -328,7 +332,7 @@ class BaseModel(pl.LightningModule):
         Aligning with Lighnting's documentation, it can return the following:
         (depending on the optimizer_kwargs and scheduler_kwargs inputs)
         - A single optimizer
-        - A dict with a single optimizer with a single lr_scheduler_config
+        - A dict with a single optimizer and a single lr_scheduler_config
         - A list of optimizers
         - A list of optimizers with a list of lr_scheduler_configs
         """
@@ -387,12 +391,29 @@ class BaseModel(pl.LightningModule):
             epoch_scheduler_values.append(scheduler.get_value(self.current_epoch))
         return epoch_scheduler_values
 
-    def count_params(self, trainable: bool = False):
+    def _count_params(self, trainable: bool = False):
         """Count parameters."""
         if trainable:
             return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         else:
             return sum(p.numel() for p in self.model.parameters())
+    
+    def summarize_model(self):
+        """Show model parameters."""
+        out_msg = "#Model parameters#\n"
+        for name, param in self.model.named_parameters():
+            out_msg += f"{name:60s} | shape={tuple(param.shape)} | requires_grad={param.requires_grad}\n"
+        
+        out_msg += f"\n#Model buffers#\n"
+        for name, b in self.model.named_buffers():
+            out_msg += f"{name:55s} {tuple(b.shape)}\n"
+        
+        out_msg += f"\n#Model summary#\n"
+        out_msg += f"Total parameters: {self._count_params()}\n"
+        out_msg += f"Trainable parameters: {self._count_params(trainable=True)}\n"
+        out_msg += f"Non-trainable parameters: {self._count_params(trainable=False)}\n"
+                
+        logger.info(out_msg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
@@ -446,8 +467,8 @@ class Swinv2CLModel(BaseModel):
                                   loss_scheduler_kwargs.get("loss_weight_step_start_ratio", 0.05)),
                 "end_step": int(total_steps *
                                 loss_scheduler_kwargs.get("loss_weight_step_end_ratio", 0.1)),
-                "start_value": 0.0,
-                "end_value": 0.5,
+                "start_value": loss_scheduler_kwargs.get("loss_weight_start_value", 0.0),
+                "end_value": loss_scheduler_kwargs.get("loss_weight_end_value", 0.7),
                 "mode": "linear",
             },
             {
@@ -490,69 +511,130 @@ class Swinv2CLModel(BaseModel):
             weight=loss_kwargs.get("cross_entropy_weight", None),
         )
         
+        # Initialize queue
         self.queue_size = loss_kwargs.get("queue_size", 16384)
-        self.queue: torch.Tensor | None = None
+        self.model.register_buffer("queue", torch.empty(0))
 
         logger.info(f"\nLightning module initialized with following "
                     f"hyperparameters:\n{self.hparams}")
+
+        # Initialize inference 
+        self.inferer = get_inferer_from_roi_size(
+            model_kwargs.get("patch_size", (128, 128, 128)),
+        )
     
     def _update_queue(self, q: torch.Tensor) -> None:
         """Update queue."""
-        if self.queue is None:
+        if self.queue.numel() == 0:
             self.queue = q.detach()
         else:
             self.queue = torch.cat([self.queue, q.detach()], dim=0)
             self.queue = self.queue[-self.queue_size:]
         
-        self.log("queue_size", self.queue.shape[0], on_step=True, prog_bar=False)
+        self.log("train/queue_size", self.queue.shape[0], on_step=True, prog_bar=False, 
+                 sync_dist=self.trainer.world_size > 1)
     
+    @torch.no_grad()
     def _update_key_encoder(self):
         """Update key encoder."""
         momentum = self.get_step_scheduler_values()[1]["momentum"]
-        for param_q, param_k in zip(self.model.parameters(), self.key_encoder.parameters()):
+
+        params_q = list(self.model.parameters())
+        params_k = list(self.key_encoder.parameters())
+        
+        if len(params_q) != len(params_k):
+            msg = "Query and key encoder param counts differ."
+            logger.error(msg)
+            raise RuntimeError(msg)
+        
+        for param_q, param_k in zip(params_q, params_k):
             param_k.data = param_k.data * momentum + param_q.data * (1.0 - momentum)
         
-        self.log("momentum", momentum, on_step=True, prog_bar=False)
+        self.log("train/momentum", momentum, on_step=True, prog_bar=False, 
+                 sync_dist=self.trainer.world_size > 1)
 
     def _compute_loss(
-        self, 
-        q: torch.Tensor, 
-        k: torch.Tensor,
+        self,
+        q_proj: torch.Tensor,
+        k_proj: torch.Tensor,
+        q_aux: torch.Tensor,
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        q_proj, q_aux = self.model(q)
-        k_proj, _ = self.key_encoder(k)
-
-        self._update_queue(q_proj)
-        
-        loss_info_nce = self.info_nce(q_proj, k_proj) 
+        loss_info_nce = self.info_nce(q_proj, k_proj)
         loss_aux = self.cross_entropy(q_aux, aux_spr)
 
         loss_weight = self.get_step_scheduler_values()[0]["loss_weight"]
+        
         combined_loss = (loss_info_nce * loss_weight + 
                          loss_aux * (1 - loss_weight))
         
         return combined_loss, {"loss_info_nce": loss_info_nce, 
                                "loss_aux": loss_aux,
                                "loss_weight": loss_weight}
-    
+
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get modality one-hot labels to device."""
-        if dataloader_idx == 0:  # only for training
+        if dataloader_idx != 3: # not for prediction
             batch["aux_labels"] = modality_to_onehot(batch, "mod", batch["query"].device)
         return batch
 
     def on_before_optimizer_step(self, optimizer: optim.Optimizer, optimizer_idx: int) -> None:
+        """Log all current learning rates."""
+        for i, _optimizer in enumerate(self.trainer.optimizers):
+            for j, group in enumerate(_optimizer.param_groups):
+                self.log(f"train/lr/opt{i}_group{j}", group["lr"], on_step=True, prog_bar=False, 
+                         sync_dist=self.trainer.world_size > 1)
+    
+    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         self._update_key_encoder()
     
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
-        loss, loss_dict = self._compute_loss(batch["query"], batch["key"], batch["aux_labels"])
+        q_proj, q_aux = self.model(batch["query"])
+        k_proj, _ = self.key_encoder(batch["key"])
+
+        loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
         self.log_dict({
             "train/loss": loss,
             "train/loss_info_nce": loss_dict["loss_info_nce"],
             "train/loss_aux": loss_dict["loss_aux"],
             "train/loss_weight": loss_dict["loss_weight"],
-        }, on_step=True, prog_bar=True)
+        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
+
+        self._update_queue(q_proj)
+            
         return loss
+    
+    def validation_step(self, batch: dict, batch_idx: int):
+        """Validation step."""
+        q_proj, q_aux = self.model(batch["query"])
+        k_proj, _ = self.key_encoder(batch["key"])
+
+        loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
+        acc = top1_accuracy(q_proj, batch["aux_labels"])
+        
+        self.log_dict({
+            "val/loss": loss,
+            "val/loss_info_nce": loss_dict["loss_info_nce"],
+            "val/loss_aux": loss_dict["loss_aux"],
+            "val/loss_weight": loss_dict["loss_weight"],
+            "val/aux_acc": acc,
+        }, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
+    
+    def test_step(self, batch: dict, batch_idx: int):
+        """Test step."""
+        q_proj, q_aux = self.model(batch["query"])
+        k_proj, _ = self.key_encoder(batch["key"])
+
+        loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
+        acc = top1_accuracy(q_proj, batch["aux_labels"])
+        
+        self.log_dict({
+            "test/loss": loss,
+            "test/loss_info_nce": loss_dict["loss_info_nce"],
+            "test/loss_aux": loss_dict["loss_aux"],
+            "test/loss_weight": loss_dict["loss_weight"],
+            "test/aux_acc": acc,
+        }, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
+

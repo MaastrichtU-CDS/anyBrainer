@@ -4,6 +4,7 @@ import logging
 
 import torch
 import torch.nn as nn
+from monai.inferers.inferer import SlidingWindowInferer
 
 MODALITY_LABELS = ["t1", "t2", "flair", "dwi", "adc", "swi", "other"]
 MODALITY_TO_INDEX = {modality: idx for idx, modality in enumerate(MODALITY_LABELS)}
@@ -56,3 +57,25 @@ def modality_to_onehot(batch: dict, key: str, device: torch.device) -> torch.Ten
 
     return one_hots
 
+def top1_accuracy(logits: torch.Tensor, targets_one_hot: torch.Tensor) -> torch.Tensor:
+    """Compute top-1 accuracy."""
+    targets_idx = targets_one_hot.argmax(dim=1)
+    preds = logits.argmax(dim=1)
+    return (preds == targets_idx).float().mean()
+
+def get_inferer_from_roi_size(
+    roi_size: tuple[int, int, int] | int, 
+    sw_batch_size: int = 4,
+    overlap: float = 0.5,
+    **kwargs,
+) -> SlidingWindowInferer:
+    """Get a sliding window inferer from a ROI size."""
+    if isinstance(roi_size, int):
+        roi_size = (roi_size, roi_size, roi_size)
+        
+    return SlidingWindowInferer(
+        roi_size=roi_size,
+        sw_batch_size=sw_batch_size,
+        overlap=overlap,
+        **kwargs,
+    )

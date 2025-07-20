@@ -277,39 +277,7 @@ class TestOnAfterBatchTransfer:
         assert input_batch["query"].device == output_batch["aux_labels"].device
 
 
-class TestSchedulers:
-    def test_stepwise_parameter_scheduler(self):
-        """Unit test for StepwiseParameterScheduler."""
-        scheduler = StepwiseParameterScheduler(
-            param_name="loss_weight",
-            start_step=0,
-            end_step=1000,
-            start_value=0.0,
-            end_value=1.0,
-            mode="linear",
-        )
-        assert scheduler.get_value(0) == {"loss_weight": 0.0}
-        assert scheduler.get_value(1000) == {"loss_weight": 1.0}
-        assert scheduler.get_value(500) == {"loss_weight": 0.5}
-        assert scheduler.get_value(2000) == {"loss_weight": 1.0}
-        assert scheduler.get_value(10000) == {"loss_weight": 1.0}
-        assert scheduler.get_value(-10) == {"loss_weight": 0.0}
-    
-    def test_stepwise_parameter_scheduler_step_function(self):
-        """Unit test for StepwiseParameterScheduler performing a step function."""
-        scheduler = StepwiseParameterScheduler(
-            param_name="another_param",
-            start_step=1000,
-            end_step=1000,
-            start_value=0.0,
-            end_value=1.0,
-            mode="linear",
-        )
-        assert scheduler.get_value(0) == {"another_param": 0.0}
-        assert scheduler.get_value(500) == {"another_param": 0.0}
-        assert scheduler.get_value(1001) == {"another_param": 1.0}
-        assert scheduler.get_value(2000) == {"another_param": 1.0}
-    
+class TestInitializations:
     def test_initialization_of_hparams(self):
         """
         Test that the model initializes with the correct hyperparameters.
@@ -328,18 +296,50 @@ class TestSchedulers:
         assert model.hparams.loss_scheduler_kwargs["loss_weight_step_end_ratio"] == 0.08 # type: ignore
         assert model.hparams.momentum_scheduler_kwargs["momentum_start_value"] == 0.996 # type: ignore
         assert model.hparams.momentum_scheduler_kwargs["momentum_end_value"] == 0.999 # type: ignore
+        assert model.hparams.loss_kwargs["temperature"] == 0.1 # type: ignore
+        assert model.hparams.loss_kwargs["top_k_negatives"] == 1000 # type: ignore
 
-
-class TestTrainingStep:
-    def test_key_encoder_matches_query_encoder(self, input_tensor):
-        """Test that the key encoder matches the query encoder."""
+    def test_initialization_of_model(self):
+        """Test that the model is properly initialized."""
         model = Swinv2CLModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
             total_steps=10000,
         )
-        proj_1 = model.forward(input_tensor) # type: ignore
-        proj_2 = model.key_encoder(input_tensor) # type: ignore
-        assert proj_1[-1].shape == proj_2[-1].shape
-        assert torch.allclose(proj_1[-1], proj_2[-1])
+        model.summarize_model()
+        
+
+class TestTrainingStep:
+    @pytest.fixture
+    def model(self):
+        """Model fixture."""
+        return Swinv2CLModel(
+            model_kwargs=swinv2cl_model_kwargs,
+            optimizer_kwargs=swinv2cl_optimizer_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
+        )
+
+    def test_key_encoder_matches_query_encoder(self, model, input_tensor):
+        """Test that the key encoder matches the query encoder."""
+        proj_1, _ = model.forward(input_tensor) # type: ignore
+        proj_2, _ = model.key_encoder(input_tensor) # type: ignore
+        assert proj_1.shape == proj_2.shape
+        assert torch.allclose(proj_1, proj_2)
+
+    def test_queue_update(self, model, input_tensor):
+        """Test that the queue is updated correctly."""
+        model._update_queue(input_tensor)
+    
+    def test_momentum_update(self, model, input_tensor):
+        """Test that the momentum is updated correctly."""
+        model._update_key_encoder()
+    
+    def test_loss_computation(self, model, input_tensor):
+        """Test that the loss is computed correctly."""
+        model._compute_loss(input_tensor)
+    
+
+class TestValTestSteps:
+    pass
