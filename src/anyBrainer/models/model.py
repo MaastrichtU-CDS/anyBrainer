@@ -36,7 +36,9 @@ from anyBrainer.models.losses import InfoNCELoss
 from anyBrainer.models.utils import (
     modality_to_onehot,
     top1_accuracy,
-    get_inferer_from_roi_size,
+    summarize_model_params,
+    get_total_grad_norm,
+    get_optimizer_lr,
 )
 
 
@@ -392,29 +394,19 @@ class BaseModel(pl.LightningModule):
             epoch_scheduler_values.append(scheduler.get_value(self.current_epoch))
         return epoch_scheduler_values
 
-    def _count_params(self, trainable: bool = False):
-        """Count parameters."""
-        if trainable:
-            return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        else:
-            return sum(p.numel() for p in self.model.parameters())
-    
     def summarize_model(self):
         """Show model parameters."""
-        out_msg = "#Model parameters#\n"
-        for name, param in self.model.named_parameters():
-            out_msg += f"{name:60s} | shape={tuple(param.shape)} | requires_grad={param.requires_grad}\n"
-        
-        out_msg += f"\n#Model buffers#\n"
-        for name, b in self.model.named_buffers():
-            out_msg += f"{name:55s} {tuple(b.shape)}\n"
-        
-        out_msg += f"\n#Model summary#\n"
-        out_msg += f"Total parameters: {self._count_params()}\n"
-        out_msg += f"Trainable parameters: {self._count_params(trainable=True)}\n"
-        out_msg += f"Non-trainable parameters: {self._count_params(trainable=False)}\n"
-                
-        logger.info(out_msg)
+        logger.info(summarize_model_params(self.model))
+    
+    def log_gradients_norm(self) -> None:
+        """Log gradients norm."""
+        self.log("train/grad_norm", get_total_grad_norm(self.model), on_step=True, prog_bar=False, 
+                 sync_dist=self.trainer.world_size > 1)
+    
+    def log_optimizer_lr(self) -> None:
+        """Log optimizer learning rates."""
+        self.log_dict(get_optimizer_lr(self.trainer.optimizers), on_step=True, prog_bar=False, 
+                      sync_dist=self.trainer.world_size > 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
@@ -577,14 +569,11 @@ class Swinv2CLModel(BaseModel):
         return batch
 
     def on_before_optimizer_step(self, optimizer: optim.Optimizer, optimizer_idx: int) -> None:
-        """Log all current learning rates."""
-        for i, _optimizer in enumerate(self.trainer.optimizers):
-            for j, group in enumerate(_optimizer.param_groups):
-                self.log(f"train/lr/opt{i}_group{j}", group["lr"], on_step=True, prog_bar=False, 
-                         sync_dist=self.trainer.world_size > 1)
+        self.log_optimizer_lr()
     
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         self._update_key_encoder()
+        self.log_gradients_norm()
     
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
