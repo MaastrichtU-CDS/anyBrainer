@@ -39,6 +39,11 @@ from anyBrainer.models.utils import (
     summarize_model_params,
     get_total_grad_norm,
     get_optimizer_lr,
+    get_model_instance_from_kwargs,
+    get_optimizer_instances_from_kwargs,
+    get_lr_scheduler_instances_from_kwargs,
+    get_param_scheduler_instances_from_kwargs,
+    get_loss_fn_instances_from_kwargs,
 )
 
 
@@ -74,8 +79,8 @@ class BaseModel(pl.LightningModule):
     def __init__(
         self,
         *,
-        model_name: str,
-        model_kwargs: dict,
+        model_kwargs: dict[str, Any],
+        loss_fn_kwargs: dict[str, Any] | list[dict[str, Any]],
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         other_schedulers: list[dict[str, Any]] = [],
@@ -84,11 +89,12 @@ class BaseModel(pl.LightningModule):
         ignore_hparams: list[str] = [],
     ):
         super().__init__()
-        self.model = self._get_model(model_name, model_kwargs)
-        self.optimizer_kwargs = optimizer_kwargs # initialized in configure_optimizers
-        self.lr_scheduler_kwargs = lr_scheduler_kwargs # initialized in configure_optimizers
+        self.model = get_model_instance_from_kwargs(model_kwargs)
+        self.loss_fn = get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
+        self.optimizer_kwargs = optimizer_kwargs # instantiated in configure_optimizers
+        self.lr_scheduler_kwargs = lr_scheduler_kwargs # instantiated in configure_optimizers
         self.other_schedulers_step, self.other_schedulers_epoch = (
-            self._get_other_schedulers(other_schedulers)
+            get_param_scheduler_instances_from_kwargs(other_schedulers)
         )
         self.logits_postprocess_fn = logits_postprocess_fn
         
@@ -101,236 +107,12 @@ class BaseModel(pl.LightningModule):
         
         self.save_hyperparameters(ignore=["ignore_hparams"] + ignore_hparams, logger=True)
     
-    def _get_model(self, model_name: str, model_kwargs: dict) -> nn.Module:
-        """Get model from anyBrainer.models.networks."""
-        # Extract requested model class
-        try:
-            model_cls = getattr(nets, model_name)
-        except AttributeError:
-            msg = f"Model '{model_name}' not found in networks module."
-            logger.error(msg)
-            raise ValueError(msg)
-        
-        # Ensure model is a subclass of nn.Module
-        if not issubclass(model_cls, nn.Module):
-            msg = f"Retrieved object '{model_name}' is not a subclass of nn.Module."
-            logger.error(msg)
-            raise TypeError(msg)
-        
-        # Handle improper initialization args
-        try:
-            model = model_cls(**model_kwargs)
-        except Exception as e:
-            msg = f"Error initializing model '{model_name}': {e}"
-            logger.exception(msg)
-            raise
-        
-        return model
-    
-    def _get_optimizer(
-        self,
-        optimizer_kwargs: dict | list[dict],
-        model: nn.Module,
-    ) -> optim.Optimizer | list[optim.Optimizer]:
-        """
-        Get optimizer from torch.optim.
-
-        If optimizer_kwargs is a list, return a list of optimizers through recursive calls.
-
-        Raises:
-        - ValueError: If optimizer name is not found in optimizer_kwargs.
-        - ValueError: If optimizer name is not found in torch.optim.
-        """
-        # Recursive calls to handle multiple optimizers
-        if isinstance(optimizer_kwargs, list):
-            optimizers_list = []
-            for optimizer_kwargs in optimizer_kwargs:
-                optimizers_list.append(self._get_optimizer(optimizer_kwargs, model))
-            return optimizers_list
-        
-        # Ensure required keys are provided
-        if "name" not in optimizer_kwargs:
-            msg = "Optimizer name not found in optimizer_kwargs."
-            logger.error(msg)
-            raise ValueError(msg)
-
-        optimizer_kwargs = optimizer_kwargs.copy()
-        
-        # Extract requested optimizer class
-        try:
-            cls_name = optimizer_kwargs.pop("name")
-            optimizer_cls = getattr(optim, cls_name)
-        except AttributeError:
-            msg = f"Optimizer '{cls_name}' not found in torch.optim."
-            logger.error(msg)
-            raise ValueError(msg)
-        
-        # Handle improper initialization args
-        try:
-            optimizer = optimizer_cls(model.parameters(), **optimizer_kwargs)
-        except Exception as e:
-            msg = f"Error initializing optimizer '{cls_name}': {e}"
-            logger.exception(msg)
-            raise
-
-        return optimizer
-    
-    def _get_lr_scheduler(
-        self,
-        lr_scheduler_kwargs: dict | list[dict],
-        optimizer: optim.Optimizer | list[optim.Optimizer],
-    ) -> dict[str, Any] | list[dict[str, Any]]:
-        """
-        Get LR scheduler from torch.optim.lr_scheduler or anyBrainer.models.schedulers.
-
-        The returned LR scheduler is a dictionary with the keys expected in Lightning's lr_scheduler_config.
-
-        Special cases:
-        - If multiple LR schedulers and optimizers are provided, return a list of lr_scheduler dictionaries.
-        - If a single LR scheduler is provided with multiple optimizers, return a list of lr_scheduler
-          dictionaries for each optimizer.
-
-        Raises:
-        - ValueError: If lr_scheduler_kwargs is a list and optimizer is not a list.
-        - ValueError: If lr_scheduler_kwargs is a list and optimizer is a list but the lengths do not match.
-        - ValueError: If lr_scheduler name is not found in lr_scheduler_kwargs.
-        - ValueError: If scheduler name is not found in torch.optim.lr_scheduler or
-                      anyBrainer.models.schedulers.
-        - ValueError: If lr_scheduler name, interval, and frequency are not provided in lr_scheduler_kwargs.
-        """
-        # Recursive calls to handle multiple LR schedulers
-        if isinstance(lr_scheduler_kwargs, list):
-            if not isinstance(optimizer, list):
-                msg = "Optimizer must be a list if lr_scheduler_kwargs is a list."
-                logger.error(msg)
-                raise ValueError(msg)
-            
-            if len(lr_scheduler_kwargs) != len(optimizer):
-                msg = "Length of lr_scheduler_kwargs and optimizer must match."
-                logger.error(msg)
-                raise ValueError(msg)
-            
-            schedulers_list = []
-            for _scheduler, _optimizer in zip(lr_scheduler_kwargs, optimizer):
-                schedulers_list.append(self._get_lr_scheduler(_scheduler, _optimizer))
-            return schedulers_list
-        
-        if not isinstance(lr_scheduler_kwargs, list) and isinstance(optimizer, list):
-            schedulers_list = []
-            for _optimizer in optimizer:
-                schedulers_list.append(self._get_lr_scheduler(lr_scheduler_kwargs, _optimizer))
-            return schedulers_list
-        
-        # Ensure required keys are provided
-        if "name" not in lr_scheduler_kwargs:
-            msg = "Scheduler name not found in lr_scheduler_kwargs."
-            logger.error(msg)
-            raise ValueError(msg)
-        
-        required_keys = {"name", "interval", "frequency"}
-        if required_keys.issubset(lr_scheduler_kwargs.keys()):
-            lr_scheduler_kwargs = lr_scheduler_kwargs.copy()
-            lr_scheduler_dict = {
-                "name": lr_scheduler_kwargs.pop("name"),
-                "interval": lr_scheduler_kwargs.pop("interval"),
-                "frequency": lr_scheduler_kwargs.pop("frequency"),
-                "monitor": lr_scheduler_kwargs.pop("monitor", None),
-                "strict": lr_scheduler_kwargs.pop("strict", False),
-            }
-        else:
-            msg = "LR scheduler 'name', 'interval', and 'frequency' must be provided."
-            logger.error(msg)
-            raise ValueError(msg)
-        
-        # Extract requested LR scheduler class
-        try:
-            lr_scheduler_cls = getattr(optim.lr_scheduler, lr_scheduler_dict["name"])
-        except AttributeError:
-            try:
-                lr_scheduler_cls = getattr(schedulers, lr_scheduler_dict["name"])
-            except AttributeError:  
-                msg = (f"LR scheduler '{lr_scheduler_dict['name']}' not found in "
-                       f"torch.optim.lr_scheduler or anyBrainer.models.schedulers.")
-                logger.error(msg)
-                raise ValueError(msg)
-        
-        # Handle improper initialization args
-        try:
-            lr_scheduler = lr_scheduler_cls(optimizer, **lr_scheduler_kwargs)
-            lr_scheduler_dict["scheduler"] = lr_scheduler
-        except Exception as e:
-            msg = f"Error initializing LR scheduler '{lr_scheduler_dict['name']}': {e}"
-            logger.exception(msg)
-            raise 
-
-        return lr_scheduler_dict
-    
-    def _get_other_schedulers(
-        self,
-        other_schedulers: list[dict[str, Any]],
-    ) -> tuple[list[schedulers.ParameterScheduler], list[schedulers.ParameterScheduler]]:
-        """
-        Get any other custom schedulers from anyBrainer.models.schedulers.
-        
-        Groups the schedulers into step and epoch schedulers, the values of which are
-        extracted using built-in Lightning hooks.
-        Always assuming list of dicts.
-
-        Raises:
-        - ValueError: If scheduler name is not found in anyBrainer.models.schedulers.
-        """
-        other_schedulers_step = []
-        other_schedulers_epoch = []
-        for scheduler_kwargs in other_schedulers:
-            # Ensure required keys are provided
-            if "name" not in scheduler_kwargs:
-                msg = "Scheduler name not found in scheduler_kwargs."
-                logger.error(msg)
-                raise ValueError(msg)
-            
-            if "interval" not in scheduler_kwargs:
-                msg = "Scheduler interval not found in scheduler_kwargs."
-                logger.error(msg)
-                raise ValueError(msg)
-            
-            scheduler_kwargs = scheduler_kwargs.copy()
-            
-            # Extract requested scheduler class
-            try:
-                scheduler_name = scheduler_kwargs.pop("name")
-                scheduler_interval = scheduler_kwargs.pop("interval")
-                scheduler_cls = getattr(schedulers, scheduler_name)
-            except AttributeError:
-                msg = f"Scheduler '{scheduler_name}' not found in anyBrainer.models.schedulers."
-                logger.error(msg)
-                raise ValueError(msg)   
-            
-            # Handle improper initialization args
-            try:
-                scheduler = scheduler_cls(**scheduler_kwargs)
-            except Exception as e:
-                msg = f"Error initializing scheduler '{scheduler_name}': {e}"
-                logger.exception(msg)
-                raise
-            
-            # Add scheduler to list
-            if scheduler_interval == "step":
-                other_schedulers_step.append(scheduler)
-            elif scheduler_interval == "epoch":
-                other_schedulers_epoch.append(scheduler)
-            else:
-                msg = f"Scheduler interval '{scheduler_interval}' not supported."
-                logger.error(msg)
-                raise ValueError(msg)
-        
-        return other_schedulers_step, other_schedulers_epoch
-    
     def configure_optimizers(
         self,
     ) -> (optim.Optimizer | dict[str, Any] | list[optim.Optimizer] | 
           tuple[list[optim.Optimizer], list[dict[str, Any]]]):
         """
-        Configure optimizers.
+        Configure optimizers and LR schedulers.
         
         Aligning with Lighnting's documentation, it can return the following:
         (depending on the optimizer_kwargs and scheduler_kwargs inputs)
@@ -339,10 +121,10 @@ class BaseModel(pl.LightningModule):
         - A list of optimizers
         - A list of optimizers with a list of lr_scheduler_configs
         """
-        optimizer = self._get_optimizer(self.optimizer_kwargs, self.model)
+        optimizer = get_optimizer_instances_from_kwargs(self.optimizer_kwargs, self.model)
 
         if self.lr_scheduler_kwargs is not None:
-            lr_scheduler = self._get_lr_scheduler(self.lr_scheduler_kwargs, optimizer)
+            lr_scheduler = get_lr_scheduler_instances_from_kwargs(self.lr_scheduler_kwargs, optimizer)
         else:
             lr_scheduler = None
 
@@ -429,57 +211,60 @@ class BaseModel(pl.LightningModule):
         raise NotImplementedError("Predict step not implemented")
 
 
-class Swinv2CLModel(BaseModel):
-    """Swinv2CL model."""
+class CLwAuxModel(BaseModel):
+    """Contrastive learning with auxiliary loss model."""
     def __init__(
         self,
         *,
-        model_kwargs: dict,
-        optimizer_kwargs: dict | list[dict],
-        total_steps: int,
-        lr_scheduler_kwargs: dict | list[dict] | None = None,
+        model_kwargs: dict[str, Any],
+        optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
+        lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
+        loss_kwargs: dict[str, Any] = {},
+        loss_scheduler_kwargs: dict[str, Any] = {},
+        momentum_scheduler_kwargs: dict[str, Any] = {},
         weights_init_fn: Callable | None = None,
         logits_postprocess_fn: Callable | None = None,
         ignore_hparams: list[str] = [],
-        loss_kwargs: dict = {},
-        loss_scheduler_kwargs: dict = {},
-        momentum_scheduler_kwargs: dict = {},
         **kwargs,
     ):  
-        if not isinstance(total_steps, int) or total_steps <= 0:
-            msg = "Total steps must be a positive integer."
-            logger.error(msg)
-            raise ValueError(msg)
+        loss_fn_kwargs = [
+            {
+                "name": "InfoNCELoss",
+                "temperature": loss_kwargs.get("temperature", 0.1),
+                "top_k_negatives": loss_kwargs.get("top_k_negatives", None),
+            },
+            {
+                "name": "CrossEntropyLoss",
+                "weight": loss_kwargs.get("cross_entropy_weight", None),
+            },
+        ]
         
         other_schedulers = [
             {
                 "name": "StepwiseParameterScheduler",
                 "interval": "step",
                 "param_name": "loss_weight",
-                "start_step": int(total_steps * 
-                                  loss_scheduler_kwargs.get("loss_weight_step_start_ratio", 0.05)),
-                "end_step": int(total_steps *
-                                loss_scheduler_kwargs.get("loss_weight_step_end_ratio", 0.1)),
-                "start_value": loss_scheduler_kwargs.get("loss_weight_start_value", 0.0),
-                "end_value": loss_scheduler_kwargs.get("loss_weight_end_value", 0.7),
+                "start_step": loss_scheduler_kwargs.get("loss_weight_step_start", 0),
+                "end_step": loss_scheduler_kwargs.get("loss_weight_step_end", 0),
+                "start_value": loss_scheduler_kwargs.get("loss_weight_start_value", 0.5),
+                "end_value": loss_scheduler_kwargs.get("loss_weight_end_value", 0.5),
                 "mode": "linear",
             },
             {
                 "name": "StepwiseParameterScheduler",
                 "interval": "step",
                 "param_name": "momentum",
-                "start_step": 0,
-                "end_step": int(total_steps *
-                                momentum_scheduler_kwargs.get("momentum_step_end_ratio", 0.1)),
-                "start_value": momentum_scheduler_kwargs.get("momentum_start_value", 0.99),
+                "start_step": momentum_scheduler_kwargs.get("momentum_step_start", 0),
+                "end_step": momentum_scheduler_kwargs.get("momentum_step_end", 0),
+                "start_value": momentum_scheduler_kwargs.get("momentum_start_value", 0.999),
                 "end_value": momentum_scheduler_kwargs.get("momentum_end_value", 0.999),
                 "mode": "linear",
             },
         ]
 
         super().__init__(
-            model_name="Swinv2CL",
             model_kwargs=model_kwargs,
+            loss_fn_kwargs=loss_fn_kwargs,
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             other_schedulers=other_schedulers,
@@ -491,18 +276,6 @@ class Swinv2CLModel(BaseModel):
         self.key_encoder = deepcopy(self.model)
         for param in self.key_encoder.parameters():
             param.requires_grad = False
-        
-        # Initialize InfoNCE loss
-        self.info_nce = InfoNCELoss(
-            temperature=loss_kwargs.get("temperature", 0.1),
-            top_k_negatives=loss_kwargs.get("top_k_negatives", None),
-            postprocess_fn=logits_postprocess_fn,
-        )
-
-        # Initialize cross entropy loss
-        self.cross_entropy = nn.CrossEntropyLoss(
-            weight=loss_kwargs.get("cross_entropy_weight", None),
-        )
         
         # Initialize queue
         self.queue_size = loss_kwargs.get("queue_size", 16384)
@@ -549,8 +322,8 @@ class Swinv2CLModel(BaseModel):
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        loss_info_nce, cl_stats = self.info_nce(q_proj, k_proj)
-        loss_aux = self.cross_entropy(q_aux, aux_spr)
+        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj) # type: ignore
+        loss_aux = self.loss_fn[1](q_aux, aux_spr) # type: ignore
 
         loss_weight = self.get_step_scheduler_values()[0]["loss_weight"]
         
