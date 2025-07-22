@@ -1,15 +1,10 @@
-"""Utility functions for datamodule operations."""
+"""Utility functions for data operations."""
 
 import logging
 from pathlib import Path
 import re
-import random
 from collections import Counter
-from typing import Optional, Dict, Callable, Any
-
-import numpy as np
-import torch
-from monai.data.utils import set_rnd
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -118,57 +113,6 @@ def trivial_check_nested_nifti_dataset(data_dir: Path | str) -> None:
     if not data_path.exists():
         logger.error(f"Data directory {data_dir} does not exist")
         raise FileNotFoundError(f"Data directory {data_dir} does not exist")
-    
-def split_data_by_subjects(
-    data_list: list[dict], 
-    train_val_test_split: tuple = (0.7, 0.15, 0.15), 
-    random_state: np.random.RandomState | None = None,
-    seed: int | None = None,
-) -> tuple:
-    """
-    Split data into train/val/test based on subjects for proper separation.
-    Assumes that data_list is a list of dictionaries with 'sub_id' key.
-    """
-    # Normalize train_val_test_split to sum to 1
-    train_val_test_split = tuple(
-        np.array(train_val_test_split) / sum(train_val_test_split)
-    )
-
-    if random_state is not None:
-        R = random_state
-    elif seed is not None:
-        R = np.random.RandomState(seed)
-    else:
-        R = np.random.RandomState()
-
-    _, mt_state, pos, *_ = R.get_state()
-    logger.info(f"Splitting data into train/val/test based on subjects for "
-                f"masked autoencoder with current state: "
-                f"{pos:3d}, {mt_state[:5]}") # pyright: ignore[reportArgumentType]
-    
-    # Get unique subjects
-    subjects = sorted({item['sub_id'] for item in data_list})
-    
-    # Shuffle subjects for random split
-    R.shuffle(subjects)
-    
-    # Calculate split indices
-    train_end = int(len(subjects) * train_val_test_split[0])
-    val_end = train_end + int(len(subjects) * train_val_test_split[1])
-    
-    train_subjects = set(subjects[:train_end])
-    val_subjects = set(subjects[train_end:val_end])
-    test_subjects = set(subjects[val_end:])
-    
-    # Split data based on subject assignment
-    train_data = [item for item in data_list if item['sub_id'] in train_subjects]
-    val_data = [item for item in data_list if item['sub_id'] in val_subjects]
-    test_data = [item for item in data_list if item['sub_id'] in test_subjects]
-    
-    logger.info(f"Data split - Train: {len(train_data)}, "
-                f"Val: {len(val_data)}, Test: {len(test_data)}")
-    
-    return train_data, val_data, test_data
 
 def get_summary_msg(
     subjects: set, 
@@ -189,44 +133,3 @@ def get_summary_msg(
                 f"({count/sum(modality_counts.values())*100:.2f}%)")
 
     return msg
-
-def make_worker_init_fn(
-    seed: int | None = None,
-    setup_logging_fn: Callable[[], None] | None = None,
-    seeding_fn: Callable[[Any, int], Any] | None = set_rnd,
-) -> Callable[[int], None]:
-    """Make a worker init function."""
-    
-    def custom_worker_init_fn(worker_id: int) -> None:
-        """
-        Initialize worker with logging setup and input file.
-        """
-        worker_info = torch.utils.data.get_worker_info()
-
-        if setup_logging_fn:
-            setup_logging_fn()
-
-        # Compute base seed always
-        if worker_info is not None:
-            base_seed = seed + worker_info.id if seed is not None else worker_info.seed
-        else:
-            base_seed = seed if seed is not None else 0
-
-        # Optional user seeding logic
-        if seeding_fn and worker_info is not None:
-            seeding_fn(worker_info.dataset, base_seed)
-
-        # Always seed the standard RNGs
-        np.random.seed(base_seed)
-        random.seed(base_seed)
-        torch.manual_seed(base_seed)
-
-        logger.info(f"Worker {worker_id} initialized with seed {base_seed}", 
-            extra={"wandb": {
-                "_wandb_mode": "sync",
-                f"worker_{worker_id}_seed": base_seed
-            }}
-        )
-    
-    return custom_worker_init_fn
-

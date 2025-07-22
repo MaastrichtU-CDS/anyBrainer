@@ -37,16 +37,14 @@ from monai.transforms import Compose
 from monai.data.utils import set_rnd
 from monai.utils import MAX_SEED
 
-from anyBrainer.utils.utils import resolve_path
+from anyBrainer.data.explorer import GenericNiftiDataExplorer
+from anyBrainer.utils.io import resolve_path
 from anyBrainer.data.utils import (
     trivial_check_nested_nifti_dataset,
     parse_filename_nested_nifti,
-    split_data_by_subjects,
     get_summary_msg,
 )
-from anyBrainer.data.explorer import (
-    GenericNiftiDataExplorer,
-)
+from anyBrainer.utils.data import split_data_by_subjects
 from anyBrainer.transforms import(
     get_mae_train_transforms,
     get_mae_val_transforms,
@@ -54,7 +52,7 @@ from anyBrainer.transforms import(
     get_contrastive_val_transforms,
     get_predict_transforms,
 )
-from anyBrainer.data.utils import make_worker_init_fn
+from anyBrainer.utils.parallel import make_worker_init_fn
 
 STAGE_SEED_OFFSET = {
     "fit": 0,

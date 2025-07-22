@@ -16,7 +16,6 @@ from anyBrainer.transforms import (
     get_contrastive_train_transforms,
     get_contrastive_val_transforms,
 )
-from anyBrainer.transforms import DeterministicCompose
 
 set_determinism(seed=12345)
 

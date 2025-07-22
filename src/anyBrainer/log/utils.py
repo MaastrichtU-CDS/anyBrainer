@@ -18,7 +18,7 @@ import time
 
 import wandb
 
-from anyBrainer.utils.utils import resolve_path
+from anyBrainer.utils.io import resolve_path
 
 logger = logging.getLogger(__name__)
 

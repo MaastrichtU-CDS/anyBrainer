@@ -15,7 +15,7 @@ from anyBrainer.data import (
     MAEDataModule,
     ContrastiveDataModule,
 )
-from anyBrainer.data.utils import make_worker_init_fn
+from anyBrainer.utils import make_worker_init_fn
 
 @pytest.fixture(autouse=True)
 def mock_data_explorer(monkeypatch):

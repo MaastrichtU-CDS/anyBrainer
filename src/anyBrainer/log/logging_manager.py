@@ -13,7 +13,7 @@ from multiprocessing import Queue
 from dataclasses import dataclass
 from functools import partial
 
-from anyBrainer.utils.utils import resolve_path
+from anyBrainer.utils.io import resolve_path
 from anyBrainer.log.utils import setup_worker_logging 
 from anyBrainer.log.utils import WandbFilter, WandbOnlyHandler
 
