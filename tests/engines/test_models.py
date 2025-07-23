@@ -400,17 +400,24 @@ class TestTrainingStep:
             
             
 class TestValTestSteps:
+    @pytest.fixture
+    def model(self):
+        """Model fixture."""
+        return CLwAuxModel(
+            model_kwargs=swinv2cl_model_kwargs,
+            optimizer_kwargs=swinv2cl_optimizer_kwargs,
+            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            total_steps=10000,
+        )
     def test_val_step(self, model, input_batch):
         """Test that the validation step works."""
-        with not pytest.raises(Exception):
-            model.on_after_batch_transfer(input_batch, 0) # type: ignore
-            model.validation_step(input_batch, 0) # type: ignore
+        model.on_after_batch_transfer(input_batch, 0)
+        model.validation_step(input_batch, 0)
     
     def test_test_step(self, model, input_batch):
         """Test that the test step works."""
-        with not pytest.raises(Exception):
-            model.on_after_batch_transfer(input_batch, 0) # type: ignore
-            model.test_step(input_batch, 0) # type: ignore
+        model.on_after_batch_transfer(input_batch, 0)
+        model.test_step(input_batch, 0)
 
 
 @pytest.mark.skip(reason="Not implemented")

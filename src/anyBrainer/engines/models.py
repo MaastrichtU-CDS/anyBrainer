@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 class BaseModel(pl.LightningModule):
     """
-    Base class for all models.
+    Base class based on PyTorch Lightning Module for all models.
     
     This class is responsible for:
     - Defining the model architecture
@@ -80,7 +80,6 @@ class BaseModel(pl.LightningModule):
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         other_schedulers: list[dict[str, Any]] = [],
         weights_init_fn: Callable | None = None,
-        logits_postprocess_fn: Callable | None = None,
         ignore_hparams: list[str] = [],
     ):
         super().__init__()
@@ -91,17 +90,12 @@ class BaseModel(pl.LightningModule):
         self.other_schedulers_step, self.other_schedulers_epoch = (
             get_param_scheduler_instances_from_kwargs(other_schedulers)
         )
-        self.logits_postprocess_fn = logits_postprocess_fn
-
+        
         if weights_init_fn is not None:
             self.model.apply(weights_init_fn)
-            ignore_hparams.append("weights_init_fn")
-        
-        if self.logits_postprocess_fn is not None:
-            ignore_hparams.append("logits_postprocess_fn")
         
         self.save_hyperparameters(
-            ignore=["ignore_hparams"] + ignore_hparams, logger=True
+            ignore=["ignore_hparams", "weights_init_fn"] + ignore_hparams, logger=True
         )
     
     def configure_optimizers(
@@ -264,13 +258,14 @@ class CLwAuxModel(BaseModel):
             },
         ]
 
+        ignore_hparams.append("logits_postprocess_fn")
+
         super().__init__(
             model_kwargs=model_kwargs,
             loss_fn_kwargs=loss_fn_kwargs,
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             other_schedulers=other_schedulers,
-            logits_postprocess_fn=logits_postprocess_fn,
             weights_init_fn=weights_init_fn,
             ignore_hparams=ignore_hparams,
         )
@@ -328,7 +323,7 @@ class CLwAuxModel(BaseModel):
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, self.queue)
+        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, self.queue) # type: ignore
     
         loss_aux = self.loss_fn[1](q_aux, aux_spr) # type: ignore
 
@@ -408,4 +403,3 @@ class CLwAuxModel(BaseModel):
             "test/loss_weight": loss_dict["loss_weight"],
             "test/aux_acc": acc,
         }, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
-
