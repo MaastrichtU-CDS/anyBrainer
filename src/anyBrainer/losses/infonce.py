@@ -32,6 +32,7 @@ class InfoNCELoss(nn.Module):
         self,
         temperature: float = 0.07,
         top_k_negatives: int | None = None,
+        min_negatives: int = 1,
         postprocess_fn: Callable[
             [torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
         ] | None = None,
@@ -41,6 +42,7 @@ class InfoNCELoss(nn.Module):
         super().__init__()
         self.temperature = temperature
         self.top_k_negatives = top_k_negatives
+        self.min_neg = min_negatives
         self.postprocess_fn = postprocess_fn
         self.normalize = normalize
         self.cross_entropy_args = cross_entropy_args or {}
@@ -60,13 +62,21 @@ class InfoNCELoss(nn.Module):
             loss: scalar tensor
             stats: dict with metrics like contrastive accuracy, pos/neg means
         """
+        # Fallback if queue is empty or too small
+        if queue is None or queue.shape[0] < max(self.min_neg, 1):
+            return torch.tensor(0.0), {"skipped": True}
+
         B, D = q.shape
 
         if k.shape != (B, D):
-            raise ValueError(f"k.shape {k.shape} != {(B, D)}")
+            msg = f"k.shape {k.shape} != {(B, D)}"
+            logger.error(msg)
+            raise ValueError(msg)
 
         if queue.dim() != 2 or queue.shape[1] != D:
-            raise ValueError(f"queue.shape {queue.shape} expected (K, {D})")
+            msg = f"queue.shape {queue.shape} expected (K, {D})"
+            logger.error(msg)
+            raise ValueError(msg)
 
         K = queue.shape[0]
 

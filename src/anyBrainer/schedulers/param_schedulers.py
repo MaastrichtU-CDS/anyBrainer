@@ -61,11 +61,9 @@ class StepwiseParameterScheduler(ParameterScheduler):
         self.end_value = float(end_value)
         self.mode = mode
 
-        logger.info(f"\nInitialized {self.param_name} scheduler with:\n"
-                    f"start_step={self.start_step}\n"
-                    f"end_step={self.end_step}\n"
-                    f"start_value={self.start_value}\n"
-                    f"end_value={self.end_value}\n"
+        logger.info(f"Initialized {self.param_name} scheduler with: "
+                    f"start_step={self.start_step}, end_step={self.end_step}, "
+                    f"start_value={self.start_value}, end_value={self.end_value}, "
                     f"mode={self.mode}.")
 
     def get_value(self, step: int) -> dict[str, float]:

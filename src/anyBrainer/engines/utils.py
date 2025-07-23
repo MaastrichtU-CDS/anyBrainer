@@ -15,3 +15,8 @@ def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
         for i, opt in enumerate(optimizers)
         for j, group in enumerate(opt.param_groups)
     }
+
+def sync_dist_safe(obj) -> bool:
+    """Return True if a Trainer exists and world_size > 1."""
+    trainer = getattr(obj, "Trainer", None)
+    return bool(trainer and getattr(trainer, "world_size", 1) > 1)

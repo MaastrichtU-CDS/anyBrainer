@@ -8,7 +8,6 @@ from anyBrainer.losses import (
     InfoNCELoss,
 )
 
-
 @pytest.fixture(scope="module")
 def query_tensor() -> torch.Tensor:
     """Shape (B, D)"""
@@ -102,3 +101,11 @@ class TestInfoNCELoss:
         assert torch.equal(cl_stats["neg_mean"], neg_logits.mean())
         assert torch.equal(cl_stats["contrastive_acc"], contrastive_acc)
         assert torch.equal(cl_stats["neg_entropy"], neg_entropy.mean())
+    
+    def test_forward_small_queue(self, query_tensor, key_tensor, queue_tensor):
+        """Test loss with small queue."""
+        loss = InfoNCELoss(min_negatives=81)
+        loss_value, loss_dict = loss(query_tensor, key_tensor, queue_tensor)
+        assert loss_value.shape == ()
+        assert loss_value.item() == 0
+        assert loss_dict.get("skipped")

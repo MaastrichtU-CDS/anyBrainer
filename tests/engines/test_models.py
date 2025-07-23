@@ -3,6 +3,7 @@
 import pytest
 import torch
 import torch.optim as optim
+from torch import nn
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
@@ -32,6 +33,27 @@ def input_batch():
         "key": torch.randn(8, 1, 128, 128, 128),
         "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
     }
+
+@torch.no_grad()
+def manual_param_step(model: nn.Module, lr: float = 1e-3, use_grads: bool = True):
+    """
+    Apply an in-place update to all trainable params of `model`.
+
+    If `use_grads` is True, performs a simple SGD step:  p <- p - lr * grad
+    Otherwise, adds a small random perturbation to each param (useful when no grads).
+
+    Args:
+        model: nn.Module whose params to update.
+        lr:    learning rate / perturbation scale.
+        use_grads: whether to use existing .grad tensors or random noise.
+    """
+    for p in model.parameters():
+        if not p.requires_grad:
+            continue
+        if use_grads and p.grad is not None:
+            p.data.add_(p.grad, alpha=-lr)
+        else:
+            p.data.add_(torch.randn_like(p) * lr)
 
 swinv2cl_model_kwargs = {
     "name": "Swinv2CL",
@@ -85,7 +107,7 @@ class TestCLwAuxModel:
                 lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
                 total_steps=10000,
             )
-
+            
 
 class TestConfigureOptimizers:
     def test_one_optimizer_one_scheduler(self, input_tensor):
@@ -276,11 +298,11 @@ class TestInitializations:
                 lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
                 total_steps=10000,
                 loss_kwargs={"temperature": 0.1, "top_k_negatives": 1000},
-                loss_scheduler_kwargs={"loss_weight_step_start_ratio": 0.02, "loss_weight_step_end_ratio": 0.08},
+                loss_scheduler_kwargs={"loss_weight_step_start": 1000, "loss_weight_step_end": 3000},
                 momentum_scheduler_kwargs={"momentum_start_value": 0.996, "momentum_end_value": 0.999},
         )
-        assert model.hparams.loss_scheduler_kwargs["loss_weight_step_start_ratio"] == 0.02 # type: ignore
-        assert model.hparams.loss_scheduler_kwargs["loss_weight_step_end_ratio"] == 0.08 # type: ignore
+        assert model.hparams.loss_scheduler_kwargs["loss_weight_step_start"] == 1000 # type: ignore
+        assert model.hparams.loss_scheduler_kwargs["loss_weight_step_end"] == 3000 # type: ignore
         assert model.hparams.momentum_scheduler_kwargs["momentum_start_value"] == 0.996 # type: ignore
         assert model.hparams.momentum_scheduler_kwargs["momentum_end_value"] == 0.999 # type: ignore
         assert model.hparams.loss_kwargs["temperature"] == 0.1 # type: ignore
@@ -297,7 +319,6 @@ class TestInitializations:
         model.summarize_model()
         
 
-@pytest.mark.skip(reason="Not implemented")
 class TestTrainingStep:
     @pytest.fixture
     def model(self):
@@ -306,32 +327,90 @@ class TestTrainingStep:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
+            test_mode=True,
             total_steps=10000,
+            momentum_scheduler_kwargs={
+                "momentum_step_start": 0,
+                "momentum_step_end": 2000,
+                "momentum_start_value": 0.99,
+                "momentum_end_value": 0.999
+            },
         )
+
+    def test_queue_update(self, model, input_tensor):
+        """Test that the queue is updated correctly."""
+        for _ in range(3):
+            proj, _ = model.forward(input_tensor) # type: ignore
+            model._update_queue(proj)
+        assert model.queue.shape == (24, 128)
 
     def test_key_encoder_matches_query_encoder(self, model, input_tensor):
         """Test that the key encoder matches the query encoder."""
         proj_1, _ = model.forward(input_tensor) # type: ignore
         proj_2, _ = model.key_encoder(input_tensor) # type: ignore
         assert proj_1.shape == proj_2.shape
-        assert torch.allclose(proj_1, proj_2)
+        assert torch.equal(proj_1, proj_2)
 
-    def test_queue_update(self, model, input_tensor):
-        """Test that the queue is updated correctly."""
-        model._update_queue(input_tensor)
+    def test_key_encoder_no_grad(self, model):
+        """Test that the key encoder has no gradients."""
+        assert all(not p.requires_grad for p in model.key_encoder.parameters())
     
     def test_momentum_update(self, model, input_tensor):
         """Test that the momentum is updated correctly."""
+        old_k = [p.clone() for p in model.key_encoder.parameters()]
+        manual_param_step(model.model) # simulate online model update
+        momentum = model.get_step_scheduler_values()[1]["momentum"]
+
         model._update_key_encoder()
+        
+        for pk_old, pq_new, pk_new in zip(
+            old_k, model.model.parameters(), model.key_encoder.parameters()
+        ):
+            expected = pk_old * momentum + pq_new * (1 - momentum)
+            assert torch.allclose(pk_new, expected)
     
     def test_loss_computation(self, model, input_tensor):
         """Test that the loss is computed correctly."""
-        model._compute_loss(input_tensor)
-    
+        for _ in range(3):
+            proj_1, aux = model.forward(input_tensor) # type: ignore
+            proj_2, _ = model.key_encoder(input_tensor) # type: ignore
+            model._update_queue(proj_1)
 
-@pytest.mark.skip(reason="Not implemented")
+        aux_labels = torch.zeros(8, 7)
+        aux_labels[:, 0] = 1
+        loss, loss_dict = model._compute_loss(
+            proj_1, proj_2, aux, aux_labels
+        )
+        assert loss.shape == ()
+        assert loss_dict.keys() == {"loss_info_nce", "loss_aux", "loss_weight", "pos_mean", 
+                                    "neg_mean", "neg_entropy", "contrastive_acc"}
+        assert loss_dict["loss_info_nce"].shape == ()
+        assert loss_dict["loss_aux"].shape == ()
+        assert loss_dict["pos_mean"].shape == ()
+        assert loss_dict["neg_mean"].shape == ()
+        assert loss_dict["neg_entropy"].shape == ()
+        assert loss_dict["contrastive_acc"].shape == ()
+    
+    def test_complete_training_step(self, model, input_batch):
+        """Test that the complete training step works."""
+        for _ in range(3):
+            model.on_after_batch_transfer(input_batch, 0) # type: ignore
+            loss = model.training_step(input_batch, 0) # type: ignore
+            assert loss.shape == ()
+            
+            
 class TestValTestSteps:
-    pass
+    def test_val_step(self, model, input_batch):
+        """Test that the validation step works."""
+        with not pytest.raises(Exception):
+            model.on_after_batch_transfer(input_batch, 0) # type: ignore
+            model.validation_step(input_batch, 0) # type: ignore
+    
+    def test_test_step(self, model, input_batch):
+        """Test that the test step works."""
+        with not pytest.raises(Exception):
+            model.on_after_batch_transfer(input_batch, 0) # type: ignore
+            model.test_step(input_batch, 0) # type: ignore
 
 
 @pytest.mark.skip(reason="Not implemented")

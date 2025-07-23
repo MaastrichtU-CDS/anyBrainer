@@ -23,7 +23,10 @@ import torch
 import torch.optim as optim
 import pytorch_lightning as pl
 
-from anyBrainer.engines.utils import get_optimizer_lr
+from anyBrainer.engines.utils import (
+    get_optimizer_lr,
+    sync_dist_safe,
+)
 from anyBrainer.engines.factory import (
     get_model_instance_from_kwargs,
     get_optimizer_instances_from_kwargs,
@@ -89,7 +92,7 @@ class BaseModel(pl.LightningModule):
             get_param_scheduler_instances_from_kwargs(other_schedulers)
         )
         self.logits_postprocess_fn = logits_postprocess_fn
-        
+
         if weights_init_fn is not None:
             self.model.apply(weights_init_fn)
             ignore_hparams.append("weights_init_fn")
@@ -97,7 +100,9 @@ class BaseModel(pl.LightningModule):
         if self.logits_postprocess_fn is not None:
             ignore_hparams.append("logits_postprocess_fn")
         
-        self.save_hyperparameters(ignore=["ignore_hparams"] + ignore_hparams, logger=True)
+        self.save_hyperparameters(
+            ignore=["ignore_hparams"] + ignore_hparams, logger=True
+        )
     
     def configure_optimizers(
         self,
@@ -175,12 +180,15 @@ class BaseModel(pl.LightningModule):
     def log_gradients_norm(self) -> None:
         """Log gradients norm."""
         self.log("train/grad_norm", get_total_grad_norm(self.model), on_step=True, prog_bar=False, 
-                 sync_dist=self.trainer.world_size > 1)
+                sync_dist=self._sync_dist())
     
     def log_optimizer_lr(self) -> None:
         """Log optimizer learning rates."""
         self.log_dict(get_optimizer_lr(self.trainer.optimizers), on_step=True, prog_bar=False, 
-                      sync_dist=self.trainer.world_size > 1)
+                      sync_dist=self._sync_dist())
+
+    def _sync_dist(self) -> bool:
+        return sync_dist_safe(self)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
@@ -206,7 +214,7 @@ class BaseModel(pl.LightningModule):
 class CLwAuxModel(BaseModel):
     """Contrastive learning with auxiliary loss model."""
     queue: torch.Tensor
-    
+
     def __init__(
         self,
         *,
@@ -266,7 +274,8 @@ class CLwAuxModel(BaseModel):
             weights_init_fn=weights_init_fn,
             ignore_hparams=ignore_hparams,
         )
-
+        
+        # Initialize key encoder
         self.key_encoder = deepcopy(self.model)
         for param in self.key_encoder.parameters():
             param.requires_grad = False
@@ -288,9 +297,9 @@ class CLwAuxModel(BaseModel):
             new_queue = torch.cat([self.queue, q], dim=0)
             new_queue = new_queue[-self.queue_size:]
             self.queue.resize_(new_queue.shape).copy_(new_queue)
-
+        
         self.log("train/queue_size", self.queue.shape[0], on_step=True, prog_bar=False, 
-                sync_dist=self.trainer.world_size > 1)
+                sync_dist=self._sync_dist())
     
     @torch.no_grad()
     def _update_key_encoder(self):
@@ -306,10 +315,10 @@ class CLwAuxModel(BaseModel):
             raise RuntimeError(msg)
         
         for param_q, param_k in zip(params_q, params_k):
-            param_k.data = param_k.data * momentum + param_q.data * (1.0 - momentum)
+            param_k.data.mul_(momentum).add_(param_q.data, alpha=1 - momentum)
         
         self.log("train/momentum", momentum, on_step=True, prog_bar=False, 
-                 sync_dist=self.trainer.world_size > 1)
+                sync_dist=self._sync_dist())
 
     def _compute_loss(
         self,
@@ -319,7 +328,8 @@ class CLwAuxModel(BaseModel):
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, self.queue) # type: ignore
+        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, self.queue)
+    
         loss_aux = self.loss_fn[1](q_aux, aux_spr) # type: ignore
 
         loss_weight = self.get_step_scheduler_values()[0]["loss_weight"]
@@ -357,11 +367,11 @@ class CLwAuxModel(BaseModel):
             "train/loss_info_nce": loss_dict["loss_info_nce"],
             "train/loss_aux": loss_dict["loss_aux"],
             "train/loss_weight": loss_dict["loss_weight"],
-            "train/pos_mean": loss_dict["pos_mean"],
-            "train/neg_mean": loss_dict["neg_mean"],
-            "train/neg_entropy": loss_dict["neg_entropy"],
-            "train/contrastive_acc": loss_dict["contrastive_acc"],
-        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
+            "train/pos_mean": loss_dict.get("pos_mean", torch.tensor(0.0)),
+            "train/neg_mean": loss_dict.get("neg_mean", torch.tensor(0.0)),
+            "train/neg_entropy": loss_dict.get("neg_entropy", torch.tensor(0.0)),
+            "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0.0)),
+        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
 
         self._update_queue(q_proj)
             
@@ -381,7 +391,7 @@ class CLwAuxModel(BaseModel):
             "val/loss_aux": loss_dict["loss_aux"],
             "val/loss_weight": loss_dict["loss_weight"],
             "val/aux_acc": acc,
-        }, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
+        }, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
     
     def test_step(self, batch: dict, batch_idx: int):
         """Test step."""
@@ -397,5 +407,5 @@ class CLwAuxModel(BaseModel):
             "test/loss_aux": loss_dict["loss_aux"],
             "test/loss_weight": loss_dict["loss_weight"],
             "test/aux_acc": acc,
-        }, on_epoch=True, prog_bar=True, sync_dist=self.trainer.world_size > 1)
+        }, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
 
