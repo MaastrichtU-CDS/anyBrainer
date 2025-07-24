@@ -6,7 +6,7 @@ __all__ = [
 
 import logging
 import random
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import numpy as np
 import torch
@@ -19,6 +19,7 @@ def make_worker_init_fn(
     seed: int | None = None,
     setup_logging_fn: Callable[[], None] | None = None,
     seeding_fn: Callable[[Any, int], Any] | None = set_rnd,
+    loader: Literal["train", "val", "test", "predict"] = "train",
 ) -> Callable[[int], None]:
     """Make a worker init function."""
     
@@ -49,7 +50,7 @@ def make_worker_init_fn(
         logger.info(f"Worker {worker_id} initialized with seed {base_seed}", 
             extra={"wandb": {
                 "_wandb_mode": "sync",
-                f"worker_{worker_id}_seed": base_seed
+                f"{loader}/{worker_id}_seed": base_seed
             }}
         )
     

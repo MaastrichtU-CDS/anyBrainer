@@ -22,7 +22,7 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Literal
 from collections import defaultdict, Counter
 
 import lightning as L
@@ -59,6 +59,12 @@ STAGE_SEED_OFFSET = {
     "validate": 1000,
     "test": 2000,
     "predict": 3000,
+}
+STAGE_LOG_PREFIX: dict[str, Literal["train", "val", "test", "predict"]] = {
+    "train": "train",
+    "val": "val",
+    "test": "test",
+    "predict": "predict",
 }
 
 logger = logging.getLogger(__name__)
@@ -149,6 +155,7 @@ class BaseDataModule(L.LightningDataModule):
                 seed=seed,
                 setup_logging_fn=self.worker_logging_fn,
                 seeding_fn=self.worker_seeding_fn,
+                loader=STAGE_LOG_PREFIX[stage],
             ), 
             torch.Generator().manual_seed(seed) if seed is not None else None
         )
