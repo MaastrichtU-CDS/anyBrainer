@@ -6,6 +6,7 @@ import torch
 
 from anyBrainer.engines.utils import (
     get_sub_ses_tensors,
+    pack_ids,
 )
 from anyBrainer.utils.data import (
     modality_to_onehot,
@@ -62,3 +63,13 @@ def test_sub_ses_ids(input_batch, sub, ses):
     assert ses_id.dtype == torch.int64
     assert torch.all(sub_id == torch.tensor([1, 2, 3, 4, 5, 6, 7, 1]))
     assert torch.all(ses_id == torch.tensor([1, 1, 1, 2, 1, 1, 1, 1]))
+
+def test_pack_ids(input_batch):
+    """Test that the pack_ids function is correct."""
+    sub_id, ses_id = get_sub_ses_tensors(input_batch, torch.device("cpu"))
+    packed = pack_ids(sub_id, ses_id)
+    assert packed.shape == (8,)
+    assert packed.dtype == torch.int64
+    assert torch.all(packed == torch.tensor(
+        [1e6 + 1, 2e6 + 1, 3e6 + 1, 4e6 + 2, 5e6 + 1, 6e6 + 1, 7e6 + 1, 1e6 + 1]
+    ))
