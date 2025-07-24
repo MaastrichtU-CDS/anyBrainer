@@ -3,24 +3,24 @@
 import logging
 
 import torch
-import torch.optim as optim
-
 
 logger = logging.getLogger(__name__)
 
-
-def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
-    """Get optimizer learning rates."""
-    return {
-        f"train/lr/opt{i}_group{j}": group["lr"]
-        for i, opt in enumerate(optimizers)
-        for j, group in enumerate(opt.param_groups)
-    }
-
 def sync_dist_safe(obj) -> bool:
-    """Return True if a Trainer exists and world_size > 1."""
-    trainer = getattr(obj, "Trainer", None)
-    return bool(trainer and getattr(trainer, "world_size", 1) > 1)
+    """
+    Return True if the attached Trainer is in DDP/FSDP mode (world_size > 1).
+
+    Works for LightningModule, Callback, or anything else that has a .trainer.
+    Falls back to False if we cannot decide.
+    """
+    trainer = getattr(obj, "trainer", None)
+    if trainer is None:
+        return False
+
+    try:
+        return getattr(trainer, "world_size", 1) > 1
+    except AttributeError:
+        return False
 
 def get_sub_ses_tensors(batch: dict, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
     """Get subject and session ID tensors from batch."""

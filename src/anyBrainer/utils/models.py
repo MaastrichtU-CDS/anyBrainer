@@ -12,6 +12,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.optim as optim
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,14 @@ def get_total_grad_norm(model: nn.Module) -> torch.Tensor:
         ]), p=2,
     )
     return total_norm
+
+def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
+    """Get optimizer learning rates."""
+    return {
+        f"train/lr/opt{i}_group{j}": group["lr"]
+        for i, opt in enumerate(optimizers)
+        for j, group in enumerate(opt.param_groups)
+    }
 
 
 def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,

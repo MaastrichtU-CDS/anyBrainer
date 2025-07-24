@@ -24,7 +24,6 @@ import torch.optim as optim
 import pytorch_lightning as pl
 
 from anyBrainer.engines.utils import (
-    get_optimizer_lr,
     sync_dist_safe,
     pack_ids,
     get_sub_ses_tensors,
@@ -38,7 +37,6 @@ from anyBrainer.engines.factory import (
 )
 from anyBrainer.utils.models import (
     summarize_model_params,
-    get_total_grad_norm,
 )
 from anyBrainer.utils.data import modality_to_onehot
 from anyBrainer.utils.eval import top1_accuracy
@@ -173,19 +171,6 @@ class BaseModel(pl.LightningModule):
         """Show model parameters."""
         logger.info(summarize_model_params(self.model))
     
-    def log_gradients_norm(self) -> None:
-        """Log gradients norm."""
-        self.log("train/grad_norm", get_total_grad_norm(self.model), on_step=True, prog_bar=False, 
-                sync_dist=self._sync_dist())
-    
-    def log_optimizer_lr(self) -> None:
-        """Log optimizer learning rates."""
-        self.log_dict(get_optimizer_lr(self.trainer.optimizers), on_step=True, prog_bar=False, 
-                      sync_dist=self._sync_dist())
-
-    def _sync_dist(self) -> bool:
-        return sync_dist_safe(self)
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
         return self.model(x)
@@ -318,7 +303,7 @@ class CLwAuxModel(BaseModel):
             self.queue_ids = self.queue_ids[excess:]
 
         self.log("train/queue_size", self.queue.shape[0], on_step=True, prog_bar=False, 
-                sync_dist=self._sync_dist())
+                sync_dist=sync_dist_safe(self))
     
     @torch.no_grad()
     def _update_key_encoder(self):
@@ -337,7 +322,7 @@ class CLwAuxModel(BaseModel):
             param_k.data.mul_(momentum).add_(param_q.data, alpha=1 - momentum)
         
         self.log("train/momentum", momentum, on_step=True, prog_bar=False, 
-                sync_dist=self._sync_dist())
+                sync_dist=sync_dist_safe(self))
 
     def _compute_loss(
         self,
@@ -368,13 +353,9 @@ class CLwAuxModel(BaseModel):
             batch["aux_labels"] = modality_to_onehot(batch, "mod", batch["query"].device)
             batch["sub_id"], batch["ses_id"] = get_sub_ses_tensors(batch, batch["query"].device)
         return batch
-
-    def on_before_optimizer_step(self, optimizer: optim.Optimizer, optimizer_idx: int) -> None:
-        self.log_optimizer_lr()
     
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         self._update_key_encoder()
-        self.log_gradients_norm()
     
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
@@ -402,7 +383,7 @@ class CLwAuxModel(BaseModel):
             "train/neg_mean": loss_dict.get("neg_mean", torch.tensor(0.0)),
             "train/neg_entropy": loss_dict.get("neg_entropy", torch.tensor(0.0)),
             "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0.0)),
-        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
+        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
 
         self._update_queue(q_proj, batch_ids)
             
@@ -428,7 +409,7 @@ class CLwAuxModel(BaseModel):
             "val/loss_aux": loss_dict["loss_aux"],
             "val/loss_weight": loss_dict["loss_weight"],
             "val/aux_acc": acc,
-        }, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
+        }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
     
     def test_step(self, batch: dict, batch_idx: int):
         """Test step."""
@@ -450,4 +431,4 @@ class CLwAuxModel(BaseModel):
             "test/loss_aux": loss_dict["loss_aux"],
             "test/loss_weight": loss_dict["loss_weight"],
             "test/aux_acc": acc,
-        }, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
+        }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))

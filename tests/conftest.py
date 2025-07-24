@@ -5,6 +5,8 @@ import torch.multiprocessing as mp
 
 import pytest
 import torch
+from torch import nn
+
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
     LoadImaged,
@@ -28,6 +30,7 @@ from anyBrainer.transforms import (
     CreateEmptyMaskd,
     GetKeyQueryd,
 )
+from anyBrainer.networks.blocks import ClassificationHead
 
 logger = logging.getLogger("anyBrainer")
 
@@ -178,3 +181,51 @@ def ref_predict_transforms():
         LoadImaged(keys=['img'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['img'], spatial_size=(128, 128, 128), mode='constant'),
     ]
+
+@pytest.fixture(scope="session")
+def swinv2cl_model_kwargs():
+    return {
+    "name": "Swinv2CL",
+    "in_channels": 1,
+    "depths": (2, 2, 6, 2),
+    "num_heads": (3, 6, 12, 24),
+    "window_size": 7,
+    "patch_size": 2,
+    "use_v2": True,
+    "feature_size": 48,
+    "proj_dim": 128,
+    "proj_hidden_dim": 2048,
+    "proj_hidden_act": "gelu",
+    "aux_mlp_head": True,
+    "aux_mlp_num_classes": 7,
+    }
+
+@pytest.fixture(scope="session")
+def swinv2cl_optimizer_kwargs():
+    return {
+    "name": "AdamW",
+    "lr": 1e-4,
+    "weight_decay": 1e-5,
+}
+
+@pytest.fixture(scope="session")
+def swinv2cl_scheduler_kwargs():
+    return {
+    "name": "CosineAnnealingWithWarmup",
+    "warmup_iters": 1000,
+    "total_iters": 10000,
+    "interval": "step",
+    "frequency": 1,
+}
+
+@pytest.fixture(scope="session")
+def model_with_grads() -> nn.Module: 
+    """Optimize a simple MLP for one batch pass"""
+    model = ClassificationHead(in_dim=768, num_classes=2)
+    out = model(torch.randn(2, 768, 4, 4, 4))
+    ref = torch.tensor([[1, 0] for _ in range(2)], device=out.device, dtype=torch.float)
+    optimizer = torch.optim.Adam(model.parameters())
+    loss = torch.nn.functional.cross_entropy(out, ref)
+    loss.backward()
+    optimizer.step()
+    return model

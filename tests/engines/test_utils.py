@@ -7,11 +7,14 @@ import torch
 from anyBrainer.engines.utils import (
     get_sub_ses_tensors,
     pack_ids,
+    sync_dist_safe,
 )
 from anyBrainer.utils.data import (
     modality_to_onehot,
 )
-
+from anyBrainer.utils.models import (
+    get_total_grad_norm,
+)
 
 @pytest.fixture(scope="module")
 def input_batch():
@@ -73,3 +76,21 @@ def test_pack_ids(input_batch):
     assert torch.all(packed == torch.tensor(
         [1e6 + 1, 2e6 + 1, 3e6 + 1, 4e6 + 2, 5e6 + 1, 6e6 + 1, 7e6 + 1, 1e6 + 1]
     ))
+
+def test_get_total_norm(model_with_grads):
+    """Compare with reference grad norm using a dummy optimized model"""
+    norm = get_total_grad_norm(model_with_grads)
+
+    ref_norm = torch.norm(
+        torch.stack([
+            p.grad.detach().norm(2)
+            for p in model_with_grads.parameters()
+            if p.grad is not None
+        ]), p=2,
+    )
+
+    assert torch.equal(norm, ref_norm)
+
+@pytest.mark.skip(reason="Not implemented")
+def test_sync_dist_safe():
+    """Test that the sync_dist_safe function is correct."""

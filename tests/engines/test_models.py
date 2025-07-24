@@ -61,38 +61,15 @@ def manual_param_step(model: nn.Module, lr: float = 1e-3, use_grads: bool = True
         else:
             p.data.add_(torch.randn_like(p) * lr)
 
-swinv2cl_model_kwargs = {
-    "name": "Swinv2CL",
-    "in_channels": 1,
-    "depths": (2, 2, 6, 2),
-    "num_heads": (3, 6, 12, 24),
-    "window_size": 7,
-    "patch_size": 2,
-    "use_v2": True,
-    "feature_size": 48,
-    "proj_dim": 128,
-    "proj_hidden_dim": 2048,
-    "proj_hidden_act": "gelu",
-    "aux_mlp_head": True,
-    "aux_mlp_num_classes": 7,
-}
-
-swinv2cl_optimizer_kwargs = {
-    "name": "AdamW",
-    "lr": 1e-4,
-    "weight_decay": 1e-5,
-}
-
-swinv2cl_scheduler_kwargs = {
-    "name": "CosineAnnealingWithWarmup",
-    "warmup_iters": 1000,
-    "total_iters": 10000,
-    "interval": "step",
-    "frequency": 1,
-}
 
 class TestCLwAuxModel:
-    def test_model_forward_pass(self, input_tensor):
+    def test_model_forward_pass(
+        self,
+        input_tensor,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model is properly initialized."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -104,7 +81,12 @@ class TestCLwAuxModel:
         assert proj.shape == (8, 128)
         assert aux.shape == (8, 7)
     
-    def test_incorrect_model_kwargs(self):
+    def test_incorrect_model_kwargs(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model raises a ValueError if the model kwargs are incorrect."""
         with pytest.raises(Exception):
             CLwAuxModel(
@@ -116,7 +98,12 @@ class TestCLwAuxModel:
             
 
 class TestConfigureOptimizers:
-    def test_one_optimizer_one_scheduler(self, input_tensor):
+    def test_one_optimizer_one_scheduler(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model returns a dict with an optimizer and a scheduler."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -133,7 +120,11 @@ class TestConfigureOptimizers:
         assert "scheduler" in out["lr_scheduler"]
         assert isinstance(out["lr_scheduler"]["scheduler"], optim.lr_scheduler.LRScheduler)
     
-    def test_one_optimizer_no_scheduler(self):
+    def test_one_optimizer_no_scheduler(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+    ):
         """Test that the model returns an optimizer if no scheduler is provided."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -143,7 +134,11 @@ class TestConfigureOptimizers:
         out = model.configure_optimizers()
         assert isinstance(out, optim.Optimizer)
 
-    def test_multiple_optimizers_no_scheduler(self):
+    def test_multiple_optimizers_no_scheduler(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+    ):
         """Test that the model returns a list of optimizers if no scheduler is provided."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -156,7 +151,12 @@ class TestConfigureOptimizers:
         assert isinstance(out[0], optim.Optimizer)
         assert isinstance(out[1], optim.Optimizer)
     
-    def test_multiple_optimizers_one_scheduler(self):
+    def test_multiple_optimizers_one_scheduler(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model returns a list of optimizers and a list of scheduler dictionaries."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -177,7 +177,12 @@ class TestConfigureOptimizers:
         assert isinstance(out[1][0]["scheduler"], optim.lr_scheduler.LRScheduler)
         assert isinstance(out[1][1]["scheduler"], optim.lr_scheduler.LRScheduler)
     
-    def test_multiple_optimizers_multiple_schedulers(self):
+    def test_multiple_optimizers_multiple_schedulers(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model returns a list of optimizers and a list of scheduler dictionaries."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -198,7 +203,12 @@ class TestConfigureOptimizers:
         assert isinstance(out[1][0]["scheduler"], optim.lr_scheduler.LRScheduler)
         assert isinstance(out[1][1]["scheduler"], optim.lr_scheduler.LRScheduler)
     
-    def test_multiple_schedulers_one_optimizer(self):
+    def test_multiple_schedulers_one_optimizer(
+        self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model returns a list of optimizers and a list of scheduler dictionaries."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -209,7 +219,11 @@ class TestConfigureOptimizers:
         with pytest.raises(ValueError):
             model.configure_optimizers()
     
-    def test_len_mismatch(self):
+    def test_len_mismatch(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test length mismatch between optimizer and scheduler."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -220,7 +234,9 @@ class TestConfigureOptimizers:
         with pytest.raises(ValueError):
             model.configure_optimizers()
     
-    def test_not_found_optimizer(self):
+    def test_not_found_optimizer(self,
+        swinv2cl_model_kwargs,
+    ):
         """Test that the model raises a ValueError if the optimizer name is not found."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -230,7 +246,10 @@ class TestConfigureOptimizers:
         with pytest.raises(ValueError):
             model.configure_optimizers()
     
-    def test_not_found_scheduler(self):
+    def test_not_found_scheduler(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+    ):
         """Test that the model raises a ValueError if the scheduler name is not found."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -241,7 +260,10 @@ class TestConfigureOptimizers:
         with pytest.raises(ValueError):
             model.configure_optimizers()
     
-    def test_missing_scheduler_keys(self):
+    def test_missing_scheduler_keys(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+    ):
         """Test that the model raises a ValueError if the scheduler keys are missing."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -252,7 +274,10 @@ class TestConfigureOptimizers:
         with pytest.raises(ValueError):
             model.configure_optimizers()
     
-    def test_incorrect_optimizer_kwargs(self):
+    def test_incorrect_optimizer_kwargs(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model raises a Exception if the optimizer kwargs are incorrect."""
         model = CLwAuxModel(
                 model_kwargs=swinv2cl_model_kwargs,
@@ -264,7 +289,10 @@ class TestConfigureOptimizers:
             model.configure_optimizers()
 
     
-    def test_incorrect_lr_scheduler_kwargs(self):
+    def test_incorrect_lr_scheduler_kwargs(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+    ):
         """Test that the model raises a ValueError if the lr scheduler kwargs are incorrect."""
         model = CLwAuxModel(
                 model_kwargs=swinv2cl_model_kwargs,
@@ -277,7 +305,11 @@ class TestConfigureOptimizers:
 
 
 class TestInitializations:
-    def test_initialization_of_hparams(self):
+    def test_initialization_of_hparams(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """
         Test that the model initializes with the correct hyperparameters.
         Ideally run with pytest -s to see the logger output.
@@ -298,7 +330,11 @@ class TestInitializations:
         assert model.hparams.loss_kwargs["temperature"] == 0.1 # type: ignore
         assert model.hparams.loss_kwargs["top_k_negatives"] == 1000 # type: ignore
 
-    def test_initialization_of_model(self):
+    def test_initialization_of_model(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Test that the model is properly initialized."""
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -311,7 +347,11 @@ class TestInitializations:
 
 class TestTrainingStep:
     @pytest.fixture
-    def model(self):
+    def model(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Model fixture."""
         return CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
@@ -409,7 +449,11 @@ class TestTrainingStep:
             
 class TestValTestSteps:
     @pytest.fixture
-    def model(self):
+    def model(self,
+        swinv2cl_model_kwargs,
+        swinv2cl_optimizer_kwargs,
+        swinv2cl_scheduler_kwargs,
+    ):
         """Model fixture."""
         return CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
