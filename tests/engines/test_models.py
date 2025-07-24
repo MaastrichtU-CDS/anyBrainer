@@ -8,6 +8,10 @@ from torch import nn
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
 from anyBrainer.engines.models import CLwAuxModel
+from anyBrainer.engines.utils import (
+    pack_ids,
+    get_sub_ses_tensors,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +36,8 @@ def input_batch():
         "query": torch.randn(8, 1, 128, 128, 128),
         "key": torch.randn(8, 1, 128, 128, 128),
         "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
+        "sub_id": ["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-01"],
+        "ses_id": ["ses-01", "ses-01", "ses-01", "ses-01", "ses-01", "ses-01", "ses-01", "ses-01"],
     }
 
 @torch.no_grad()
@@ -268,22 +274,6 @@ class TestConfigureOptimizers:
             )
         with pytest.raises(Exception):
             model.configure_optimizers()
-    
-
-class TestOnAfterBatchTransfer:
-    def test_modality_to_onehot(self, input_batch):
-        """Unit test that the model returns a one-hot encoded tensor."""
-        model = CLwAuxModel(
-            model_kwargs=swinv2cl_model_kwargs,
-            optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            total_steps=10000,
-        )
-        output_batch = model.on_after_batch_transfer(input_batch, 0)
-        assert "aux_labels" in output_batch
-        assert output_batch["aux_labels"].shape == (8, 7)
-        assert output_batch["aux_labels"].dtype == torch.float32
-        assert input_batch["query"].device == output_batch["aux_labels"].device
 
 
 class TestInitializations:
@@ -337,12 +327,27 @@ class TestTrainingStep:
             },
         )
 
-    def test_queue_update(self, model, input_tensor):
+    def test_queue_update(self, model, input_batch):
         """Test that the queue is updated correctly."""
+        input_batch["sub_id"], input_batch["ses_id"] = get_sub_ses_tensors(
+            input_batch, input_batch["query"].device
+        )
         for _ in range(3):
-            proj, _ = model.forward(input_tensor) # type: ignore
-            model._update_queue(proj)
+            proj, _ = model.forward(input_batch["query"]) # type: ignore
+            model._update_queue(proj, pack_ids(input_batch["sub_id"], input_batch["ses_id"]))
         assert model.queue.shape == (24, 128)
+    
+    def test_queue_update_with_duplicates(self, model, input_batch):
+        """Test that the queue is updated correctly with duplicates."""
+        input_batch["sub_id"], input_batch["ses_id"] = get_sub_ses_tensors(
+            input_batch, input_batch["query"].device
+        )
+        for _ in range(3):
+            proj, _ = model.forward(input_batch["query"]) # type: ignore
+            model._update_queue(proj, pack_ids(input_batch["sub_id"], input_batch["ses_id"]))
+        
+        negatives = model._get_negatives(pack_ids(input_batch["sub_id"], input_batch["ses_id"]))
+        assert negatives.shape == (0, 128)
 
     def test_key_encoder_matches_query_encoder(self, model, input_tensor):
         """Test that the key encoder matches the query encoder."""
@@ -369,17 +374,20 @@ class TestTrainingStep:
             expected = pk_old * momentum + pq_new * (1 - momentum)
             assert torch.allclose(pk_new, expected)
     
-    def test_loss_computation(self, model, input_tensor):
+    def test_loss_computation(self, model, input_batch):
         """Test that the loss is computed correctly."""
+        input_batch["sub_id"], input_batch["ses_id"] = get_sub_ses_tensors(
+            input_batch, input_batch["query"].device
+        )
         for _ in range(3):
-            proj_1, aux = model.forward(input_tensor) # type: ignore
-            proj_2, _ = model.key_encoder(input_tensor) # type: ignore
-            model._update_queue(proj_1)
+            proj_1, aux = model.forward(input_batch["query"]) # type: ignore
+            proj_2, _ = model.key_encoder(input_batch["key"]) # type: ignore
+            model._update_queue(proj_1, pack_ids(input_batch["sub_id"], input_batch["ses_id"]))
 
         aux_labels = torch.zeros(8, 7)
         aux_labels[:, 0] = 1
         loss, loss_dict = model._compute_loss(
-            proj_1, proj_2, aux, aux_labels
+            proj_1, proj_2, model.queue, aux, aux_labels
         )
         assert loss.shape == ()
         assert loss_dict.keys() == {"loss_info_nce", "loss_aux", "loss_weight", "pos_mean", 

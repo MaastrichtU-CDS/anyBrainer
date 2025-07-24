@@ -26,6 +26,8 @@ import pytorch_lightning as pl
 from anyBrainer.engines.utils import (
     get_optimizer_lr,
     sync_dist_safe,
+    pack_ids,
+    get_sub_ses_tensors,
 )
 from anyBrainer.engines.factory import (
     get_model_instance_from_kwargs,
@@ -277,22 +279,44 @@ class CLwAuxModel(BaseModel):
         
         # Initialize queue
         self.queue_size = loss_kwargs.get("queue_size", 16384)
-        self.register_buffer("queue", torch.empty(0))
+        self.proj_dim = model_kwargs.get("proj_dim", 128)
+        self.register_buffer("queue", torch.empty(0, self.proj_dim))
+        self.register_buffer("queue_ids", torch.empty(0, dtype=torch.long))
 
         logger.info(f"\nLightning module initialized with following "
                     f"hyperparameters:\n{self.hparams}")
 
     @torch.no_grad()
-    def _update_queue(self, q: torch.Tensor) -> None:
+    def _get_negatives(self, batch_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Return negative features that do not share (subj, sess) IDs with
+        the current batch. No mutation of the queue.
+        """
+        if self.queue.numel() == 0:
+            return torch.empty(0, self.proj_dim, device=batch_ids.device)
+
+        # mask out rows where batch_ids are in queue_ids
+        non_dup_mask = ~torch.isin(self.queue_ids, batch_ids) # type: ignore
+        return self.queue[non_dup_mask]
+
+    @torch.no_grad()
+    def _update_queue(self, q: torch.Tensor, q_ids: torch.Tensor) -> None:
+        """Update queue with new embeddings and IDs."""
         q = q.detach()
+        q_ids = q_ids.detach()
 
         if self.queue.numel() == 0:
             self.queue.resize_(q.shape).copy_(q)
+            self.queue_ids.resize_(q_ids.shape).copy_(q_ids)
         else:
-            new_queue = torch.cat([self.queue, q], dim=0)
-            new_queue = new_queue[-self.queue_size:]
-            self.queue.resize_(new_queue.shape).copy_(new_queue)
-        
+            self.queue = torch.cat([self.queue, q], dim=0)
+            self.queue_ids = torch.cat([self.queue_ids, q_ids], dim=0)
+            
+        if self.queue.shape[0] > self.queue_size:
+            excess = self.queue.shape[0] - self.queue_size
+            self.queue = self.queue[excess:]
+            self.queue_ids = self.queue_ids[excess:]
+
         self.log("train/queue_size", self.queue.shape[0], on_step=True, prog_bar=False, 
                 sync_dist=self._sync_dist())
     
@@ -319,11 +343,12 @@ class CLwAuxModel(BaseModel):
         self,
         q_proj: torch.Tensor,
         k_proj: torch.Tensor,
+        queue: torch.Tensor,
         q_aux: torch.Tensor,
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, self.queue) # type: ignore
+        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, queue) # type: ignore
     
         loss_aux = self.loss_fn[1](q_aux, aux_spr) # type: ignore
 
@@ -341,6 +366,7 @@ class CLwAuxModel(BaseModel):
         """Get modality one-hot labels to device."""
         if dataloader_idx != 3: # not for prediction
             batch["aux_labels"] = modality_to_onehot(batch, "mod", batch["query"].device)
+            batch["sub_id"], batch["ses_id"] = get_sub_ses_tensors(batch, batch["query"].device)
         return batch
 
     def on_before_optimizer_step(self, optimizer: optim.Optimizer, optimizer_idx: int) -> None:
@@ -355,7 +381,17 @@ class CLwAuxModel(BaseModel):
         q_proj, q_aux = self.model(batch["query"])
         k_proj, _ = self.key_encoder(batch["key"])
 
-        loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
+        # Filter positive pairs from queue
+        batch_ids = pack_ids(batch["sub_id"], batch["ses_id"])
+        negatives = self._get_negatives(batch_ids)
+
+        loss, loss_dict = self._compute_loss(
+            q_proj=q_proj,
+            k_proj=k_proj,
+            queue=negatives,
+            q_aux=q_aux,
+            aux_spr=batch["aux_labels"],
+        )
         
         self.log_dict({
             "train/loss": loss,
@@ -368,7 +404,7 @@ class CLwAuxModel(BaseModel):
             "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0.0)),
         }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=self._sync_dist())
 
-        self._update_queue(q_proj)
+        self._update_queue(q_proj, batch_ids)
             
         return loss
     
@@ -377,7 +413,13 @@ class CLwAuxModel(BaseModel):
         q_proj, q_aux = self.model(batch["query"])
         k_proj, _ = self.key_encoder(batch["key"])
 
-        loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
+        loss, loss_dict = self._compute_loss(
+            q_proj=q_proj,
+            k_proj=k_proj,
+            queue=self.queue,
+            q_aux=q_aux,
+            aux_spr=batch["aux_labels"],
+        )
         acc = top1_accuracy(q_proj, batch["aux_labels"])
         
         self.log_dict({
@@ -393,7 +435,13 @@ class CLwAuxModel(BaseModel):
         q_proj, q_aux = self.model(batch["query"])
         k_proj, _ = self.key_encoder(batch["key"])
 
-        loss, loss_dict = self._compute_loss(q_proj, k_proj, q_aux, batch["aux_labels"])
+        loss, loss_dict = self._compute_loss(
+            q_proj=q_proj,
+            k_proj=k_proj,
+            queue=self.queue,
+            q_aux=q_aux,
+            aux_spr=batch["aux_labels"],
+        )
         acc = top1_accuracy(q_proj, batch["aux_labels"])
         
         self.log_dict({
