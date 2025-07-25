@@ -300,14 +300,14 @@ class TrainWorkflow:
         """
         Runs the training workflow.
         """
-        self.main_logger.info("\n🚀 [TRAINING STARTED]")
+        self.main_logger.info("\n[TRAINING STARTED]")
         self.main_logger.info(self.train_start_summary())
 
         start_time = time.time()
         train_stats = self.train_run()
         duration = time.time() - start_time
 
-        self.main_logger.info(f"\n✅ [TRAINING COMPLETED] in {duration/60:.1f} min")
+        self.main_logger.info(f"\n[TRAINING COMPLETED] in {duration/60:.1f} min")
         self.main_logger.info(self.train_end_summary(train_stats))
 
     def train_run(self) -> dict[str, Any]:
@@ -372,7 +372,7 @@ class TrainWorkflow:
 
     def test(self):
         """Test the model."""
-        self.main_logger.info("\n🧪 [TESTING STARTED]")
+        self.main_logger.info("\n[TESTING STARTED]")
         self.trainer.test(self.model, self.datamodule)
-        self.main_logger.info("✅ [TESTING COMPLETED]")
+        self.main_logger.info("[TESTING COMPLETED]")
 
