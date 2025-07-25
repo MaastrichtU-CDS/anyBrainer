@@ -29,6 +29,15 @@ def mock_swin_vit(monkeypatch):
 
     monkeypatch.setattr(SwinViT, "forward", _dummy_call, raising=True)
 
+@pytest.fixture(autouse=True)
+def log_mock(monkeypatch):
+    """Mock the log_dict method of the LightningModule."""
+    def dummy_log(self, obj, *args, **kwargs):
+        print(obj)
+    
+    monkeypatch.setattr(CLwAuxModel, "log", dummy_log)
+    monkeypatch.setattr(CLwAuxModel, "log_dict", dummy_log)
+
 @pytest.fixture(scope="module")
 def input_batch():
     """Input batch for the model."""
@@ -342,7 +351,7 @@ class TestInitializations:
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
             total_steps=10000,
         )
-        model.summarize_model()
+        model.summarize()
         
 
 class TestTrainingStep:

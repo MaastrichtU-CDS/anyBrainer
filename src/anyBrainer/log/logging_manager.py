@@ -14,48 +14,65 @@ from dataclasses import dataclass
 from functools import partial
 
 from anyBrainer.utils.io import resolve_path
-from anyBrainer.log.utils import setup_worker_logging 
+from anyBrainer.log.utils import setup_worker_logging, init_wandb_logger
 from anyBrainer.log.utils import WandbFilter, WandbOnlyHandler
+
 
 @dataclass
 class LoggingSettings:
-    logs_root: Path | None
+    logs_root: Path
     worker_logs: bool
     dev_mode: bool
     enable_wandb: bool
+    experiment: str
     num_workers: int
     sync_timeout: float = 5.0
+    wandb_project: str = "anyBrainer"
+    disable_file_logs: bool = False
 
     def __post_init__(self):
-        if self.logs_root is not None:
-            self.logs_root = resolve_path(self.logs_root)
+        self.logs_root = resolve_path(self.logs_root)
+
 
 class LoggingManager:
+    """Handles all logging logic for main and parallel processes."""
     def __init__(self, settings: dict):
         self.settings = LoggingSettings(**settings)
-        self.main_logger = None
-        self.log_queue = None
-        self.listener = None
-        self._wandb_filter = None
+        if self.settings.enable_wandb:
+            self.wandb_logger = init_wandb_logger(
+                project=self.settings.wandb_project,
+                name=self.settings.experiment,
+                dir=self.settings.logs_root
+            )
+        else:
+            self.wandb_logger = None
+        
+        self.main_logger = self._setup_main_logging()
+        self.log_queue, self.listener = self._setup_parallel_logging()
 
-    def setup_main_logging(self):
+        self.main_logger.info(f"Logging manager initialized with settings: {self.settings}")
+    
+    def _setup_main_logging(self) -> logging.Logger:
         """Sets up the main process logging handlers and loggers."""
         # Get the anyBrainer logger
-        self.main_logger = logging.getLogger("anyBrainer")
+        main_logger = logging.getLogger("anyBrainer")
         
         # Set the logging level
         level = logging.DEBUG if self.settings.dev_mode else logging.INFO
-        self.main_logger.setLevel(level)
+        main_logger.setLevel(level)
         
         # Clear any existing handlers to avoid duplicates
-        self.main_logger.handlers.clear()
+        main_logger.handlers.clear()
         
         # Create handlers
-        handlers = [logging.StreamHandler()]
+        handlers: list[logging.Handler] = [logging.StreamHandler()]
         
-        if self.settings.logs_root:
+        if not self.settings.disable_file_logs:
             self.settings.logs_root.mkdir(parents=True, exist_ok=True)
             handlers.append(logging.FileHandler(self.settings.logs_root / "main.log")) # type: ignore
+        
+        # Add custom Wandb handler to the handlers list
+        self._add_wandb_handler(handlers)
         
         # Create formatter
         base_format = "%(asctime)s | %(levelname)s | "
@@ -69,18 +86,20 @@ class LoggingManager:
         for handler in handlers:
             handler.setFormatter(formatter)
             handler.setLevel(level)
-            self.main_logger.addHandler(handler)
+            main_logger.addHandler(handler)
         
         # Prevent propagation to root logger to avoid duplicate logs
-        self.main_logger.propagate = False
+        main_logger.propagate = False
 
-    def setup_parallel_logging(self):
+        return main_logger
+
+    def _setup_parallel_logging(self) -> tuple[Queue, QueueListener]:
         """Sets up multiprocessing-compatible logging using a Queue."""
-        self.log_queue = Queue()
+        log_queue = Queue()
 
         handlers: list[logging.Handler] = [logging.StreamHandler()]
 
-        if self.settings.logs_root:
+        if not self.settings.disable_file_logs:
             handlers.append(logging.FileHandler(self.settings.logs_root / "workers.log")) # type: ignore
 
         stream_fmt = (
@@ -93,18 +112,24 @@ class LoggingManager:
                 logging.Formatter(stream_fmt, "%Y-%m-%d %H:%M:%S")
             )
         
-        # Add WandbFilter to the handler
+        # Add custom Wandb handler to the handlers list
+        self._add_wandb_handler(handlers)
+
+        listener = QueueListener(log_queue, *handlers)
+        listener.start()
+
+        return log_queue, listener
+    
+    def _add_wandb_handler(self, handlers: list[logging.Handler]) -> None:
+        """Adds WandbOnlyHandler in-place to the handlers list."""
         wandb_handler = WandbOnlyHandler()
-        self._wandb_filter = WandbFilter(
-            enable_wandb=self.settings.enable_wandb,
+        wandb_filter = WandbFilter(
+            wandb_logger=self.wandb_logger,
             num_expected_sync=self.settings.num_workers,
             sync_timeout=self.settings.sync_timeout
         )
-        wandb_handler.addFilter(self._wandb_filter)
+        wandb_handler.addFilter(wandb_filter)
         handlers.append(wandb_handler)
-
-        self.listener = QueueListener(self.log_queue, *handlers)
-        self.listener.start()
     
     def setup_worker_logging(self):
         """Sets up worker logger"""
@@ -122,6 +147,9 @@ class LoggingManager:
                        worker_logs=self.settings.worker_logs)
 
     def stop_parallel_logging(self):
-        if self.listener:
-            self.listener.stop()
-            self.listener = None
+        """Stops the parallel logging listener."""
+        self.listener.stop()
+    
+    def close(self):
+        """Closes the logging manager."""
+        self.stop_parallel_logging()

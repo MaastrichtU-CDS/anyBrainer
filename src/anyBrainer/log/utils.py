@@ -17,6 +17,7 @@ from threading import Lock
 import time
 
 import wandb
+from pytorch_lightning.loggers import WandbLogger
 
 from anyBrainer.utils.io import resolve_path
 
@@ -74,6 +75,23 @@ def get_safe_logger(
 
     return logger
 
+def init_wandb_logger(
+        project: str,
+        name: str,
+        dir: str | Path,
+) -> WandbLogger:
+    """Initialize W&B and return logger."""
+    wandb.init(
+        project=project,
+        name=name,
+        dir=dir,
+    )
+    return WandbLogger(
+        project=project,
+        name=name,
+        dir=dir,
+    )
+
 
 class WandbFilter(logging.Filter):
     """
@@ -86,12 +104,12 @@ class WandbFilter(logging.Filter):
     """
     def __init__(
         self,
-        enable_wandb: bool = False,
+        wandb_logger: WandbLogger | None = None,
         num_expected_sync: int = 0,
         sync_timeout: float = 5.0,
     ):
         super().__init__()
-        self.enable_wandb = enable_wandb
+        self.wandb_logger = wandb_logger
         self.num_expected_sync = num_expected_sync
         self.sync_timeout = sync_timeout
 
@@ -102,14 +120,14 @@ class WandbFilter(logging.Filter):
         self._lock = Lock()
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if not self.enable_wandb:
+        if self.wandb_logger is None:
             return True
 
         if not hasattr(record, "wandb") or not isinstance(record.wandb, dict): # type: ignore
             return True
 
         data = dict(record.wandb) # type: ignore
-        mode = data.pop("_wandb_mode", "sync")
+        mode = data.pop("_wandb_mode", "async")
 
         if mode == "async":
             wandb.log(data)

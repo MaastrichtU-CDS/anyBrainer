@@ -11,8 +11,6 @@ from anyBrainer.engines.callbacks import (
     LogLR,
     LogGradNorm,
 )
-from anyBrainer.engines.models import CLwAuxModel
-from anyBrainer.engines.factory import get_optimizer_instances_from_kwargs
 
 @pytest.fixture(autouse=True)
 def log_mock(monkeypatch):

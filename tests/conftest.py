@@ -1,3 +1,19 @@
+"""
+Pytest configuration file.
+
+Unit tests for several functions that can be visually inspected
+(e.g., logging, create directories) are omitted. 
+
+Tests are grouped based on functionality, which is not always the same
+as the location in the source code. For example, utility functions related
+to model training are grouped under tests/engines/test_utils.py regardless
+if functions are defined in anyBrainer.engines.utils or anyBrainer.utils.models. 
+
+TODO: ensure all adequate tests are written and grouping is functionally
+accurate. 
+
+"""
+
 import sys
 from pathlib import Path
 import logging

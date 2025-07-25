@@ -1,8 +1,13 @@
 """Utility functions for creating and running models."""
 
 import logging
+from pathlib import Path
+from typing import Any
 
 import torch
+import pytorch_lightning as pl
+
+from anyBrainer.utils.io import resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +18,11 @@ def sync_dist_safe(obj) -> bool:
     Works for LightningModule, Callback, or anything else that has a .trainer.
     Falls back to False if we cannot decide.
     """
-    trainer = getattr(obj, "trainer", None)
+    try:
+        trainer = getattr(obj, "trainer", None)
+    except RuntimeError:
+        return False
+    
     if trainer is None:
         return False
 
@@ -71,3 +80,45 @@ def pack_ids(subject_ids: torch.Tensor, session_ids: torch.Tensor) -> torch.Tens
     Assumes both < 1e6; change multiplier if needed.
     """
     return subject_ids.long() * 1_000_000 + session_ids.long()
+
+def unpack_settings_for_train_workflow(
+    global_settings: dict[str, Any],
+    logging_settings: dict[str, Any],
+    pl_datamodule_settings: dict[str, Any],
+    pl_module_settings: dict[str, dict[str, Any]],
+    pl_callback_settings: list[dict[str, Any]],
+    ckpt_settings: dict[str, Any],
+    trainer_settings: dict[str, Any],
+) -> dict[str, Any]: 
+    """Unpack user-provided settings and provide default values for a typical train workflow."""
+    settings = {
+        "experiment": global_settings.get("experiment", "exp-01"),
+        "save_dir": resolve_path(global_settings.get("save_dir", Path.cwd())),
+        "seed": global_settings.get("seed", 12345),
+        "worker_logs": logging_settings.get("worker_logs", True),
+        "dev_mode": logging_settings.get("dev_mode", False),
+        "enable_wandb": logging_settings.get("enable_wandb", True),
+        "wandb_project": logging_settings.get("wandb_project", "anyBrainer"),
+        "pl_datamodule_name": pl_datamodule_settings.get("name", "ContrastiveDataModule"),
+        "data_dir": resolve_path(pl_datamodule_settings.get("data_dir", Path.cwd())),
+        "num_workers": pl_datamodule_settings.get("num_workers", 32),
+        "batch_size": pl_datamodule_settings.get("batch_size", 8),
+        "train_val_test_split": pl_datamodule_settings.get("train_val_test_split", (0.7, 0.15, 0.15)),
+        "train_transforms": pl_datamodule_settings.get("train_transforms", None),
+        "val_transforms": pl_datamodule_settings.get("val_transforms", None),
+        "test_transforms": pl_datamodule_settings.get("test_transforms", None),
+        "predict_transforms": pl_datamodule_settings.get("predict_transforms", None),
+        "new_version": ckpt_settings.get("new_version", False),
+        "model_checkpoint": ckpt_settings.get("model_checkpoint", None),
+        "save_every_n_epochs": ckpt_settings.get("save_every_n_epochs", 1),
+        "save_last": ckpt_settings.get("save_last", True),
+        "pl_module_name": pl_module_settings.get("name", "CLwAuxModel"),
+        "pl_module_kwargs": pl_module_settings,
+        "pl_callback_kwargs": pl_callback_settings,
+        "trainer_kwargs": trainer_settings,
+    }
+
+    if settings["model_checkpoint"] is not None:
+        settings["model_checkpoint"] = resolve_path(settings["model_checkpoint"])
+
+    return settings

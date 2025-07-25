@@ -16,11 +16,12 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from copy import deepcopy
 
 import torch
 import torch.optim as optim
+import torch.nn as nn
 import pytorch_lightning as pl
 
 from anyBrainer.engines.utils import (
@@ -28,16 +29,11 @@ from anyBrainer.engines.utils import (
     pack_ids,
     get_sub_ses_tensors,
 )
-from anyBrainer.engines.factory import (
-    get_model_instance_from_kwargs,
-    get_optimizer_instances_from_kwargs,
-    get_lr_scheduler_instances_from_kwargs,
-    get_param_scheduler_instances_from_kwargs,
-    get_loss_fn_instances_from_kwargs,
-)
+from anyBrainer.engines.factory import UnitFactory
 from anyBrainer.utils.models import (
     summarize_model_params,
 )
+from anyBrainer.schedulers.param_schedulers import ParameterScheduler
 from anyBrainer.utils.data import modality_to_onehot
 from anyBrainer.utils.eval import top1_accuracy
 
@@ -83,12 +79,13 @@ class BaseModel(pl.LightningModule):
         ignore_hparams: list[str] = [],
     ):
         super().__init__()
-        self.model = get_model_instance_from_kwargs(model_kwargs)
-        self.loss_fn = get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
+        self.model = cast(nn.Module, UnitFactory.get_model_instance_from_kwargs(model_kwargs))
+        self.loss_fn = cast(list[nn.Module], UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs))
         self.optimizer_kwargs = optimizer_kwargs # instantiated in configure_optimizers
         self.lr_scheduler_kwargs = lr_scheduler_kwargs # instantiated in configure_optimizers
         self.other_schedulers_step, self.other_schedulers_epoch = (
-            get_param_scheduler_instances_from_kwargs(other_schedulers)
+            cast(tuple[list[ParameterScheduler], list[ParameterScheduler]],
+                 UnitFactory.get_param_scheduler_instances_from_kwargs(other_schedulers))
         )
         
         if weights_init_fn is not None:
@@ -112,10 +109,12 @@ class BaseModel(pl.LightningModule):
         - A list of optimizers
         - A list of optimizers with a list of lr_scheduler_configs
         """
-        optimizer = get_optimizer_instances_from_kwargs(self.optimizer_kwargs, self.model)
+        optimizer = cast(optim.Optimizer | list[optim.Optimizer], 
+                         UnitFactory.get_optimizer_instances_from_kwargs(self.optimizer_kwargs, self.model))
 
         if self.lr_scheduler_kwargs is not None:
-            lr_scheduler = get_lr_scheduler_instances_from_kwargs(self.lr_scheduler_kwargs, optimizer)
+            lr_scheduler = cast(dict[str, Any] | list[dict[str, Any]],
+                                UnitFactory.get_lr_scheduler_instances_from_kwargs(self.lr_scheduler_kwargs, optimizer))
         else:
             lr_scheduler = None
 
@@ -167,9 +166,9 @@ class BaseModel(pl.LightningModule):
             epoch_scheduler_values.append(scheduler.get_value(self.current_epoch))
         return epoch_scheduler_values
 
-    def summarize_model(self):
+    def summarize(self) -> None:
         """Show model parameters."""
-        logger.info(summarize_model_params(self.model))
+        logger.info(summarize_model_params(self))
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""

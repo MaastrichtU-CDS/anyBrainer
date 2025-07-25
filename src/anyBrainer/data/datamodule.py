@@ -60,9 +60,9 @@ STAGE_SEED_OFFSET = {
     "test": 2000,
     "predict": 3000,
 }
-STAGE_LOG_PREFIX: dict[str, Literal["train", "val", "test", "predict"]] = {
-    "train": "train",
-    "val": "val",
+STAGE_LOG_PREFIX = {
+    "fit": "train",
+    "validate": "val",
     "test": "test",
     "predict": "predict",
 }
@@ -91,6 +91,10 @@ class BaseDataModule(L.LightningDataModule):
         worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
+        train_transforms: list | None = None,
+        val_transforms: list | None = None,
+        test_transforms: list | None = None,
+        predict_transforms: list | None = None,
     ):
         super().__init__()
         self.data_dir = resolve_path(data_dir)
@@ -102,19 +106,24 @@ class BaseDataModule(L.LightningDataModule):
         self.worker_logging_fn = worker_logging_fn
         self.worker_seeding_fn = worker_seeding_fn
 
+        self.train_transforms = train_transforms
+        self.val_transforms = val_transforms
+        self.test_transforms = test_transforms
+        self.predict_transforms = predict_transforms
+
         # Will be populated in setup()
         self.train_data = None
         self.val_data = None  
         self.test_data = None
         self.predict_data = None
 
-        self.train_transforms = None
-        self.val_transforms = None
-        self.test_transforms = None
-        self.predict_transforms = None
-
         # Will get updated by trainer.fit()
         self._current_epoch = 0
+
+        logger.info(f"Datamodule initialized with following settings :"
+                    f"data_dir: {self.data_dir}, batch_size: {self.batch_size}, "
+                    f"num_workers: {self.num_workers}, train_val_test_split: {self.train_val_test_split}, "
+                    f"seed: {self.seed}, random_state: {self.R}")
 
     def set_random_state(
         self, 
@@ -139,7 +148,10 @@ class BaseDataModule(L.LightningDataModule):
         self.R = np.random.RandomState()
         return self
     
-    def _epoch_aware_determinism(self, stage: str) -> tuple[Callable, torch.Generator | None]:
+    def _epoch_aware_determinism(
+        self, 
+        stage: Literal["fit", "validate", "test", "predict"],
+    ) -> tuple[Callable, torch.Generator | None]:
         """
         Make a worker init function and a torch generator for epoch-aware determinism.
         """
@@ -155,7 +167,7 @@ class BaseDataModule(L.LightningDataModule):
                 seed=seed,
                 setup_logging_fn=self.worker_logging_fn,
                 seeding_fn=self.worker_seeding_fn,
-                loader=STAGE_LOG_PREFIX[stage],
+                loader=STAGE_LOG_PREFIX[stage], # type: ignore
             ), 
             torch.Generator().manual_seed(seed) if seed is not None else None
         )
@@ -248,6 +260,10 @@ class MAEDataModule(BaseDataModule):
         worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
+        train_transforms: list | None = None,
+        val_transforms: list | None = None,
+        test_transforms: list | None = None,
+        predict_transforms: list | None = None,
         **kwargs
     ):
         super().__init__(
@@ -257,14 +273,19 @@ class MAEDataModule(BaseDataModule):
             train_val_test_split=train_val_test_split, 
             worker_logging_fn=worker_logging_fn, 
             worker_seeding_fn=worker_seeding_fn, 
-            seed=seed, random_state=random_state)
+            seed=seed, random_state=random_state,
+            train_transforms=train_transforms,
+            val_transforms=val_transforms,
+            test_transforms=test_transforms,
+            predict_transforms=predict_transforms,
+        )
         self.masks_dir = resolve_path(masks_dir) if masks_dir is not None else None
         
         # Get transforms
-        self.train_transforms = get_mae_train_transforms()
-        self.val_transforms = get_mae_val_transforms()
-        self.test_transforms = get_mae_val_transforms()
-        self.predict_transforms = get_predict_transforms()
+        self.train_transforms = self.train_transforms or get_mae_train_transforms()
+        self.val_transforms = self.val_transforms or get_mae_val_transforms()
+        self.test_transforms = self.test_transforms or get_mae_val_transforms()
+        self.predict_transforms = self.predict_transforms or get_predict_transforms()
     
     def prepare_data(self):
         """
@@ -460,7 +481,7 @@ class ContrastiveDataModule(BaseDataModule):
     """
     def __init__(
         self,
-        data_dir: str,
+        data_dir: Path | str,
         *,
         batch_size: int = 32,
         num_workers: int = 4,
@@ -469,6 +490,10 @@ class ContrastiveDataModule(BaseDataModule):
         worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
+        train_transforms: list | None = None,
+        val_transforms: list | None = None,
+        test_transforms: list | None = None,
+        predict_transforms: list | None = None,
         **kwargs
     ):
         super().__init__(
@@ -478,13 +503,18 @@ class ContrastiveDataModule(BaseDataModule):
             train_val_test_split=train_val_test_split, 
             worker_logging_fn=worker_logging_fn, 
             worker_seeding_fn=worker_seeding_fn, 
-            seed=seed, random_state=random_state)
+            seed=seed, random_state=random_state,
+            train_transforms=train_transforms,
+            val_transforms=val_transforms,
+            test_transforms=test_transforms,
+            predict_transforms=predict_transforms,
+        )
         
         # Get transforms
-        self.train_transforms = get_contrastive_train_transforms()
-        self.val_transforms = get_contrastive_val_transforms()
-        self.test_transforms = get_contrastive_val_transforms()
-        self.predict_transforms = get_predict_transforms()
+        self.train_transforms = self.train_transforms or get_contrastive_train_transforms()
+        self.val_transforms = self.val_transforms or get_contrastive_val_transforms()
+        self.test_transforms = self.test_transforms or get_contrastive_val_transforms()
+        self.predict_transforms = self.predict_transforms or get_predict_transforms()
     
     def prepare_data(self):
         """

@@ -6,6 +6,11 @@ __all__ = [
     'get_contrastive_train_transforms',
     'get_contrastive_val_transforms',
     'get_predict_transforms',
+    'mae_train_trans',
+    'mae_val_trans',
+    'cl_train_trans',
+    'cl_val_trans',
+    'whole_brain_inf_trans'
 ]
 
 # pyright: reportPrivateImportUsage=false
@@ -126,3 +131,9 @@ def get_predict_transforms():
         LoadImaged(keys=['img'], reader='NumpyReader', ensure_channel_first=True),
         SpatialPadd(keys=['img'], spatial_size=(128, 128, 128), mode='constant'),
     ]
+
+mae_train_trans = get_mae_train_transforms()
+mae_val_trans = get_mae_val_transforms()
+cl_train_trans = get_contrastive_train_transforms()
+cl_val_trans = get_contrastive_val_transforms()
+whole_brain_inf_trans = get_predict_transforms()

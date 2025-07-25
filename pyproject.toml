@@ -26,6 +26,7 @@ dependencies = [
     "wandb>=0.16.0",
     "matplotlib==3.10.3",
     "einops==0.8.1",
+    "typeguard==4.4.4",
 ]
 
 [project.optional-dependencies]
