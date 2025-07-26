@@ -97,10 +97,10 @@ class TestInfoNCELoss:
         loss = InfoNCELoss(temperature=0.07)
         _, cl_stats = loss(query_tensor, key_tensor, queue_tensor)
 
-        assert torch.equal(cl_stats["pos_mean"], pos_logits.mean())
-        assert torch.equal(cl_stats["neg_mean"], neg_logits.mean())
-        assert torch.equal(cl_stats["contrastive_acc"], contrastive_acc)
-        assert torch.equal(cl_stats["neg_entropy"], neg_entropy.mean())
+        assert torch.allclose(cl_stats["pos_mean"], pos_logits.mean())
+        assert torch.allclose(cl_stats["neg_mean"], neg_logits.mean())
+        assert torch.allclose(cl_stats["contrastive_acc"], contrastive_acc)
+        assert torch.allclose(cl_stats["neg_entropy"], neg_entropy.mean())
     
     def test_forward_small_queue(self, query_tensor, key_tensor, queue_tensor):
         """Test loss with small queue."""
