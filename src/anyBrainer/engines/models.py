@@ -28,6 +28,7 @@ from anyBrainer.engines.utils import (
     sync_dist_safe,
     pack_ids,
     get_sub_ses_tensors,
+    dict_get_as_tensor,
 )
 from anyBrainer.engines.factory import UnitFactory
 from anyBrainer.utils.models import (
@@ -214,11 +215,11 @@ class CLwAuxModel(BaseModel):
             {
                 "name": "InfoNCELoss",
                 "temperature": loss_kwargs.get("temperature", 0.1),
-                "top_k_negatives": loss_kwargs.get("top_k_negatives", None),
+                "top_k_negatives": loss_kwargs.get("top_k_negatives"),
             },
             {
                 "name": "CrossEntropyLoss",
-                "weight": loss_kwargs.get("cross_entropy_weights", None),
+                "weight": dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights")),
             },
         ]
         

@@ -117,3 +117,16 @@ def unpack_settings_for_train_workflow(
         "pl_callback_kwargs": pl_callback_settings,
         "trainer_kwargs": trainer_settings,
     }
+
+def dict_get_as_tensor(value: Any) -> torch.Tensor | None:
+    """Get a value from dict.get() and convert it to a tensor."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return torch.tensor(value, dtype=torch.float32)
+    if isinstance(value, torch.Tensor):
+        return value
+        
+    msg = f"Value must be a list, tensor, or None, but got {type(value)}"
+    logger.error(msg)
+    raise ValueError(msg)

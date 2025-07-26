@@ -390,7 +390,7 @@ class UnitFactory:
         try:
             loss_fn = loss_fn_cls(**loss_fn_kwargs)
         except Exception as e:
-            msg = f"Error initializing loss fn '{loss_fn_kwargs['name']}': {e}"
+            msg = f"Error initializing loss fn '{loss_fn_name}': {e}"
             logger.exception(msg)
             raise
 
