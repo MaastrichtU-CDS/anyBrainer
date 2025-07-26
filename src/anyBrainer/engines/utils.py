@@ -91,16 +91,16 @@ def unpack_settings_for_train_workflow(
     trainer_settings: dict[str, Any],
 ) -> dict[str, Any]: 
     """Unpack user-provided settings and provide default values for a typical train workflow."""
-    settings = {
+    return {
         "experiment": global_settings.get("experiment", "exp-01"),
-        "save_dir": resolve_path(global_settings.get("save_dir", Path.cwd())),
+        "save_dir": global_settings.get("save_dir", Path.cwd()),
         "seed": global_settings.get("seed", 12345),
         "worker_logs": logging_settings.get("worker_logs", True),
         "dev_mode": logging_settings.get("dev_mode", False),
         "enable_wandb": logging_settings.get("enable_wandb", True),
         "wandb_project": logging_settings.get("wandb_project", "anyBrainer"),
         "pl_datamodule_name": pl_datamodule_settings.get("name", "ContrastiveDataModule"),
-        "data_dir": resolve_path(pl_datamodule_settings.get("data_dir", Path.cwd())),
+        "data_dir": pl_datamodule_settings.get("data_dir", Path.cwd()),
         "num_workers": pl_datamodule_settings.get("num_workers", 32),
         "batch_size": pl_datamodule_settings.get("batch_size", 8),
         "train_val_test_split": pl_datamodule_settings.get("train_val_test_split", (0.7, 0.15, 0.15)),
@@ -117,8 +117,3 @@ def unpack_settings_for_train_workflow(
         "pl_callback_kwargs": pl_callback_settings,
         "trainer_kwargs": trainer_settings,
     }
-
-    if settings["model_checkpoint"] is not None:
-        settings["model_checkpoint"] = resolve_path(settings["model_checkpoint"])
-
-    return settings

@@ -5,12 +5,16 @@ __all__ = [
     "create_save_dirs",
     "get_ckpt_path",
     "load_model_from_ckpt",
+    "load_config",
 ]
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import pytorch_lightning as pl
+import yaml
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +86,15 @@ def load_model_from_ckpt(
         logger.exception(f"Failed to load model from checkpoint; "
                          "will create new model.")
         return
+
+def load_config(path: Path) -> dict[str, Any]:
+    """Load a YAML or JSON file into a Python dict."""
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        if yaml is None:
+            raise RuntimeError("PyYAML is not installed – cannot read YAML files.")
+        return yaml.safe_load(path.read_text())  # type: ignore[arg-type]
+    if path.suffix.lower() == ".json":
+        return json.loads(path.read_text())
+    raise RuntimeError(
+        "Unsupported config format – use .yaml, .yml or .json",
+    )

@@ -38,7 +38,6 @@ class Swinv2CL(nn.Module):
         proj_dim: int = 128,
         proj_hidden_dim: int = 2048,
         proj_hidden_act: str = "gelu",
-        num_classes: int = 7,
         aux_mlp_head: bool = True,
         aux_mlp_num_classes: int = 7,
         aux_mlp_hidden_dim: int | None = None,

@@ -18,7 +18,7 @@ from anyBrainer.utils import (
     create_save_dirs,
     get_ckpt_path,
     load_model_from_ckpt,
-    init_swin_with_residual_convs,
+    resolve_path,
 )
 from anyBrainer.log import LoggingManager
 from anyBrainer.engines.utils import (
@@ -57,7 +57,16 @@ class TrainingSettings:
     pl_callback_kwargs: list[dict[str, Any]]
     trainer_kwargs: dict[str, Any]
 
-def __str__(self):
+def __post_init__(self):
+    self.save_dir = resolve_path(self.save_dir)
+    self.data_dir = resolve_path(self.data_dir)
+    self.model_checkpoint = (
+        resolve_path(self.model_checkpoint) 
+        if self.model_checkpoint is not None else None
+    )
+    self.train_val_test_split = tuple(self.train_val_test_split)
+
+def __repr__(self):
     return "\n".join(f"{k}: {v}" for k, v in self.__dict__.items())
 
 
@@ -357,9 +366,9 @@ class TrainWorkflow:
 
         Override for custom training end summary.
         """
-        peak_mem_mb = train_stats["peak_mem_mb"]
-        peak_gpu_mem = train_stats["peak_gpu_mem"]
-        best_val_loss = train_stats["best_val_loss"]
+        peak_mem_mb = train_stats.get("peak_mem_mb")
+        peak_gpu_mem = train_stats.get("peak_gpu_mem")
+        best_val_loss = train_stats.get("best_val_loss")
 
         return (
             f"{'-'*60}"
@@ -370,9 +379,12 @@ class TrainWorkflow:
             f"{'-'*60}"
         )
 
-    def test(self):
-        """Test the model."""
-        self.main_logger.info("\n[TESTING STARTED]")
-        self.trainer.test(self.model, self.datamodule)
-        self.main_logger.info("[TESTING COMPLETED]")
+    def close(self):
+        """
+        Close the workflow.
 
+        Override for custom workflow closing.
+        """
+        self.logging_manager.close()
+
+    fit = __call__

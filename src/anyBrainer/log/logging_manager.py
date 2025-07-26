@@ -12,6 +12,7 @@ from logging.handlers import QueueListener
 from multiprocessing import Queue
 from dataclasses import dataclass
 from functools import partial
+import wandb
 
 from anyBrainer.utils.io import resolve_path
 from anyBrainer.log.utils import setup_worker_logging, init_wandb_logger
@@ -153,3 +154,5 @@ class LoggingManager:
     def close(self):
         """Closes the logging manager."""
         self.stop_parallel_logging()
+        if self.settings.enable_wandb:
+            wandb.finish()
