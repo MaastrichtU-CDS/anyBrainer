@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List, Dict, Callable, Literal
 from collections import defaultdict, Counter
 
-import lightning as L
+import pytorch_lightning as pl
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -70,7 +70,7 @@ STAGE_LOG_PREFIX = {
 logger = logging.getLogger(__name__)
 
 
-class BaseDataModule(L.LightningDataModule):
+class BaseDataModule(pl.LightningDataModule):
     """
     Base DataModule class. 
     
@@ -129,7 +129,7 @@ class BaseDataModule(L.LightningDataModule):
         self, 
         seed: int | None = None, 
         state: np.random.RandomState | None = None,
-    ) -> L.LightningDataModule:
+    ) -> pl.LightningDataModule:
         """
         Set the random state locally, to control the randomness.
         Similar to monai.utils.Randomizable.set_random_state.
