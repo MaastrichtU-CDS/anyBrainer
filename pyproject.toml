@@ -3,9 +3,9 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fomo-code"
+name = "anyBrainer"
 version = "0.1.0"
-description = "FOMO25 Challenge Codebase - Foundation Models for Brain MRI Analysis"
+description = "anyBrainer - A large-scale pretrained foundation model for 3D brain analysis."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
