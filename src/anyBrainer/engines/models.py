@@ -218,7 +218,7 @@ class CLwAuxModel(BaseModel):
             },
             {
                 "name": "CrossEntropyLoss",
-                "weight": loss_kwargs.get("cross_entropy_weight", None),
+                "weight": loss_kwargs.get("cross_entropy_weights", None),
             },
         ]
         

@@ -325,7 +325,7 @@ class TrainWorkflow:
 
         Override for custom training run.
         """
-        self.trainer.fit(self.model, self.datamodule, ckpt_path=self.ckpt_path)
+        self.trainer.fit(self.model, datamodule=self.datamodule, ckpt_path=self.ckpt_path)
 
         train_stats = {
             "peak_mem_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
