@@ -23,7 +23,7 @@ def parse_filename_nested_nifti(file_path: Path | str, ext: str = ".npy") -> dic
         'sub_id': sub_dir.name,
         'ses_id': ses_dir.name,
         'modality': modality,
-        'file_name': file_name
+        'file_name': file_path
     }
 
 def parse_filename_flat_npy(file_path: Path | str) -> Optional[Dict]:
