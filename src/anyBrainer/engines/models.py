@@ -32,6 +32,7 @@ from anyBrainer.engines.utils import (
 from anyBrainer.engines.factory import UnitFactory
 from anyBrainer.utils.models import (
     summarize_model_params,
+    init_swin_with_residual_convs,
 )
 from anyBrainer.schedulers.param_schedulers import ParameterScheduler
 from anyBrainer.utils.data import modality_to_onehot
@@ -92,7 +93,7 @@ class BaseModel(pl.LightningModule):
             self.model.apply(weights_init_fn)
         
         self.save_hyperparameters(
-            ignore=["ignore_hparams", "weights_init_fn"] + ignore_hparams, logger=True
+            ignore=["ignore_hparams"] + ignore_hparams, logger=True
         )
     
     def configure_optimizers(
@@ -204,8 +205,8 @@ class CLwAuxModel(BaseModel):
         loss_kwargs: dict[str, Any] = {},
         loss_scheduler_kwargs: dict[str, Any] = {},
         momentum_scheduler_kwargs: dict[str, Any] = {},
-        weights_init_fn: Callable | None = None,
-        logits_postprocess_fn: Callable | None = None,
+        weights_init_fn: Callable | str | None = init_swin_with_residual_convs,
+        logits_postprocess_fn: Callable | str | None = None,
         ignore_hparams: list[str] = [],
         **kwargs,
     ):  
@@ -244,7 +245,7 @@ class CLwAuxModel(BaseModel):
             },
         ]
 
-        ignore_hparams.append("logits_postprocess_fn")
+        # TODO: get functions from registry
 
         super().__init__(
             model_kwargs=model_kwargs,
@@ -252,7 +253,7 @@ class CLwAuxModel(BaseModel):
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             other_schedulers=other_schedulers,
-            weights_init_fn=weights_init_fn,
+            weights_init_fn=weights_init_fn, # type: ignore
             ignore_hparams=ignore_hparams,
         )
         
