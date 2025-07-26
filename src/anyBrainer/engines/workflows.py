@@ -29,18 +29,18 @@ from anyBrainer.engines.factory import (
     UnitFactory,
 )
 
-@typechecked
+# Removed typechecked for now
 @dataclass
 class TrainingSettings:
     experiment: str
-    save_dir: Path | str
+    save_dir: Path
     seed: int
     worker_logs: bool
     dev_mode: bool
     enable_wandb: bool
     wandb_project: str
     pl_datamodule_name: str
-    data_dir: Path | str
+    data_dir: Path
     num_workers: int
     batch_size: int
     train_val_test_split: tuple[float, float, float] | list[float]
@@ -49,7 +49,7 @@ class TrainingSettings:
     test_transforms: dict[str, Any] | None
     predict_transforms: dict[str, Any] | None
     new_version: bool
-    model_checkpoint: Path | str | None
+    model_checkpoint: Path | None
     save_every_n_epochs: int
     save_last: bool
     pl_module_name: str
@@ -170,7 +170,7 @@ class TrainWorkflow:
         Override for custom logging configuration.
         """
         logging_config = {
-            "name": "LoggingManager",
+            "name": "LoggingManager", 
             "logs_root": self.settings.save_dir / "logs",
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,

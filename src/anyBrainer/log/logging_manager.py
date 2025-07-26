@@ -37,7 +37,7 @@ class LoggingSettings:
 
 class LoggingManager:
     """Handles all logging logic for main and parallel processes."""
-    def __init__(self, settings: dict):
+    def __init__(self, **settings):
         self.settings = LoggingSettings(**settings)
         if self.settings.enable_wandb:
             self.wandb_logger = init_wandb_logger(
