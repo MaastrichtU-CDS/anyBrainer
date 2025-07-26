@@ -33,23 +33,23 @@ from anyBrainer.engines.factory import (
 @dataclass
 class TrainingSettings:
     experiment: str
-    save_dir: Path
+    save_dir: Path | str
     seed: int
     worker_logs: bool
     dev_mode: bool
     enable_wandb: bool
     wandb_project: str
     pl_datamodule_name: str
-    data_dir: Path
+    data_dir: Path | str
     num_workers: int
     batch_size: int
-    train_val_test_split: tuple[float, float, float]
+    train_val_test_split: tuple[float, float, float] | list[float]
     train_transforms: dict[str, Any] | None
     val_transforms: dict[str, Any] | None
     test_transforms: dict[str, Any] | None
     predict_transforms: dict[str, Any] | None
     new_version: bool
-    model_checkpoint: Path | None
+    model_checkpoint: Path | str | None
     save_every_n_epochs: int
     save_last: bool
     pl_module_name: str
@@ -57,17 +57,17 @@ class TrainingSettings:
     pl_callback_kwargs: list[dict[str, Any]]
     trainer_kwargs: dict[str, Any]
 
-def __post_init__(self):
-    self.save_dir = resolve_path(self.save_dir)
-    self.data_dir = resolve_path(self.data_dir)
-    self.model_checkpoint = (
-        resolve_path(self.model_checkpoint) 
-        if self.model_checkpoint is not None else None
-    )
-    self.train_val_test_split = tuple(self.train_val_test_split)
+    def __post_init__(self):
+        self.save_dir = resolve_path(self.save_dir)
+        self.data_dir = resolve_path(self.data_dir)
+        self.model_checkpoint = (
+            resolve_path(self.model_checkpoint) 
+            if self.model_checkpoint is not None else None
+        )
+        self.train_val_test_split = tuple(self.train_val_test_split) # type: ignore
 
-def __repr__(self):
-    return "\n".join(f"{k}: {v}" for k, v in self.__dict__.items())
+    def __repr__(self):
+        return "\n".join(f"{k}: {v}" for k, v in self.__dict__.items())
 
 
 class TrainWorkflow:
