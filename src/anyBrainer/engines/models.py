@@ -255,10 +255,12 @@ class CLwAuxModel(BaseModel):
         )
 
         # Add aux cross entropy with weights registered as buffer
-        self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
-        if self.ce_weights is not None:
-            self.register_buffer("ce_weights", self.ce_weights)
-        self.loss_fn.append(nn.CrossEntropyLoss(weight=self.ce_weights))
+        if loss_kwargs.get("cross_entropy_weights") is not None:
+            self.register_buffer("ce_weights", dict_get_as_tensor(
+                loss_kwargs.get("cross_entropy_weights")))
+        else:
+            self.ce_weights = None
+        self.loss_fn.append(nn.CrossEntropyLoss(weight=self.ce_weights)) # type: ignore
        
         # Initialize key encoder
         self.key_encoder = deepcopy(self.model)
