@@ -143,6 +143,8 @@ class TrainWorkflow:
             self.main_logger.exception("Error in setup_trainer(); ensure returns match the docstring.")
             raise
 
+        self.wandb_logger.watch(self.model)
+
         create_save_dirs(
             exp_name=self.settings.experiment,
             root_dir=self.settings.save_dir,

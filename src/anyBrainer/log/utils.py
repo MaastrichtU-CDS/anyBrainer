@@ -164,4 +164,5 @@ class WandbFilter(logging.Filter):
 class WandbOnlyHandler(logging.Handler):
     """Handler that only logs to W&B."""
     def emit(self, record: logging.LogRecord) -> None:
-        pass # Filtering logic is in WandbFilter
+        for filt in self.filters:
+            filt.filter(record)
