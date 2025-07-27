@@ -36,7 +36,7 @@ from anyBrainer.utils.models import (
     init_swin_with_residual_convs,
 )
 from anyBrainer.schedulers.param_schedulers import ParameterScheduler
-from anyBrainer.utils.data import modality_to_onehot
+from anyBrainer.utils.data import modality_to_idx
 from anyBrainer.utils.eval import top1_accuracy
 
 
@@ -355,7 +355,7 @@ class CLwAuxModel(BaseModel):
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get modality one-hot labels to device."""
         if dataloader_idx != 3: # not for prediction
-            batch["aux_labels"] = modality_to_onehot(batch, "mod", batch["query"].device)
+            batch["aux_labels"] = modality_to_idx(batch, "mod", batch["query"].device)
             batch["sub_id"], batch["ses_id"] = get_sub_ses_tensors(batch, batch["query"].device)
         return batch
     

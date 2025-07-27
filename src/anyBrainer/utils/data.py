@@ -7,10 +7,40 @@ import torch
 
 logger = logging.getLogger(__name__)
 
-MODALITY_LABELS = ["t1", "t2", "flair", "dwi", "adc", "swi", "other"]
+MODALITY_LABELS = ["t1", "t2", "flair", "dwi", "other"]
 MODALITY_TO_INDEX = {modality: idx for idx, modality in enumerate(MODALITY_LABELS)}
 
-def modality_to_onehot(batch: dict, key: str, device: torch.device) -> torch.Tensor:
+def modality_to_idx(
+    batch: dict, 
+    key: str,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    """
+    Convert a list of modality strings in `batch[key]` to a 1‑D tensor of
+    class indices suitable for nn.CrossEntropyLoss.
+
+    If a modality string is unknown, it falls back to the index for "other".
+
+    Returns:
+        torch.Tensor: Tensor of shape (B, n_modalities) containing one-hot vectors.
+    """
+    modalities = batch.get(key)
+    if modalities is None:
+        raise ValueError(f"Key '{key}' not found in batch.")
+    if not isinstance(modalities, list):
+        raise TypeError(f"Expected list of modalities under key '{key}', got {type(modalities)}")
+
+    idx_list = [
+        MODALITY_TO_INDEX.get(str(m).lower(), MODALITY_TO_INDEX["other"])
+        for m in modalities
+    ]
+    return torch.tensor(idx_list, dtype=torch.long, device=device)
+
+def modality_to_onehot(
+    batch: dict, 
+    key: str, 
+    device: torch.device | None = None,
+) -> torch.Tensor:
     """
     Convert a batch of modality strings to one-hot encoded tensors.
 
@@ -20,7 +50,7 @@ def modality_to_onehot(batch: dict, key: str, device: torch.device) -> torch.Ten
         device (torch.device): Target device for the output tensor.
 
     Returns:
-        torch.Tensor: Tensor of shape (B, 7) containing one-hot vectors.
+        torch.Tensor: Tensor of shape (B, n_modalities) containing one-hot vectors.
     """
     modalities = batch.get(key, None)
     if modalities is None:
