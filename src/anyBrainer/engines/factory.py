@@ -18,8 +18,8 @@ from typing import Any, Callable
 
 import torch.nn as nn
 import torch.optim as optim
-import pytorch_lightning as pl
-import pytorch_lightning.callbacks as pl_callbacks
+import lightning.pytorch as pl
+import lightning.pytorch.callbacks as pl_callbacks
 
 import anyBrainer.networks.nets as nets
 import anyBrainer.schedulers.lr_schedulers as lr_schedulers
@@ -513,11 +513,11 @@ class ModuleFactory:
             pl_module_kwargs: dict[str, Any] - pl module kwargs. Must contain "name" key.
             cls_only: bool - whether to return only the class or the instance.
 
-        TODO: add support for registry from pytorch_lightning.
+        TODO: add support for registry from lightning.pytorch.
 
         Raises:
         - ValueError: If PL module name is not found in pl_module_kwargs.
-        - ValueError: If requested PL module is not found in pytorch_lightning.
+        - ValueError: If requested PL module is not found in lightning.pytorch.
         - Exception: If error occurs during PL module initialization.
         """
         if "name" not in pl_module_kwargs:
@@ -534,7 +534,7 @@ class ModuleFactory:
                 return pl_module_cls
 
         except AttributeError:
-            msg = f"PL module '{pl_module_name}' not found in pytorch_lightning."
+            msg = f"PL module '{pl_module_name}' not found in lightning.pytorch."
             logger.error(msg)
             raise ValueError(msg)
         

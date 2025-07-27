@@ -8,8 +8,8 @@ from typing import Any, Callable, cast
 from dataclasses import dataclass
 
 import torch
-import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
+import lightning.pytorch as pl
+from lightning.pytorch.loggers import WandbLogger
 from monai.data.utils import set_rnd
 from monai.utils.misc import set_determinism
 from typeguard import typechecked

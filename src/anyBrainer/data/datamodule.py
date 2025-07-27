@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List, Dict, Callable, Literal
 from collections import defaultdict, Counter
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import numpy as np
 import torch
 from tqdm import tqdm

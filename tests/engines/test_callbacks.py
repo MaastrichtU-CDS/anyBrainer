@@ -3,7 +3,7 @@
 import logging 
 
 import pytest
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 
 from anyBrainer.engines.callbacks import (

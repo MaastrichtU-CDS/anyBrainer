@@ -17,7 +17,7 @@ from threading import Lock
 import time
 
 import wandb
-from pytorch_lightning.loggers import WandbLogger
+from lightning.pytorch.loggers import WandbLogger
 
 from anyBrainer.utils.io import resolve_path
 

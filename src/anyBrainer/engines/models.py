@@ -22,7 +22,7 @@ from copy import deepcopy
 import torch
 import torch.optim as optim
 import torch.nn as nn
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 
 from anyBrainer.engines.utils import (
     sync_dist_safe,

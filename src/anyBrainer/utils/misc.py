@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import torch
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 
 logger = logging.getLogger(__name__)
 

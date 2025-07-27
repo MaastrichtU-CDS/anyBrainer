@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 
 from anyBrainer.utils.io import resolve_path
 

@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import yaml
 import json
 

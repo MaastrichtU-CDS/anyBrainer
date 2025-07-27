@@ -9,7 +9,7 @@ __all__ = [
 import logging
 from typing import Any
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch.optim as optim
 
 from anyBrainer.utils.models import (
