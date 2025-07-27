@@ -23,6 +23,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import lightning.pytorch as pl
+import torch.nn.functional as F
 
 from anyBrainer.engines.utils import (
     sync_dist_safe,
@@ -218,6 +219,7 @@ class CLwAuxModel(BaseModel):
                 "top_k_negatives": loss_kwargs.get("top_k_negatives"),
             },
         ]
+        self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
         
         other_schedulers = [
             {
@@ -253,14 +255,6 @@ class CLwAuxModel(BaseModel):
             weights_init_fn=weights_init_fn, # type: ignore
             ignore_hparams=ignore_hparams,
         )
-
-        # Add aux cross entropy with weights registered as buffer
-        if loss_kwargs.get("cross_entropy_weights") is not None:
-            self.register_buffer("ce_weights", dict_get_as_tensor(
-                loss_kwargs.get("cross_entropy_weights")))
-        else:
-            self.ce_weights = None
-        self.loss_fn.append(nn.CrossEntropyLoss(weight=self.ce_weights)) # type: ignore
        
         # Initialize key encoder
         self.key_encoder = deepcopy(self.model)
@@ -339,8 +333,11 @@ class CLwAuxModel(BaseModel):
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
         loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, queue) # type: ignore
-    
-        loss_aux = self.loss_fn[1](q_aux, aux_spr) # type: ignore
+
+        if self.ce_weights is not None:
+            self.ce_weights = self.ce_weights.to(q_aux.device)
+        
+        loss_aux = F.cross_entropy(q_aux, aux_spr, weight=self.ce_weights) # type: ignore
 
         loss_weight = self.get_step_scheduler_values()[0]["loss_weight"]
         
