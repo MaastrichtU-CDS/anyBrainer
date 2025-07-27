@@ -380,6 +380,9 @@ class CLwAuxModel(BaseModel):
             aux_spr=batch["aux_labels"],
         )
         
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, 
+                sync_dist=sync_dist_safe(self))
+        
         self.log_dict({
             "train/loss": loss,
             "train/loss_info_nce": loss_dict["loss_info_nce"],
@@ -389,7 +392,7 @@ class CLwAuxModel(BaseModel):
             "train/neg_mean": loss_dict.get("neg_mean", torch.tensor(0.0)),
             "train/neg_entropy": loss_dict.get("neg_entropy", torch.tensor(0.0)),
             "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0.0)),
-        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
+        }, on_step=True, on_epoch=True, prog_bar=False, sync_dist=sync_dist_safe(self))
 
         self._update_queue(q_proj, batch_ids)
             
