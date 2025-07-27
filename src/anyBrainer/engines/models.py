@@ -211,6 +211,11 @@ class CLwAuxModel(BaseModel):
         ignore_hparams: list[str] = [],
         **kwargs,
     ):  
+        # Register cross-entropy weights as buffer
+        self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
+        if self.ce_weights is not None:
+            self.register_buffer("ce_weights", self.ce_weights)
+
         loss_fn_kwargs = [
             {
                 "name": "InfoNCELoss",
@@ -219,7 +224,7 @@ class CLwAuxModel(BaseModel):
             },
             {
                 "name": "CrossEntropyLoss",
-                "weight": dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights")),
+                "weight": self.ce_weights,
             },
         ]
         
