@@ -361,12 +361,9 @@ class CLwAuxModel(BaseModel):
     
     def on_train_batch_end(
         self,
-        trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
         outputs: Any,
         batch: Any,
         batch_idx: int,
-        dataloader_idx: int = 0,
     ) -> None:
         self._update_key_encoder()
     
