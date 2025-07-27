@@ -47,7 +47,6 @@ class LogLR(pl.Callback):
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
         optimizer: optim.Optimizer,
-        optimizer_idx: int,
     ) -> None:
         """Log the learning rate."""
         if not isinstance(pl_module.optimizers, list):
