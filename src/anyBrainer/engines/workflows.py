@@ -106,8 +106,8 @@ class TrainWorkflow:
                 pl_datamodule_settings,
                 pl_module_settings,
                 pl_callback_settings,
-                ckpt_settings, 
                 pl_trainer_kwargs,
+                ckpt_settings,
         ))
 
         self.__setup()
