@@ -211,20 +211,11 @@ class CLwAuxModel(BaseModel):
         ignore_hparams: list[str] = [],
         **kwargs,
     ):  
-        # Register cross-entropy weights as buffer
-        self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
-        if self.ce_weights is not None:
-            self.register_buffer("ce_weights", self.ce_weights)
-
         loss_fn_kwargs = [
             {
                 "name": "InfoNCELoss",
                 "temperature": loss_kwargs.get("temperature", 0.1),
                 "top_k_negatives": loss_kwargs.get("top_k_negatives"),
-            },
-            {
-                "name": "CrossEntropyLoss",
-                "weight": self.ce_weights,
             },
         ]
         
@@ -262,7 +253,13 @@ class CLwAuxModel(BaseModel):
             weights_init_fn=weights_init_fn, # type: ignore
             ignore_hparams=ignore_hparams,
         )
-        
+
+        # Add aux cross entropy with weights registered as buffer
+        self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
+        if self.ce_weights is not None:
+            self.register_buffer("ce_weights", self.ce_weights)
+        self.loss_fn.append(nn.CrossEntropyLoss(weight=self.ce_weights))
+       
         # Initialize key encoder
         self.key_encoder = deepcopy(self.model)
         for param in self.key_encoder.parameters():
