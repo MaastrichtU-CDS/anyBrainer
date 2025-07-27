@@ -40,7 +40,7 @@ def setup_worker_logging(
         else: 
             level = logging.WARNING
         
-        root_logger = logging.getLogger()
+        root_logger = logging.getLogger("anyBrainer")
         root_logger.setLevel(level)
         root_logger.handlers = []
         root_logger.addHandler(QueueHandler(log_queue))
