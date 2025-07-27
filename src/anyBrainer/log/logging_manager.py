@@ -45,6 +45,13 @@ class LoggingManager:
                 name=self.settings.experiment,
                 dir=self.settings.logs_root
             )
+            # TODO: make it flexible
+            if self.settings.worker_logs:
+                wandb.define_metric(
+                    "train/worker_seed/*", 
+                    step_metric="global_step", 
+                    summary="last",
+                )
         else:
             self.wandb_logger = None
         
