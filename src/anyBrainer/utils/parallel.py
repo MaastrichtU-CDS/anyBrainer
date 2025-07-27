@@ -50,7 +50,7 @@ def make_worker_init_fn(
 
         worker_logger.info(f"Worker {worker_id} initialized with seed {base_seed}", 
             extra={"wandb": {
-                "_wandb_mode": "sync",
+                "_wandb_mode": "async",
                 f"{loader}/{worker_id}_seed": base_seed
             }}
         )
