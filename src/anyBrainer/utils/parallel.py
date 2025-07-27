@@ -14,7 +14,6 @@ from monai.data.utils import set_rnd
 
 logger = logging.getLogger(__name__)
 
-
 def make_worker_init_fn(
     seed: int | None = None,
     setup_logging_fn: Callable[[], None] | None = None,
@@ -47,7 +46,9 @@ def make_worker_init_fn(
         random.seed(base_seed)
         torch.manual_seed(base_seed)
 
-        logger.info(f"Worker {worker_id} initialized with seed {base_seed}", 
+        worker_logger = logging.getLogger(f"anyBrainer.worker_{worker_id}")
+
+        worker_logger.info(f"Worker {worker_id} initialized with seed {base_seed}", 
             extra={"wandb": {
                 "_wandb_mode": "sync",
                 f"{loader}/{worker_id}_seed": base_seed
