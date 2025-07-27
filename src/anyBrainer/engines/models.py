@@ -384,7 +384,6 @@ class CLwAuxModel(BaseModel):
                 sync_dist=sync_dist_safe(self))
         
         self.log_dict({
-            "train/loss": loss,
             "train/loss_info_nce": loss_dict["loss_info_nce"],
             "train/loss_aux": loss_dict["loss_aux"],
             "train/loss_weight": loss_dict["loss_weight"],
