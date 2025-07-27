@@ -132,6 +132,10 @@ class WandbFilter(logging.Filter):
         if mode == "async":
             wandb.log(data)
             return True
+        
+        print(f"[WandbFilter] Received record: {record.name} — has wandb? {'wandb' in record.__dict__}")
+        if hasattr(record, "wandb"):
+            print(f"→ Wandb content: {record.wandb}")
 
         # Default: sync
         with self._lock:
@@ -149,6 +153,8 @@ class WandbFilter(logging.Filter):
             elif elapsed >= self.sync_timeout:
                 logger.warning(f"[WandbFilter] Timeout after {elapsed:.1f}s — partial sync log to W&B")
                 self._flush_sync_log()
+            
+            print(self.aggregated_sync)
 
         return True
 

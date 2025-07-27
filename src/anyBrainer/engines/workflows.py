@@ -4,7 +4,7 @@ import logging
 import time
 from pathlib import Path
 import resource
-from typing import Any, Callable, cast
+from typing import Any, cast
 from dataclasses import dataclass
 
 import torch
