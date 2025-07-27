@@ -7,8 +7,15 @@ __all__ = [
 import torch
 
 
-def top1_accuracy(logits: torch.Tensor, targets_one_hot: torch.Tensor) -> torch.Tensor:
+def top1_accuracy(
+    logits: torch.Tensor, 
+    targets: torch.Tensor, 
+    is_one_hot: bool = False,
+) -> torch.Tensor:
     """Compute top-1 accuracy."""
-    targets_idx = targets_one_hot.argmax(dim=1)
+    if is_one_hot:
+        targets_idx = targets.argmax(dim=1)
+    else:
+        targets_idx = targets
     preds = logits.argmax(dim=1)
     return (preds == targets_idx).float().mean()
