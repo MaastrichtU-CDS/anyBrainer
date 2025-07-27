@@ -50,12 +50,12 @@ class LogLR(pl.Callback):
         optimizer: optim.Optimizer,
     ) -> None:
         """Log the learning rate."""
-        if not isinstance(pl_module.optimizers, list):
+        if not isinstance(trainer.optimizers, list):
             logger.warning("Cannot log LR because pl_module.optimizers is not a list.")
             return
         
         pl_module.log_dict(
-            get_optimizer_lr(pl_module.optimizers),
+            get_optimizer_lr(trainer.optimizers),
             on_step=True,
             on_epoch=False,
             prog_bar=False,
