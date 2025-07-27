@@ -40,7 +40,7 @@ def get_sub_ses_tensors(batch: dict, device: torch.device) -> tuple[torch.Tensor
 
     def parse_id(value):
         if isinstance(value, list):
-            return torch.tensor([int(str(x).split("-")[-1]) for x in value], device=device)
+            return torch.tensor([int(str(x).split("_")[-1]) for x in value], device=device)
         elif isinstance(value, torch.Tensor):
             return value.to(device)
         else:
