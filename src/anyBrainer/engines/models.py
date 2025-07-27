@@ -380,8 +380,9 @@ class CLwAuxModel(BaseModel):
             aux_spr=batch["aux_labels"],
         )
         
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, 
-                sync_dist=sync_dist_safe(self))
+        self.log_dict({
+            "train/loss": loss,
+        }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
         
         self.log_dict({
             "train/loss_info_nce": loss_dict["loss_info_nce"],
