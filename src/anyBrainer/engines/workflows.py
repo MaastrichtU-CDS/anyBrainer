@@ -38,6 +38,7 @@ class TrainingSettings:
     seed: int
     worker_logs: bool
     dev_mode: bool
+    disable_file_logs: bool
     enable_wandb: bool
     wandb_watch_enable: bool
     wandb_watch_kwargs: dict[str, Any]
@@ -181,6 +182,7 @@ class TrainWorkflow:
             "logs_root": self.settings.save_dir / "logs",
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,
+            "disable_file_logs": self.settings.disable_file_logs,
             "enable_wandb": self.settings.enable_wandb,
             "wandb_project": self.settings.project,
             "experiment": self.settings.experiment,
