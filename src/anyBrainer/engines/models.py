@@ -196,7 +196,9 @@ class BaseModel(pl.LightningModule):
 
 class CLwAuxModel(BaseModel):
     """Contrastive learning with auxiliary loss model."""
-    queue: torch.Tensor
+    queue:      torch.Tensor
+    queue_ids:  torch.Tensor
+    queue_ptr:  torch.Tensor
 
     def __init__(
         self,
@@ -264,45 +266,42 @@ class CLwAuxModel(BaseModel):
         # Initialize queue
         self.queue_size = loss_kwargs.get("queue_size", 16384)
         self.proj_dim = model_kwargs.get("proj_dim", 128)
-        self.register_buffer("queue", torch.empty(0, self.proj_dim))
-        self.register_buffer("queue_ids", torch.empty(0, dtype=torch.long))
+        self.register_buffer("queue", torch.zeros(self.queue_size, self.proj_dim))
+        self.register_buffer("queue_ids", torch.full((self.queue_size,), -1, dtype=torch.long))
+        self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
 
         logger.info(f"\nLightning module initialized with following "
                     f"hyperparameters:\n{self.hparams}")
 
     @torch.no_grad()
-    def _get_negatives(self, batch_ids: torch.Tensor) -> torch.Tensor:
-        """
-        Return negative features that do not share (subj, sess) IDs with
-        the current batch. No mutation of the queue.
-        """
-        if self.queue.numel() == 0:
-            return torch.empty(0, self.proj_dim, device=batch_ids.device)
+    def _update_queue(self, query: torch.Tensor, query_ids: torch.Tensor) -> None:
+        """Update queue with new embeddings and IDs using a circular buffer."""
+        query = query.detach()
+        batch_size = query.size(0)
+        ptr = int(self.queue_ptr)
 
-        # mask out rows where batch_ids are in queue_ids
-        non_dup_mask = ~torch.isin(self.queue_ids, batch_ids) # type: ignore
-        return self.queue[non_dup_mask]
-
-    @torch.no_grad()
-    def _update_queue(self, q: torch.Tensor, q_ids: torch.Tensor) -> None:
-        """Update queue with new embeddings and IDs."""
-        q = q.detach()
-        q_ids = q_ids.detach()
-
-        if self.queue.numel() == 0:
-            self.queue.resize_(q.shape).copy_(q)
-            self.queue_ids.resize_(q_ids.shape).copy_(q_ids)
+        end = ptr + batch_size
+        if end <= self.queue_size:
+            self.queue[ptr:end] = query
+            self.queue_ids[ptr:end] = query_ids
         else:
-            self.queue = torch.cat([self.queue, q], dim=0)
-            self.queue_ids = torch.cat([self.queue_ids, q_ids], dim=0)
-            
-        if self.queue.shape[0] > self.queue_size:
-            excess = self.queue.shape[0] - self.queue_size
-            self.queue = self.queue[excess:]
-            self.queue_ids = self.queue_ids[excess:]
+            first = self.queue_size - ptr
+            self.queue[ptr:] = query[:first]
+            self.queue[:end % self.queue_size] = query[first:]
+            self.queue_ids[ptr:] = query_ids[:first]
+            self.queue_ids[:end % self.queue_size] = query_ids[first:]
 
-        self.log("train/queue_size", self.queue.shape[0], on_step=True, prog_bar=False, 
-                sync_dist=sync_dist_safe(self))
+        self.queue_ptr[0] = end % self.queue_size
+
+        self.log("train/queue_size", min(self.queue_size, ptr + batch_size), 
+             on_step=True, prog_bar=False, sync_dist=sync_dist_safe(self))
+    
+    @torch.no_grad()
+    def _get_negatives(self, batch_ids: torch.Tensor) -> torch.Tensor:
+        """Get valid negative features without mutating the queue."""
+        valid_mask   = self.queue_ids != -1
+        non_dup_mask = valid_mask & (~torch.isin(self.queue_ids, batch_ids))
+        return self.queue[non_dup_mask]
     
     @torch.no_grad()
     def _update_key_encoder(self):

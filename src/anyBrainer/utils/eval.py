@@ -6,7 +6,6 @@ __all__ = [
 
 import torch
 
-
 def top1_accuracy(
     logits: torch.Tensor, 
     targets: torch.Tensor, 

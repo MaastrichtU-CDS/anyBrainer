@@ -45,8 +45,8 @@ def input_batch():
         "query": torch.randn(8, 1, 128, 128, 128),
         "key": torch.randn(8, 1, 128, 128, 128),
         "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
-        "sub_id": ["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-01"],
-        "ses_id": ["ses-01", "ses-01", "ses-01", "ses-01", "ses-01", "ses-01", "ses-01", "ses-01"],
+        "sub_id": ["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"],
+        "ses_id": ["ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01"],
     }
 
 @torch.no_grad()
@@ -384,7 +384,10 @@ class TestTrainingStep:
         for _ in range(3):
             proj, _ = model.forward(input_batch["query"]) # type: ignore
             model._update_queue(proj, pack_ids(input_batch["sub_id"], input_batch["ses_id"]))
-        assert model.queue.shape == (24, 128)
+        assert model.queue.shape == (16384, 128)
+        assert model.queue_ids.shape == (16384,)
+        assert model.queue_ptr.shape == (1,)
+        assert model.queue_ptr[0] == 24
     
     def test_queue_update_with_duplicates(self, model, input_batch):
         """Test that the queue is updated correctly with duplicates."""

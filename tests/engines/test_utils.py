@@ -22,37 +22,37 @@ def input_batch():
     return {
         "query": torch.randn(8, 1, 128, 128, 128),
         "key": torch.randn(8, 1, 128, 128, 128),
-        "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
-        "sub_id": ["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-01"],
-        "ses_id": ["ses-01", "ses-01", "ses-01", "ses-02", "ses-01", "ses-01", "ses-01", "ses-01"],
+        "mod": ["t1", "t2", "flair", "dwi", "other", "other", "other", "t1"],
+        "sub_id": ["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"],
+        "ses_id": ["ses_01", "ses_01", "ses_01", "ses_02", "ses_01", "ses_01", "ses_01", "ses_01"],
     }
 
 def test_modality_to_onehot(input_batch):
     """Test that the modality to one-hot encoding is correct."""
     one_hot = modality_to_onehot(input_batch, "mod", torch.device("cpu"))
-    assert one_hot.shape == (8, 7)
+    assert one_hot.shape == (8, 5)
     assert one_hot.dtype == torch.float32
     assert torch.all(one_hot == torch.tensor([
-        [1, 0, 0, 0, 0, 0, 0], 
-        [0, 1, 0, 0, 0, 0, 0], 
-        [0, 0, 1, 0, 0, 0, 0], 
-        [0, 0, 0, 1, 0, 0, 0], 
-        [0, 0, 0, 0, 1, 0, 0], 
-        [0, 0, 0, 0, 0, 1, 0], 
-        [0, 0, 0, 0, 0, 0, 1], 
-        [1, 0, 0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0], 
+        [0, 1, 0, 0, 0], 
+        [0, 0, 1, 0, 0], 
+        [0, 0, 0, 1, 0], 
+        [0, 0, 0, 0, 1], 
+        [0, 0, 0, 0, 1], 
+        [0, 0, 0, 0, 1], 
+        [1, 0, 0, 0, 0],
     ]))
 
 @pytest.mark.parametrize("sub, ses", [
-    (["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-01"], 
-    ["ses-01", "ses-01", "ses-01", "ses-02", "ses-01", "ses-01", "ses-01", "ses-01"]),
+    (["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"], 
+    ["ses_01", "ses_01", "ses_01", "ses_02", "ses_01", "ses_01", "ses_01", "ses_01"]),
     ([1, 2, 3, 4, 5, 6, 7, 1], 
     [1, 1, 1, 2, 1, 1, 1, 1]),
     (torch.tensor([1, 2, 3, 4, 5, 6, 7, 1]), 
     torch.tensor([1, 1, 1, 2, 1, 1, 1, 1])),
-    (["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-01"], 
+    (["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"], 
     [1, 1, 1, 2, 1, 1, 1, 1]),
-    (["sub-01", "sub-02", "sub-03", "sub-04", "sub-05", "sub-06", "sub-07", "sub-01"], 
+    (["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"], 
     torch.tensor([1, 1, 1, 2, 1, 1, 1, 1])),
 ])
 def test_sub_ses_ids(input_batch, sub, ses):

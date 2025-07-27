@@ -154,7 +154,7 @@ class WandbFilter(logging.Filter):
 
     def _flush_sync_log(self):
         if self.aggregated_sync:
-            wandb.log(self.aggregated_sync, step=0)
+            wandb.log(self.aggregated_sync)
 
         self.aggregated_sync.clear()
         self._sync_count = 0
