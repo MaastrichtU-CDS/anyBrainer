@@ -24,6 +24,7 @@ def resolve_path(path: Path | str) -> Path:
     return Path(path).expanduser().resolve()
 
 def create_save_dirs(
+    proj_name: str,
     exp_name: str, 
     root_dir: str | Path,
     new_version: bool,
@@ -41,10 +42,10 @@ def create_save_dirs(
     root_dir = resolve_path(root_dir)
     _create_dir(root_dir, new_version)
     
-    exp_dir = root_dir / exp_name
+    exp_dir = root_dir / proj_name / exp_name
     _create_dir(exp_dir, new_version)
 
-    logs_dir = root_dir / "logs"
+    logs_dir = exp_dir / "logs"
     _create_dir(logs_dir, new_version)
     
     if create_ckpt_dir:

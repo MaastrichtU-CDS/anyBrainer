@@ -32,13 +32,15 @@ from anyBrainer.engines.factory import (
 # Removed typechecked for now
 @dataclass
 class TrainingSettings:
+    project: str
     experiment: str
     save_dir: Path
     seed: int
     worker_logs: bool
     dev_mode: bool
     enable_wandb: bool
-    wandb_project: str
+    wandb_watch_enable: bool
+    wandb_watch_kwargs: dict[str, Any]
     pl_datamodule_name: str
     data_dir: Path
     num_workers: int
@@ -55,7 +57,7 @@ class TrainingSettings:
     pl_module_name: str
     pl_module_kwargs: dict[str, Any]
     pl_callback_kwargs: list[dict[str, Any]]
-    trainer_kwargs: dict[str, Any]
+    pl_trainer_kwargs: dict[str, Any]
 
     def __post_init__(self):
         self.save_dir = resolve_path(self.save_dir)
@@ -142,10 +144,13 @@ class TrainWorkflow:
         except ValueError:
             self.main_logger.exception("Error in setup_trainer(); ensure returns match the docstring.")
             raise
+        self.finalize_setup()
 
-        self.wandb_logger.watch(self.model)
+        if self.wandb_logger is not None and self.settings.wandb_watch_enable:
+            self.wandb_logger.watch(self.model, **self.settings.wandb_watch_kwargs)
 
         create_save_dirs(
+            proj_name=self.settings.project,
             exp_name=self.settings.experiment,
             root_dir=self.settings.save_dir,
             new_version=self.settings.new_version,
@@ -177,7 +182,7 @@ class TrainWorkflow:
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,
             "enable_wandb": self.settings.enable_wandb,
-            "wandb_project": self.settings.wandb_project,
+            "wandb_project": self.settings.project,
             "experiment": self.settings.experiment,
             "num_workers": self.settings.num_workers,
         }
@@ -303,9 +308,17 @@ class TrainWorkflow:
             "logger": self.wandb_logger,
             "callbacks": self.callbacks,
             "reload_dataloaders_every_n_epochs": 1,
-            **self.settings.trainer_kwargs,
+            **self.settings.pl_trainer_kwargs,
         }
         return pl.Trainer(**trainer_config)
+    
+    def finalize_setup(self):
+        """
+        Finalizes the setup of the workflow.
+
+        Override for custom finalization.
+        """
+        pass
 
     def __call__(self):
         """
@@ -317,6 +330,9 @@ class TrainWorkflow:
         start_time = time.time()
         train_stats = self.train_run()
         duration = time.time() - start_time
+        
+        if self.wandb_logger is not None:
+            self.wandb_logger.experiment.unwatch(self.model)
 
         self.main_logger.info(f"\n[TRAINING COMPLETED] in {duration/60:.1f} min")
         self.main_logger.info(self.train_end_summary(train_stats))
@@ -355,7 +371,7 @@ class TrainWorkflow:
             f"Epochs:           {self.trainer.max_epochs}\n"
             f"Optimizer:        {self.settings.pl_module_kwargs.get('optimizer_kwargs', 'unspecified')}\n"
             f"Loss:             {self.settings.pl_module_kwargs.get('loss_fn_kwargs', 'unspecified')}\n"
-            f"WandB Project:    {self.settings.wandb_project} (enabled: {self.settings.enable_wandb})\n"
+            f"WandB Project:    {self.settings.project} (enabled: {self.settings.enable_wandb})\n"
             f"Output Dir:       {self.settings.save_dir}\n"
             f"Device:           {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}\n"
             f"AMP enabled:      {self.trainer.precision == '16-mixed' or self.trainer.precision == 16}\n"
