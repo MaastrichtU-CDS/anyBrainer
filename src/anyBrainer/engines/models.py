@@ -359,7 +359,15 @@ class CLwAuxModel(BaseModel):
             batch["sub_id"], batch["ses_id"] = get_sub_ses_tensors(batch, batch["query"].device)
         return batch
     
-    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
         self._update_key_encoder()
     
     def training_step(self, batch: dict, batch_idx: int):

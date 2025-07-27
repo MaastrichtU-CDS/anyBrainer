@@ -7,6 +7,7 @@ __all__ = [
 ]
 
 import logging
+from typing import Any
 
 import pytorch_lightning as pl
 import torch.optim as optim
@@ -66,7 +67,15 @@ class LogGradNorm(pl.Callback):
     """
     Callback to log the gradient norm for all parameters in the model.
     """
-    def on_train_batch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
         """Log the gradient norm."""
         pl_module.log(
             "train/grad_norm",
