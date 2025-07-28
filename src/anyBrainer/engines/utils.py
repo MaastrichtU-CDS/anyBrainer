@@ -73,7 +73,7 @@ def unpack_settings_for_train_workflow(
     return {
         "project": global_settings.get("project", "anyBrainer"),
         "experiment": global_settings.get("experiment", "exp-01"),
-        "save_dir": global_settings.get("save_dir", Path.cwd()),
+        "root_dir": global_settings.get("root_dir", Path.cwd()),
         "seed": global_settings.get("seed", 12345),
         "worker_logs": logging_settings.get("worker_logs", True),
         "disable_file_logs": logging_settings.get("disable_file_logs", False),

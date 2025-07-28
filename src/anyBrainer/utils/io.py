@@ -3,7 +3,6 @@
 __all__ = [
     "resolve_path",
     "create_save_dirs",
-    "get_ckpt_path",
     "load_model_from_ckpt",
     "load_config",
 ]
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import lightning.pytorch as pl
+from sympy.functions.elementary.piecewise import false
 import yaml
 import json
 
@@ -24,9 +24,7 @@ def resolve_path(path: Path | str) -> Path:
     return Path(path).expanduser().resolve()
 
 def create_save_dirs(
-    proj_name: str,
-    exp_name: str, 
-    root_dir: str | Path,
+    exp_dir: Path,
     new_version: bool,
     create_ckpt_dir: bool,
 ) -> None:
@@ -39,8 +37,7 @@ def create_save_dirs(
         new_version: Whether to create a new version of the experiment.
         create_ckpt_dir: Whether to create a checkpoint directory.
     """
-    exp_dir = resolve_path(root_dir) / proj_name / exp_name
-    _create_dir(exp_dir, new_version)
+    _create_dir(exp_dir, new_version=False)
 
     logs_dir = exp_dir / "logs"
     _create_dir(logs_dir, new_version)
@@ -58,15 +55,6 @@ def _create_dir(path: Path, new_version: bool) -> None:
                "delete it to create a new version.")
         logger.error(msg)
         raise
-
-def get_ckpt_path(
-    exp_dir: Path,
-    model_checkpoint: Path | None = None,
-) -> Path:
-    """Get the path to the checkpoint file."""
-    if model_checkpoint is None:
-        return exp_dir / "checkpoints" / "last.ckpt"
-    return model_checkpoint
 
 def load_model_from_ckpt(
     model_cls: type[pl.LightningModule],

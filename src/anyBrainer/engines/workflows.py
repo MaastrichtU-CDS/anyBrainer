@@ -16,7 +16,6 @@ from typeguard import typechecked
 
 from anyBrainer.utils import (
     create_save_dirs,
-    get_ckpt_path,
     load_model_from_ckpt,
     resolve_path,
 )
@@ -34,7 +33,7 @@ from anyBrainer.engines.factory import (
 class TrainingSettings:
     project: str
     experiment: str
-    save_dir: Path
+    root_dir: Path
     seed: int
     worker_logs: bool
     dev_mode: bool
@@ -61,13 +60,14 @@ class TrainingSettings:
     pl_trainer_kwargs: dict[str, Any]
 
     def __post_init__(self):
-        self.save_dir = resolve_path(self.save_dir)
+        self.root_dir = resolve_path(self.root_dir)
         self.data_dir = resolve_path(self.data_dir)
         self.model_checkpoint = (
             resolve_path(self.model_checkpoint) 
             if self.model_checkpoint is not None else None
         )
         self.train_val_test_split = tuple(self.train_val_test_split) # type: ignore
+        self.exp_dir: Path = self.root_dir / self.project / self.experiment
 
     def __repr__(self):
         return "\n".join(f"{k}: {v}" for k, v in self.__dict__.items())
@@ -151,9 +151,7 @@ class TrainWorkflow:
             self.wandb_logger.watch(self.model, **self.settings.wandb_watch_kwargs)
 
         create_save_dirs(
-            proj_name=self.settings.project,
-            exp_name=self.settings.experiment,
-            root_dir=self.settings.save_dir,
+            exp_dir=self.settings.exp_dir,
             new_version=self.settings.new_version,
             create_ckpt_dir=True,
         )
@@ -179,9 +177,7 @@ class TrainWorkflow:
         """
         logging_config = {
             "name": "LoggingManager", 
-            "logs_root": (self.settings.save_dir / 
-                          self.settings.project / 
-                          self.settings.experiment / "logs"),
+            "logs_root": self.settings.exp_dir / "logs",
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,
             "disable_file_logs": self.settings.disable_file_logs,
@@ -251,10 +247,9 @@ class TrainWorkflow:
             "name": self.settings.pl_module_name,
             **self.settings.pl_module_kwargs,
         }
-        ckpt_path = get_ckpt_path(
-            self.settings.save_dir / self.settings.project / self.settings.experiment, 
-            self.settings.model_checkpoint
-        )
+        ckpt_path = (self.settings.model_checkpoint or 
+                     self.settings.exp_dir / "checkpoints" / "last.ckpt")
+
         if not self.settings.new_version:
             model = load_model_from_ckpt(
                 model_cls=cast(
@@ -283,7 +278,7 @@ class TrainWorkflow:
         """
         callbacks_config = [
             {"name": "ModelCheckpoint",
-                "dirpath": self.settings.save_dir / 'checkpoints',
+                "dirpath": self.settings.exp_dir / "checkpoints",
                 "filename": "{epoch:02d}",
                 "every_n_epochs": self.settings.save_every_n_epochs,
                 "save_last": self.settings.save_last},
