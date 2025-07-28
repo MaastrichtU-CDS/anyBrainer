@@ -60,12 +60,12 @@ def _create_dir(path: Path, new_version: bool) -> None:
         raise
 
 def get_ckpt_path(
-    save_dir: Path,
+    exp_dir: Path,
     model_checkpoint: Path | None = None,
 ) -> Path:
     """Get the path to the checkpoint file."""
     if model_checkpoint is None:
-        return save_dir / "checkpoints" / "last.ckpt"
+        return exp_dir / "checkpoints" / "last.ckpt"
     return model_checkpoint
 
 def load_model_from_ckpt(

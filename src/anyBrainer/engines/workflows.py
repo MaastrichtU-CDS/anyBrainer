@@ -131,7 +131,7 @@ class TrainWorkflow:
             self.main_logger.exception("Error in setup_datamodule(); ensure returns match the docstring.")
             raise
         try:
-            self.model, self.ckpt = self.setup_model()
+            self.model, self.ckpt_path = self.setup_model()
         except ValueError:
             self.main_logger.exception("Error in setup_model(); ensure returns match the docstring.")
             raise
@@ -252,7 +252,7 @@ class TrainWorkflow:
             **self.settings.pl_module_kwargs,
         }
         ckpt_path = get_ckpt_path(
-            self.settings.save_dir, 
+            self.settings.save_dir / self.settings.project / self.settings.experiment, 
             self.settings.model_checkpoint
         )
         if not self.settings.new_version:
