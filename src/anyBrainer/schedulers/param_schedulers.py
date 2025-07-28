@@ -20,7 +20,7 @@ class ParameterScheduler(ABC):
     def get_value(self, current_step: int) -> dict[str, float]:
         """Get the value of the scheduler at the current step."""
         pass
-
+    
 
 class StepwiseParameterScheduler(ParameterScheduler):
     """
