@@ -179,7 +179,9 @@ class TrainWorkflow:
         """
         logging_config = {
             "name": "LoggingManager", 
-            "logs_root": self.settings.save_dir / "logs",
+            "logs_root": (self.settings.save_dir / 
+                          self.settings.project / 
+                          self.settings.experiment / "logs"),
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,
             "disable_file_logs": self.settings.disable_file_logs,
