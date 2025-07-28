@@ -94,7 +94,7 @@ class TrainWorkflow:
         pl_datamodule_settings: dict[str, Any],
         pl_module_settings: dict[str, Any],
         pl_callback_settings: list[dict[str, Any]],
-        pl_trainer_kwargs: dict[str, Any],
+        pl_trainer_settings: dict[str, Any],
         logging_settings: dict[str, Any] = {},
         ckpt_settings: dict[str, Any] = {},
         **kwargs,
@@ -106,7 +106,7 @@ class TrainWorkflow:
                 pl_datamodule_settings,
                 pl_module_settings,
                 pl_callback_settings,
-                pl_trainer_kwargs,
+                pl_trainer_settings,
                 ckpt_settings,
         ))
 

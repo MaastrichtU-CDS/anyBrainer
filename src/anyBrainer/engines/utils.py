@@ -66,7 +66,7 @@ def unpack_settings_for_train_workflow(
     pl_datamodule_settings: dict[str, Any],
     pl_module_settings: dict[str, dict[str, Any]],
     pl_callback_settings: list[dict[str, Any]],
-    pl_trainer_kwargs: dict[str, Any],
+    pl_trainer_settings: dict[str, Any],
     ckpt_settings: dict[str, Any],
 ) -> dict[str, Any]: 
     """Unpack user-provided settings and provide default values for a typical train workflow."""
@@ -97,7 +97,7 @@ def unpack_settings_for_train_workflow(
         "pl_module_name": pl_module_settings.get("name", "CLwAuxModel"),
         "pl_module_kwargs": pl_module_settings,
         "pl_callback_kwargs": pl_callback_settings,
-        "pl_trainer_kwargs": pl_trainer_kwargs,
+        "pl_trainer_kwargs": pl_trainer_settings,
     }
 
 def dict_get_as_tensor(value: Any) -> torch.Tensor | None:
