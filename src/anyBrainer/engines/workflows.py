@@ -54,6 +54,8 @@ class TrainingSettings:
     model_checkpoint: Path | None
     save_every_n_epochs: int
     save_last: bool
+    save_top_k: int
+    extra_ckpt_kwargs: dict[str, Any]
     pl_module_name: str
     pl_module_kwargs: dict[str, Any]
     pl_callback_kwargs: list[dict[str, Any]]
@@ -281,8 +283,9 @@ class TrainWorkflow:
                 "dirpath": self.settings.exp_dir / "checkpoints",
                 "filename": "{epoch:02d}",
                 "every_n_epochs": self.settings.save_every_n_epochs,
-                "save_top_k": -1,
+                "save_top_k": self.settings.save_top_k,
                 "save_last": self.settings.save_last,
+                **self.settings.extra_ckpt_kwargs,
             },
             {"name": "UpdateDatamoduleEpoch"},
             {"name": "LogLR"},

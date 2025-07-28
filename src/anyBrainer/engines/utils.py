@@ -94,6 +94,8 @@ def unpack_settings_for_train_workflow(
         "model_checkpoint": ckpt_settings.get("model_checkpoint"),
         "save_every_n_epochs": ckpt_settings.get("save_every_n_epochs", 1),
         "save_last": ckpt_settings.get("save_last", True),
+        "save_top_k": ckpt_settings.get("save_top_k", -1),
+        "extra_ckpt_kwargs": ckpt_settings.get("extra_kwargs", {}),
         "pl_module_name": pl_module_settings.get("name", "CLwAuxModel"),
         "pl_module_kwargs": pl_module_settings,
         "pl_callback_kwargs": pl_callback_settings,
