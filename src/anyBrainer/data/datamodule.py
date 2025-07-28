@@ -223,11 +223,13 @@ class BaseDataModule(pl.LightningDataModule):
         self.train_val_test_split = state_dict.get(
             "train_val_test_split", self.train_val_test_split
         )
-        
-        base_seed = state_dict.get("datamodule_base_seed", None)
-        if base_seed is not None:
-            self.seed = base_seed
+        self.seed = state_dict.get("datamodule_base_seed")
         self._current_epoch = state_dict.get("epoch", 0)
+
+        logger.info(f"Loaded from checkpoint: "
+                    f"train_val_test_split: {self.train_val_test_split}, "
+                    f"base_seed: {self.seed}, "
+                    f"current_epoch: {self._current_epoch}")
 
 
 class MAEDataModule(BaseDataModule):
