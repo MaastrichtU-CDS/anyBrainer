@@ -39,10 +39,7 @@ def create_save_dirs(
         new_version: Whether to create a new version of the experiment.
         create_ckpt_dir: Whether to create a checkpoint directory.
     """
-    root_dir = resolve_path(root_dir)
-    _create_dir(root_dir, new_version)
-    
-    exp_dir = root_dir / proj_name / exp_name
+    exp_dir = resolve_path(root_dir) / proj_name / exp_name
     _create_dir(exp_dir, new_version)
 
     logs_dir = exp_dir / "logs"
