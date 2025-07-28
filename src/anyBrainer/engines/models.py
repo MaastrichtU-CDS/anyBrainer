@@ -274,22 +274,22 @@ class CLwAuxModel(BaseModel):
                     f"hyperparameters:\n{self.hparams}")
 
     @torch.no_grad()
-    def _update_queue(self, query: torch.Tensor, query_ids: torch.Tensor) -> None:
+    def _update_queue(self, key: torch.Tensor, key_ids: torch.Tensor) -> None:
         """Update queue with new embeddings and IDs using a circular buffer."""
-        query = query.detach()
-        batch_size = query.size(0)
+        key = key.detach()
+        batch_size = key.size(0)
         ptr = int(self.queue_ptr)
 
         end = ptr + batch_size
         if end <= self.queue_size:
-            self.queue[ptr:end] = query
-            self.queue_ids[ptr:end] = query_ids
+            self.queue[ptr:end] = key
+            self.queue_ids[ptr:end] = key_ids
         else:
             first = self.queue_size - ptr
-            self.queue[ptr:] = query[:first]
-            self.queue[:end % self.queue_size] = query[first:]
-            self.queue_ids[ptr:] = query_ids[:first]
-            self.queue_ids[:end % self.queue_size] = query_ids[first:]
+            self.queue[ptr:] = key[:first]
+            self.queue[:end % self.queue_size] = key[first:]
+            self.queue_ids[ptr:] = key_ids[:first]
+            self.queue_ids[:end % self.queue_size] = key_ids[first:]
 
         self.queue_ptr[0] = end % self.queue_size
 
@@ -392,9 +392,10 @@ class CLwAuxModel(BaseModel):
             "train/neg_mean": loss_dict.get("neg_mean", torch.tensor(0.0)),
             "train/neg_entropy": loss_dict.get("neg_entropy", torch.tensor(0.0)),
             "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0.0)),
+            "train/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]),
         }, on_step=True, on_epoch=True, prog_bar=False, sync_dist=sync_dist_safe(self))
 
-        self._update_queue(q_proj, batch_ids)
+        self._update_queue(k_proj, batch_ids)
             
         return loss
     
@@ -410,14 +411,13 @@ class CLwAuxModel(BaseModel):
             q_aux=q_aux,
             aux_spr=batch["aux_labels"],
         )
-        acc = top1_accuracy(q_aux, batch["aux_labels"])
         
         self.log_dict({
             "val/loss": loss,
             "val/loss_info_nce": loss_dict["loss_info_nce"],
             "val/loss_aux": loss_dict["loss_aux"],
             "val/loss_weight": loss_dict["loss_weight"],
-            "val/aux_acc": acc,
+            "val/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]),
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
     
     def test_step(self, batch: dict, batch_idx: int):
