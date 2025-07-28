@@ -96,9 +96,8 @@ def split_data_by_subjects(
         R = np.random.RandomState()
 
     _, mt_state, pos, *_ = R.get_state()
-    logger.info(f"Splitting data into train/val/test based on subjects for "
-                f"masked autoencoder with current state: "
-                f"{pos:3d}, {mt_state[:5]}") # pyright: ignore[reportArgumentType]
+    logger.info(f"Splitting data into train/val/test based on subjects "
+                f"with current state: {pos:3d}, {mt_state[:5]}") # type: ignore
     
     # Get unique subjects
     subjects = sorted({item['sub_id'] for item in data_list})
