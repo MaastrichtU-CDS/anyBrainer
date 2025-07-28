@@ -371,7 +371,7 @@ class TrainWorkflow:
             f"Optimizer:        {self.settings.pl_module_kwargs.get('optimizer_kwargs', 'unspecified')}\n"
             f"Loss:             {self.settings.pl_module_kwargs.get('loss_fn_kwargs', 'unspecified')}\n"
             f"WandB Project:    {self.settings.project} (enabled: {self.settings.enable_wandb})\n"
-            f"Output Dir:       {self.settings.save_dir}\n"
+            f"Output Dir:       {self.settings.exp_dir}\n"
             f"Device:           {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}\n"
             f"AMP enabled:      {self.trainer.precision == '16-mixed' or self.trainer.precision == 16}\n"
             f"{'-'*60}"
