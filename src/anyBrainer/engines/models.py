@@ -410,7 +410,7 @@ class CLwAuxModel(BaseModel):
             q_aux=q_aux,
             aux_spr=batch["aux_labels"],
         )
-        acc = top1_accuracy(q_proj, batch["aux_labels"])
+        acc = top1_accuracy(q_aux, batch["aux_labels"])
         
         self.log_dict({
             "val/loss": loss,
