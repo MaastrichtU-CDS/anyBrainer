@@ -6,6 +6,10 @@ __all__ = [
 
 import torch
 
+from anyBrainer.registry import register, RegistryKind as RK
+
+
+@register(RK.UTIL)
 def top1_accuracy(
     logits: torch.Tensor, 
     targets: torch.Tensor, 

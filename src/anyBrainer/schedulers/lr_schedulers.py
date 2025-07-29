@@ -10,9 +10,12 @@ import math
 import torch
 from torch.optim.lr_scheduler import _LRScheduler
 
+from anyBrainer.registry import register, RegistryKind as RK
+
 logger = logging.getLogger(__name__)
 
 
+@register(RK.LR_SCHEDULER)
 class CosineAnnealingWithWarmup(_LRScheduler):
     def __init__(
         self,

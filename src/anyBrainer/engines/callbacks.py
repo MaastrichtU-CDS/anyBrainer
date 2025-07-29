@@ -12,6 +12,7 @@ from typing import Any
 import lightning.pytorch as pl
 import torch.optim as optim
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.utils.models import (
     get_optimizer_lr,
     get_total_grad_norm,
@@ -23,6 +24,7 @@ from anyBrainer.engines.utils import (
 logger = logging.getLogger(__name__)
 
 
+@register(RK.CALLBACK)
 class UpdateDatamoduleEpoch(pl.Callback):
     """
     Callback to update the datamodule's _current_epoch attribute.
@@ -39,6 +41,7 @@ class UpdateDatamoduleEpoch(pl.Callback):
         logger.debug(f"Updated datamodule epoch to {trainer.current_epoch + 1}")
 
 
+@register(RK.CALLBACK)
 class LogLR(pl.Callback):
     """
     Callback to log the learning rate for all optimizers in the trainer.
@@ -63,6 +66,7 @@ class LogLR(pl.Callback):
         )
 
 
+@register(RK.CALLBACK)
 class LogGradNorm(pl.Callback):
     """
     Callback to log the gradient norm for all parameters in the model.

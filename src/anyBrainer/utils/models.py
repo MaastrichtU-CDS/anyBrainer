@@ -14,6 +14,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from anyBrainer.registry import register, RegistryKind as RK
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,6 +84,7 @@ def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,
 
     return tensor
 
+@register(RK.UTIL)
 def init_swin_with_residual_convs(model: nn.Module,
                                   *,
                                   proj_std: float = 0.02,

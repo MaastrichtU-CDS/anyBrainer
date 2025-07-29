@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from functools import partial
 import wandb
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.utils.io import resolve_path
 from anyBrainer.log.utils import setup_worker_logging, init_wandb_logger
 from anyBrainer.log.utils import WandbFilter, WandbOnlyHandler
@@ -29,12 +30,13 @@ class LoggingSettings:
     num_workers: int
     sync_timeout: float = 5.0
     wandb_project: str = "anyBrainer"
-    disable_file_logs: bool = False
+    save_logs: bool = True
 
     def __post_init__(self):
         self.logs_root = resolve_path(self.logs_root)
 
 
+@register(RK.LOGGING_MANAGER)
 class LoggingManager:
     """Handles all logging logic for main and parallel processes."""
     def __init__(self, **settings):
@@ -48,12 +50,12 @@ class LoggingManager:
         else:
             self.wandb_logger = None
         
-        self.main_logger = self._setup_main_logging()
-        self.log_queue, self.listener = self._setup_parallel_logging()
+        self.main_logger = self.setup_main_logging()
+        self.log_queue, self.listener = self.setup_parallel_logging()
 
         self.main_logger.info(f"Logging manager initialized with settings: {self.settings}")
     
-    def _setup_main_logging(self) -> logging.Logger:
+    def setup_main_logging(self) -> logging.Logger:
         """Sets up the main process logging handlers and loggers."""
         # Get the anyBrainer logger
         main_logger = logging.getLogger("anyBrainer")
@@ -68,7 +70,7 @@ class LoggingManager:
         # Create handlers
         handlers: list[logging.Handler] = [logging.StreamHandler()]
         
-        if not self.settings.disable_file_logs:
+        if self.settings.save_logs:
             self.settings.logs_root.mkdir(parents=True, exist_ok=True)
             handlers.append(logging.FileHandler(self.settings.logs_root / "main.log")) # type: ignore
         
@@ -94,13 +96,13 @@ class LoggingManager:
 
         return main_logger
 
-    def _setup_parallel_logging(self) -> tuple[Queue, QueueListener]:
+    def setup_parallel_logging(self) -> tuple[Queue, QueueListener]:
         """Sets up multiprocessing-compatible logging using a Queue."""
         log_queue = Queue()
 
         handlers: list[logging.Handler] = [logging.StreamHandler()]
 
-        if not self.settings.disable_file_logs:
+        if self.settings.save_logs:
             handlers.append(logging.FileHandler(self.settings.logs_root / "workers.log")) # type: ignore
 
         stream_fmt = (

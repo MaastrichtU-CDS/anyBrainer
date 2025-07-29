@@ -76,7 +76,7 @@ def unpack_settings_for_train_workflow(
         "root_dir": global_settings.get("root_dir", Path.cwd()),
         "seed": global_settings.get("seed", 12345),
         "worker_logs": logging_settings.get("worker_logs", True),
-        "disable_file_logs": logging_settings.get("disable_file_logs", False),
+        "save_logs": logging_settings.get("save_logs", True),
         "dev_mode": logging_settings.get("dev_mode", False),
         "enable_wandb": logging_settings.get("wandb_enable", True),
         "wandb_watch_enable": logging_settings.get("wandb_watch_enable", False),

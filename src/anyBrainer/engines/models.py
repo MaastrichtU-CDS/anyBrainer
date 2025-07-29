@@ -25,6 +25,7 @@ import torch.nn as nn
 import lightning.pytorch as pl
 import torch.nn.functional as F
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.engines.utils import (
     sync_dist_safe,
     pack_ids,
@@ -194,6 +195,7 @@ class BaseModel(pl.LightningModule):
         raise NotImplementedError("Predict step not implemented")
 
 
+@register(RK.PL_MODULE)
 class CLwAuxModel(BaseModel):
     """Contrastive learning with auxiliary loss model."""
     queue:      torch.Tensor

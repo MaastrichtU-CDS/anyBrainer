@@ -14,6 +14,7 @@ from monai.data.utils import set_rnd
 from monai.utils.misc import set_determinism
 from typeguard import typechecked
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.utils import (
     create_save_dirs,
     load_model_from_ckpt,
@@ -75,6 +76,7 @@ class TrainingSettings:
         return "\n".join(f"{k}: {v}" for k, v in self.__dict__.items())
 
 
+@register(RK.WORKFLOW)
 class TrainWorkflow:
     """
     Basic workflow for wrapping pytorch lightning trainer operations.

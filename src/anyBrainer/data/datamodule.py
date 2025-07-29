@@ -37,6 +37,7 @@ from monai.transforms import Compose
 from monai.data.utils import set_rnd
 from monai.utils import MAX_SEED
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.utils.io import resolve_path
 from anyBrainer.data.utils import (
@@ -232,6 +233,7 @@ class BaseDataModule(pl.LightningDataModule):
                     f"current_epoch: {self._current_epoch}")
 
 
+@register(RK.DATAMODULE)
 class MAEDataModule(BaseDataModule):
     """
     DataModule for brain MRI foundation model training using masked autoencoder.
@@ -466,6 +468,7 @@ class MAEDataModule(BaseDataModule):
         )
 
 
+@register(RK.DATAMODULE)
 class ContrastiveDataModule(BaseDataModule):
     """
     DataModule for brain MRI foundation model training using contrastive learning.

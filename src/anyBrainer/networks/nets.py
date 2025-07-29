@@ -14,6 +14,7 @@ import torch.nn as nn
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
@@ -22,6 +23,7 @@ from anyBrainer.networks.blocks import (
 logger = logging.getLogger(__name__)
 
 
+@register(RK.NETWORK)
 class Swinv2CL(nn.Module):
     """Swin ViT V2 for Contrastive Learning."""
     def __init__(

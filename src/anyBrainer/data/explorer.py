@@ -15,6 +15,7 @@ from typing import Iterator, Sequence
 from pathlib import Path
 from tqdm import tqdm
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.utils.io import resolve_path
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class DataExplorer:
         raise NotImplementedError()
 
 
+@register(RK.DATA_MANAGER)
 class GenericNiftiDataExplorer(DataExplorer):
     """
     Handles generic datasets with subject/session format:

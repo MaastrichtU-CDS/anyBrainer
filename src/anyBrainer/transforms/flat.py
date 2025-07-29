@@ -36,6 +36,10 @@ from .unit_transforms import (
     GetKeyQueryd,
 )
 
+from anyBrainer.registry import register, RegistryKind as RK
+
+
+@register(RK.TRANSFORM)
 def get_mae_train_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
@@ -60,6 +64,7 @@ def get_mae_train_transforms():
         RandSimulateLowResolutiond(keys=['img'], prob=0.1, zoom_range=(0.5, 1.0)),
     ]
 
+@register(RK.TRANSFORM)
 def get_mae_val_transforms():
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
@@ -73,6 +78,7 @@ def get_mae_val_transforms():
                           mask_patch_size=32),
     ]
 
+@register(RK.TRANSFORM)
 def get_contrastive_train_transforms():
     return [
         GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
@@ -105,6 +111,7 @@ def get_contrastive_train_transforms():
         RandSimulateLowResolutiond(keys=['key'], prob=0.1, zoom_range=(0.5, 1.0)),
     ]
 
+@register(RK.TRANSFORM)
 def get_contrastive_val_transforms():
     return [
         GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
@@ -126,6 +133,7 @@ def get_contrastive_val_transforms():
         RandSimulateLowResolutiond(keys=['key'], prob=0.1, zoom_range=(0.5, 1.0)),
     ]
 
+@register(RK.TRANSFORM)
 def get_predict_transforms():
     return [
         LoadImaged(keys=['img'], reader='NumpyReader', ensure_channel_first=True),

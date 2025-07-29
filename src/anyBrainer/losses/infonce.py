@@ -11,11 +11,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.losses.utils import compute_cl_stats
 
 logger = logging.getLogger(__name__)
 
 
+@register(RK.LOSS)
 class InfoNCELoss(nn.Module):
     """
     InfoNCE loss with optional top-k hard negative selection and
@@ -52,7 +54,7 @@ class InfoNCELoss(nn.Module):
         q: torch.Tensor,
         k: torch.Tensor,
         queue: torch.Tensor,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor] | dict[str, bool]]:
         """
         Args:
             q: (B, D) - query embeddings

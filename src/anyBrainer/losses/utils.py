@@ -7,7 +7,10 @@ __all__ = [
 import torch
 import torch.nn.functional as F
 
+from anyBrainer.registry import register, RegistryKind as RK
 
+
+@register(RK.UTIL)
 def compute_cl_stats(
     logits: torch.Tensor,
 ) -> dict[str, torch.Tensor]:

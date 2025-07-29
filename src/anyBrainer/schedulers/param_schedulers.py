@@ -7,6 +7,8 @@ __all__ = [
 import logging
 from abc import ABC, abstractmethod
 
+from anyBrainer.registry import register, RegistryKind as RK
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,6 +24,7 @@ class ParameterScheduler(ABC):
         pass
     
 
+@register(RK.PARAM_SCHEDULER)
 class StepwiseParameterScheduler(ParameterScheduler):
     """
     A general-purpose scheduler for interpolating any scalar parameter value
