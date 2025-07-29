@@ -22,7 +22,7 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Callable, Literal
+from typing import List, Dict, Callable, Literal, Any
 from collections import defaultdict, Counter
 
 import lightning.pytorch as pl
@@ -33,27 +33,29 @@ from tqdm import tqdm
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
-from monai.transforms import Compose
 from monai.data.utils import set_rnd
-from monai.utils import MAX_SEED
 
-from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.data.explorer import GenericNiftiDataExplorer
-from anyBrainer.utils.io import resolve_path
-from anyBrainer.data.utils import (
+from anyBrainer.registry import register
+from anyBrainer.core.data.utils import (
     trivial_check_nested_nifti_dataset,
     parse_filename_nested_nifti,
     get_summary_msg,
+    resolve_transform,
 )
-from anyBrainer.utils.data import split_data_by_subjects
-from anyBrainer.transforms import(
+from anyBrainer.core.utils import (
+    split_data_by_subjects, 
+    resolve_path,
+    make_worker_init_fn,
+)
+from anyBrainer.core.transforms import(
     get_mae_train_transforms,
     get_mae_val_transforms,
     get_contrastive_train_transforms,
     get_contrastive_val_transforms,
     get_predict_transforms,
 )
-from anyBrainer.utils.parallel import make_worker_init_fn
+from anyBrainer.core.data.explorer import DataHandler
+from anyBrainer.registry import RegistryKind as RK
 
 STAGE_SEED_OFFSET = {
     "fit": 0,
@@ -67,6 +69,7 @@ STAGE_LOG_PREFIX = {
     "test": "test",
     "predict": "predict",
 }
+MAX_SEED = 2**32 - 1
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +95,10 @@ class BaseDataModule(pl.LightningDataModule):
         worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
-        train_transforms: list | None = None,
-        val_transforms: list | None = None,
-        test_transforms: list | None = None,
-        predict_transforms: list | None = None,
+        train_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        val_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        test_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
     ):
         super().__init__()
         self.data_dir = resolve_path(data_dir)
@@ -107,10 +110,10 @@ class BaseDataModule(pl.LightningDataModule):
         self.worker_logging_fn = worker_logging_fn
         self.worker_seeding_fn = worker_seeding_fn
 
-        self.train_transforms = train_transforms
-        self.val_transforms = val_transforms
-        self.test_transforms = test_transforms
-        self.predict_transforms = predict_transforms
+        self.train_transforms = resolve_transform(train_transforms)
+        self.val_transforms = resolve_transform(val_transforms)
+        self.test_transforms = resolve_transform(test_transforms)
+        self.predict_transforms = resolve_transform(predict_transforms)
 
         # Will be populated in setup()
         self.train_data = None
@@ -125,6 +128,7 @@ class BaseDataModule(pl.LightningDataModule):
                     f"data_dir: {self.data_dir}, batch_size: {self.batch_size}, "
                     f"num_workers: {self.num_workers}, train_val_test_split: {self.train_val_test_split}, "
                     f"seed: {self.seed}, random_state: {self.R}")
+    
 
     def set_random_state(
         self, 
@@ -257,6 +261,7 @@ class MAEDataModule(BaseDataModule):
         data_dir: Path | str,
         masks_dir: Path | str | None,
         *,
+        data_handler_kwargs: dict = {},
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
@@ -264,10 +269,10 @@ class MAEDataModule(BaseDataModule):
         worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
-        train_transforms: list | None = None,
-        val_transforms: list | None = None,
-        test_transforms: list | None = None,
-        predict_transforms: list | None = None,
+        train_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        val_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        test_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
         **kwargs
     ):
         super().__init__(
@@ -284,6 +289,7 @@ class MAEDataModule(BaseDataModule):
             predict_transforms=predict_transforms,
         )
         self.masks_dir = resolve_path(masks_dir) if masks_dir is not None else None
+        self.data_handler_kwargs = data_handler_kwargs
         
         # Get transforms
         self.train_transforms = self.train_transforms or get_mae_train_transforms()
@@ -310,14 +316,14 @@ class MAEDataModule(BaseDataModule):
         logger.info(f"Creating data list from {self.data_dir}")
         logger.info(f"This may take a while...")
 
-        explorer = GenericNiftiDataExplorer(self.data_dir)
+        explorer = DataHandler(self.data_dir, **self.data_handler_kwargs)
 
         data_list = []
         subjects = set()
         sessions = set()
         modality_counts = Counter()
         
-        for file_path in explorer.get_all_image_files(as_list=True, exts=(".npy")):
+        for file_path in explorer.get_all_nifti_files(as_list=True):
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
@@ -488,6 +494,7 @@ class ContrastiveDataModule(BaseDataModule):
         self,
         data_dir: Path | str,
         *,
+        data_handler_kwargs: dict = {},
         batch_size: int = 32,
         num_workers: int = 4,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
@@ -495,10 +502,10 @@ class ContrastiveDataModule(BaseDataModule):
         worker_seeding_fn: Callable | None = set_rnd,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
-        train_transforms: list | None = None,
-        val_transforms: list | None = None,
-        test_transforms: list | None = None,
-        predict_transforms: list | None = None,
+        train_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        val_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        test_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
         **kwargs
     ):
         super().__init__(
@@ -514,7 +521,8 @@ class ContrastiveDataModule(BaseDataModule):
             test_transforms=test_transforms,
             predict_transforms=predict_transforms,
         )
-        
+        self.data_handler_kwargs = data_handler_kwargs
+
         # Get transforms
         self.train_transforms = self.train_transforms or get_contrastive_train_transforms()
         self.val_transforms = self.val_transforms or get_contrastive_val_transforms()
@@ -535,7 +543,7 @@ class ContrastiveDataModule(BaseDataModule):
         logger.info(f"Grouping data by session from {self.data_dir}")
         logger.info(f"This may take a while...")
 
-        explorer = GenericNiftiDataExplorer(self.data_dir)
+        explorer = DataHandler(self.data_dir, **self.data_handler_kwargs)
 
         session_groups = defaultdict(list)
         subjects = set()
@@ -543,7 +551,7 @@ class ContrastiveDataModule(BaseDataModule):
         modality_counts = Counter()
 
         # Group by session
-        for file_path in explorer.get_all_image_files(as_list=True, exts=(".npy")):
+        for file_path in explorer.get_all_nifti_files(as_list=True):
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
@@ -612,7 +620,7 @@ class ContrastiveDataModule(BaseDataModule):
         
         # Create dataset with transforms
         dataset = MONAIDataset(
-            data=self.train_data, 
+            data=self.train_data,
             transform=self.train_transforms
         )
 

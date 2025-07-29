@@ -4,7 +4,6 @@ __all__ = [
     "make_worker_init_fn",
 ]
 
-from ast import main
 import logging
 import random
 from typing import Any, Callable, Literal

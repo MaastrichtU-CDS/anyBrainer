@@ -7,8 +7,8 @@ from torch import nn
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
-from anyBrainer.engines.models import CLwAuxModel
-from anyBrainer.engines.utils import (
+from anyBrainer.core.engines.models import CLwAuxModel
+from anyBrainer.core.engines.utils import (
     pack_ids,
     get_sub_ses_tensors,
 )

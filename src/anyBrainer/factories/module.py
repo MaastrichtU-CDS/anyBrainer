@@ -1,16 +1,20 @@
 """Factory to create module (PL module, PL datamodule, managers) instances."""
 
+from __future__ import annotations
+
 __all__ = [
     "ModuleFactory",
 ]
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 
 from anyBrainer.registry import get, RegistryKind as RK
-from anyBrainer.log import LoggingManager
+
+if TYPE_CHECKING:
+    from anyBrainer.interfaces import LoggingManager
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ class ModuleFactory:
     def get_pl_datamodule_instance_from_kwargs(
         cls,
         pl_datamodule_kwargs: dict[str, Any],
-    ) -> pl.LightningModule:
+    ) -> pl.LightningDataModule:
         """
         Get pl module instance from anyBrainer.registry-DATAMODULE.
 

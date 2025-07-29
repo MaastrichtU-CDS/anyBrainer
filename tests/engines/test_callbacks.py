@@ -1,12 +1,9 @@
 """Unit tests for custom callbacks."""
 
-import logging 
-
 import pytest
 import lightning.pytorch as pl
-import torch
 
-from anyBrainer.engines.callbacks import (
+from anyBrainer.core.engines.callbacks import (
     UpdateDatamoduleEpoch,
     LogLR,
     LogGradNorm,

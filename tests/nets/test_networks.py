@@ -5,7 +5,7 @@ import torch
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
-from anyBrainer.networks import Swinv2CL
+from anyBrainer.core.networks import Swinv2CL
 
 
 @pytest.fixture(autouse=True)

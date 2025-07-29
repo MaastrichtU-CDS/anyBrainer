@@ -5,9 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import torch
-import lightning.pytorch as pl
-
-from anyBrainer.utils.io import resolve_path
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +80,7 @@ def unpack_settings_for_train_workflow(
         "wandb_watch_kwargs": logging_settings.get("wandb_watch_kwargs", {}),
         "pl_datamodule_name": pl_datamodule_settings.get("name", "ContrastiveDataModule"),
         "data_dir": pl_datamodule_settings.get("data_dir", Path.cwd()),
+        "data_handler_kwargs": pl_datamodule_settings.get("data_handler_kwargs", {}),
         "num_workers": pl_datamodule_settings.get("num_workers", 32),
         "batch_size": pl_datamodule_settings.get("batch_size", 8),
         "train_val_test_split": pl_datamodule_settings.get("train_val_test_split", (0.7, 0.15, 0.15)),

@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from anyBrainer.networks.utils import get_act_fn
+from anyBrainer.core.networks.utils import get_act_fn
 
 logger = logging.getLogger(__name__)
 

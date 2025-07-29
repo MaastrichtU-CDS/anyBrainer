@@ -5,8 +5,6 @@ Data should come as a list of dictionaries, including the .npy filepath.
 """
 
 __all__ = [
-    'MONAIDataset', 
-    'CacheDataset',
     'CustomDataset',
 ]
 

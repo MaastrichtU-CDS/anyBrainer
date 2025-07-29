@@ -10,12 +10,12 @@ from monai.transforms import (
 )
 from monai.data import DataLoader, Dataset
 
-from anyBrainer.data.explorer import GenericNiftiDataExplorer
-from anyBrainer.data import (
+from anyBrainer.core.data.explorer import GenericNiftiDataExplorer
+from anyBrainer.core.data import (
     MAEDataModule,
     ContrastiveDataModule,
 )
-from anyBrainer.utils import make_worker_init_fn
+from anyBrainer.core.utils import make_worker_init_fn
 
 @pytest.fixture(autouse=True)
 def mock_data_explorer(monkeypatch):

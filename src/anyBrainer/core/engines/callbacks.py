@@ -13,11 +13,11 @@ import lightning.pytorch as pl
 import torch.optim as optim
 
 from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.utils.models import (
+from anyBrainer.core.utils import (
     get_optimizer_lr,
     get_total_grad_norm,
 )
-from anyBrainer.engines.utils import (
+from anyBrainer.core.engines.utils import (
     sync_dist_safe,
 )
 

@@ -15,7 +15,7 @@ import torch.nn as nn
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
 from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.networks.blocks import (
+from anyBrainer.core.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
 )

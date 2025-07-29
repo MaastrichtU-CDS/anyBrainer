@@ -4,7 +4,7 @@ import logging
 import time
 from pathlib import Path
 import resource
-from typing import Any, cast
+from typing import Any, TYPE_CHECKING, cast
 from dataclasses import dataclass
 
 import torch
@@ -12,24 +12,25 @@ import lightning.pytorch as pl
 from lightning.pytorch.loggers import WandbLogger
 from monai.data.utils import set_rnd
 from monai.utils.misc import set_determinism
-from typeguard import typechecked
 
-from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.utils import (
+from anyBrainer.core.utils import (
     create_save_dirs,
     load_model_from_ckpt,
     resolve_path,
 )
-from anyBrainer.log import LoggingManager
-from anyBrainer.engines.utils import (
+from anyBrainer.core.engines.utils import (
     unpack_settings_for_train_workflow,
 )
-from anyBrainer.engines.factory import (
+from anyBrainer.registry import register, get
+from anyBrainer.registry import RegistryKind as RK
+from anyBrainer.factories import (
     ModuleFactory,
     UnitFactory,
 )
+if TYPE_CHECKING:
+    from anyBrainer.interfaces import LoggingManager
 
-# Removed typechecked for now
+
 @dataclass
 class TrainingSettings:
     project: str
@@ -44,13 +45,14 @@ class TrainingSettings:
     wandb_watch_kwargs: dict[str, Any]
     pl_datamodule_name: str
     data_dir: Path
+    data_handler_kwargs: dict[str, Any]
     num_workers: int
     batch_size: int
     train_val_test_split: tuple[float, float, float] | list[float]
-    train_transforms: dict[str, Any] | None
-    val_transforms: dict[str, Any] | None
-    test_transforms: dict[str, Any] | None
-    predict_transforms: dict[str, Any] | None
+    train_transforms: dict[str, Any] | str | None
+    val_transforms: dict[str, Any] | str | None
+    test_transforms: dict[str, Any] | str | None
+    predict_transforms: dict[str, Any] | str | None
     new_version: bool
     model_checkpoint: Path | None
     save_every_n_epochs: int
@@ -190,12 +192,9 @@ class TrainWorkflow:
             "experiment": self.settings.experiment,
             "num_workers": self.settings.num_workers,
         }
-        logging_manager = cast(
-            LoggingManager, 
-            ModuleFactory.get_logging_manager_instance_from_kwargs(
+        logging_manager = ModuleFactory.get_logging_manager_instance_from_kwargs(
                 logging_manager_kwargs=logging_config
             )
-        )
         main_logger, wandb_logger = (
             cast(logging.Logger, logging_manager.main_logger), 
             cast(WandbLogger, logging_manager.wandb_logger)
@@ -213,26 +212,20 @@ class TrainWorkflow:
         datamodule_config = {
             "name": self.settings.pl_datamodule_name,
             "data_dir": self.settings.data_dir,
+            "data_handler_kwargs": self.settings.data_handler_kwargs,
             "batch_size": self.settings.batch_size,
             "num_workers": self.settings.num_workers,
             "train_val_test_split": self.settings.train_val_test_split,
-            "train_transforms": (UnitFactory.get_transformslist_from_kwargs(self.settings.train_transforms) 
-                              if self.settings.train_transforms is not None else None),
-            "val_transforms": (UnitFactory.get_transformslist_from_kwargs(self.settings.val_transforms) 
-                              if self.settings.val_transforms is not None else None),
-            "test_transforms": (UnitFactory.get_transformslist_from_kwargs(self.settings.test_transforms) 
-                              if self.settings.test_transforms is not None else None),
-            "predict_transforms": (UnitFactory.get_transformslist_from_kwargs(self.settings.predict_transforms) 
-                              if self.settings.predict_transforms is not None else None),
+            "train_transforms": self.settings.train_transforms,
+            "val_transforms": self.settings.val_transforms,
+            "test_transforms": self.settings.test_transforms,
+            "predict_transforms": self.settings.predict_transforms,
             "worker_logging_fn": self.logging_manager.get_setup_worker_logging_fn(),
             "worker_seeding_fn": set_rnd,
             "seed": self.settings.seed,
         }
-        return cast(
-            pl.LightningDataModule,
-            ModuleFactory.get_pl_datamodule_instance_from_kwargs(
-                pl_datamodule_kwargs=datamodule_config
-            )
+        return ModuleFactory.get_pl_datamodule_instance_from_kwargs(
+            pl_datamodule_kwargs=datamodule_config
         )
 
     def setup_model(self) -> tuple[pl.LightningModule, Path | None]:
@@ -256,10 +249,7 @@ class TrainWorkflow:
 
         if not self.settings.new_version:
             model = load_model_from_ckpt(
-                model_cls=cast(
-                    type[pl.LightningModule],
-                    ModuleFactory.get_pl_module_instance_from_kwargs(pl_module_config, cls_only=True)
-                ),
+                model_cls=cast(type[pl.LightningModule], get(RK.PL_MODULE, self.settings.pl_module_name)),
                 ckpt_path=ckpt_path,
             )
 

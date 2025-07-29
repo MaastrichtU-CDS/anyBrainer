@@ -12,7 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.losses.utils import compute_cl_stats
+from anyBrainer.core.losses.utils import compute_cl_stats
 
 logger = logging.getLogger(__name__)
 

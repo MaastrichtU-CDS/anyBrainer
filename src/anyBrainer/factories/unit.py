@@ -1,19 +1,23 @@
 """Factory for creating unit (nets, optimizers, schedulers, etc.) instances."""
 
+
+from __future__ import annotations
+
 __all__ = [
     "UnitFactory",
 ]
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 
 import torch.nn as nn
 import torch.optim as optim
-import pytorch_lightning as pl
-import pytorch_lightning.callbacks as pl_callbacks
+import lightning.pytorch as pl
+import lightning.pytorch.callbacks as pl_callbacks
 
 from anyBrainer.registry import get, RegistryKind as RK
-from anyBrainer.schedulers import param_schedulers
+if TYPE_CHECKING:
+    from anyBrainer.interfaces import ParameterScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +226,7 @@ class UnitFactory:
     def get_param_scheduler_instances_from_kwargs(
         cls,
         other_schedulers: list[dict[str, Any]],
-    ) -> tuple[list[param_schedulers.ParameterScheduler], list[param_schedulers.ParameterScheduler]]:
+    ) -> tuple[list[ParameterScheduler], list[ParameterScheduler]]:
         """
         Get any other custom schedulers from anyBrainer.registry-PARAM_SCHEDULER.
         

@@ -5,23 +5,11 @@ __all__ = [
 ]
 
 import logging
-from abc import ABC, abstractmethod
 
 from anyBrainer.registry import register, RegistryKind as RK
+from anyBrainer.interfaces import ParameterScheduler
 
 logger = logging.getLogger(__name__)
-
-
-class ParameterScheduler(ABC):
-    """
-    A general-purpose scheduler for interpolating any scalar parameter value
-    (e.g., loss weight, EMA momentum) over training steps.
-    """
-
-    @abstractmethod
-    def get_value(self, current_step: int) -> dict[str, float]:
-        """Get the value of the scheduler at the current step."""
-        pass
     
 
 @register(RK.PARAM_SCHEDULER)

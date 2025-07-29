@@ -11,12 +11,13 @@ __all__ = [
 ]
 
 import logging
-from typing import Iterator, Sequence
+from typing import Iterator, Sequence, Literal
 from pathlib import Path
 from tqdm import tqdm
 
 from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.utils.io import resolve_path
+from anyBrainer.core.utils import resolve_path
+from anyBrainer.interfaces import DataExplorer
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,19 @@ class DataHandler:
     General handler for MRI data, supporting multiple dataset formats.
     Supported: BIDS, GenericNifti
     """
-    def __init__(self, data_settings: dict):
-        self.base_dir = resolve_path(data_settings["base_dir"])
-        self.format = data_settings["format"]
-        self.files_dir = data_settings["files_dir"]
-        self.files_suffix = data_settings["input_suffix"]
+    def __init__(
+        self, 
+        data_dir: Path | str,
+        data_format: Literal["GenericNifti", "BIDS"] = "GenericNifti",
+        files_dir: str | None = None,
+        files_suffix: str | None = None,
+        exts: Sequence[str] = (".nii.gz", ".nii"),
+    ):
+        self.base_dir = resolve_path(data_dir)
+        self.format = data_format
+        self.files_dir = files_dir
+        self.files_suffix = files_suffix
+        self.exts = exts
 
         self.explorer = self._init_explorer()
 
@@ -43,27 +52,14 @@ class DataHandler:
     def get_all_nifti_files(self, as_list: bool = True) -> list[Path] | Iterator[Path]:
         return self.explorer.get_all_image_files(files_suffix=self.files_suffix,
                                                  files_dir=self.files_dir,
+                                                 exts=self.exts,
                                                  as_list=as_list)
 
     def get_path(self) -> Path:
         return self.base_dir
 
-class DataExplorer:
-    """
-    Abstract interface for dataset exploration.
-    """
-    def __init__(self, base_dir: Path):
-        self.base_dir = resolve_path(base_dir)
 
-    def get_all_image_files(self, 
-                            files_suffix: str | None = None,
-                            exts: Sequence[str] = (".nii.gz", ".nii"), 
-                            as_list: bool = True,
-                            **kwargs) -> list[Path] | Iterator[Path]:
-        raise NotImplementedError()
-
-
-@register(RK.DATA_MANAGER)
+@register(RK.DATA_EXPLORER)
 class GenericNiftiDataExplorer(DataExplorer):
     """
     Handles generic datasets with subject/session format:
@@ -72,6 +68,9 @@ class GenericNiftiDataExplorer(DataExplorer):
             └── session_01/ (optional)
                   └── image.nii.gz
     """
+    def __init__(self, base_dir: Path):
+        self.base_dir = base_dir
+
     def get_subject_dirs(self) -> list[Path]:
         return [d for d in self.base_dir.iterdir() if d.is_dir()]
 

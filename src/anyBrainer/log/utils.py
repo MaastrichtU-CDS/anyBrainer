@@ -19,7 +19,7 @@ import time
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 
-from anyBrainer.utils.io import resolve_path
+from anyBrainer.core.utils import resolve_path
 
 logger = logging.getLogger(__name__)
 

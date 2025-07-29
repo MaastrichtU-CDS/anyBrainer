@@ -4,6 +4,7 @@ __all__ = [
     "count_model_params",
     "summarize_model_params",
     "get_total_grad_norm",
+    "get_optimizer_lr",
     "init_swin_with_residual_convs",
 ]
 

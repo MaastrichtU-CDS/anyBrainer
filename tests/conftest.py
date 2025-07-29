@@ -40,13 +40,13 @@ from monai.transforms import (
 )
 from monai.data import create_test_image_3d
 
-from anyBrainer.transforms import (
+from anyBrainer.core.transforms import (
     SaveReconstructionTargetd, 
     CreateRandomMaskd,
     CreateEmptyMaskd,
     GetKeyQueryd,
 )
-from anyBrainer.networks.blocks import ClassificationHead
+from anyBrainer.core.networks.blocks import ClassificationHead
 
 logger = logging.getLogger("anyBrainer")
 

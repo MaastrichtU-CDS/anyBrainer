@@ -3,7 +3,7 @@ Handles all logging logic for main and parallel processes.
 """
 
 __all__ = [
-    'LoggingManager',
+    'DefaultLoggingManager',
 ]
 
 from pathlib import Path
@@ -14,9 +14,11 @@ from dataclasses import dataclass
 from functools import partial
 import wandb
 
-from anyBrainer.registry import register, RegistryKind as RK
-from anyBrainer.utils.io import resolve_path
+from anyBrainer.registry import register
+from anyBrainer.core.utils import resolve_path
 from anyBrainer.log.utils import setup_worker_logging, init_wandb_logger
+from anyBrainer.registry import RegistryKind as RK
+from anyBrainer.interfaces import LoggingManager
 from anyBrainer.log.utils import WandbFilter, WandbOnlyHandler
 
 
@@ -37,7 +39,7 @@ class LoggingSettings:
 
 
 @register(RK.LOGGING_MANAGER)
-class LoggingManager:
+class DefaultLoggingManager(LoggingManager):
     """Handles all logging logic for main and parallel processes."""
     def __init__(self, **settings):
         self.settings = LoggingSettings(**settings)

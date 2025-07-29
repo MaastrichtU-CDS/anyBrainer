@@ -4,15 +4,12 @@ import pytest
 
 import torch
 
-from anyBrainer.engines.utils import (
+from anyBrainer.core.engines.utils import (
     get_sub_ses_tensors,
     pack_ids,
-    sync_dist_safe,
 )
-from anyBrainer.utils.data import (
+from anyBrainer.core.utils import (
     modality_to_onehot,
-)
-from anyBrainer.utils.models import (
     get_total_grad_norm,
 )
 
@@ -90,7 +87,3 @@ def test_get_total_norm(model_with_grads):
     )
 
     assert torch.equal(norm, ref_norm)
-
-@pytest.mark.skip(reason="Not implemented")
-def test_sync_dist_safe():
-    """Test that the sync_dist_safe function is correct."""

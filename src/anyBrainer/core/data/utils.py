@@ -4,7 +4,10 @@ import logging
 from pathlib import Path
 import re
 from collections import Counter
-from typing import Optional, Dict
+from typing import Any, Callable, cast
+
+from anyBrainer.registry import get, RegistryKind as RK
+from anyBrainer.factories import UnitFactory
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,7 @@ def parse_filename_nested_nifti(file_path: Path | str, ext: str = ".npy") -> dic
         'file_name': file_path
     }
 
-def parse_filename_flat_npy(file_path: Path | str) -> Optional[Dict]:
+def parse_filename_flat_npy(file_path: Path | str) -> dict | None:
     """
     Parse filename with pattern: sub_x_ses_y_ModalityName_CountIfMoreThanOne.npy
     
@@ -133,3 +136,15 @@ def get_summary_msg(
                 f"({count/sum(modality_counts.values())*100:.2f}%)")
 
     return msg
+
+def resolve_transform(
+    transform: dict[str, Any] | str | list[Callable] | None,
+) -> list[Callable] | None:
+    """Get transform list from config."""
+    if isinstance(transform, dict):
+        return UnitFactory.get_transformslist_from_kwargs(transform)
+
+    if isinstance(transform, str):
+        return cast(Callable, get(RK.TRANSFORM, transform))()
+    
+    return transform

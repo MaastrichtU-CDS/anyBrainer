@@ -1,8 +1,6 @@
 """Unit tests for schedulers."""
 
-import pytest
-
-from anyBrainer.schedulers import StepwiseParameterScheduler
+from anyBrainer.core.schedulers import StepwiseParameterScheduler
 
 class TestSchedulers:
     def test_stepwise_parameter_scheduler(self):

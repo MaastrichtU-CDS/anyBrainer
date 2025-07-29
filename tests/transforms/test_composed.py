@@ -10,7 +10,7 @@ from monai.transforms import (
     LoadImage,
 )
 
-from anyBrainer.transforms import (
+from anyBrainer.core.transforms import (
     get_mae_train_transforms,
     get_mae_val_transforms,
     get_contrastive_train_transforms,

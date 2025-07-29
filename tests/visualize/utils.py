@@ -7,7 +7,7 @@ __all__ = [
     'pick_volume_slice',
 ]
 
-from typing import Sequence, Mapping, Union, Optional
+from typing import Sequence, Optional
 
 import numpy as np
 import torch

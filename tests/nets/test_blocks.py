@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from anyBrainer.networks.blocks import (
+from anyBrainer.core.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
 )

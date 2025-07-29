@@ -4,7 +4,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from anyBrainer.losses import (
+from anyBrainer.core.losses import (
     InfoNCELoss,
 )
 
