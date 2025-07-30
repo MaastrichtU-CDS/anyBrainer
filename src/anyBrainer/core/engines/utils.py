@@ -2,9 +2,12 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast
 
 import torch
+
+from anyBrainer.registry import get
+from anyBrainer.registry import RegistryKind as RK
 
 logger = logging.getLogger(__name__)
 
@@ -113,3 +116,11 @@ def dict_get_as_tensor(value: Any) -> torch.Tensor | None:
     msg = f"Value must be a list, tensor, or None, but got {type(value)}"
     logger.error(msg)
     raise ValueError(msg)
+
+def resolve_fn(
+    fn: Callable | str | None,
+) -> Callable | None:
+    """Get function from config."""
+    if isinstance(fn, str):
+        return cast(Callable, get(RK.UTIL, fn))
+    return fn

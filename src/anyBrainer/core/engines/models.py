@@ -16,7 +16,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from copy import deepcopy
 
 import torch
@@ -31,6 +31,7 @@ from anyBrainer.core.engines.utils import (
     pack_ids,
     get_sub_ses_tensors,
     dict_get_as_tensor,
+    resolve_fn,
 )
 from anyBrainer.core.utils import (
     summarize_model_params,
@@ -81,7 +82,7 @@ class BaseModel(pl.LightningModule):
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         other_schedulers: list[dict[str, Any]] = [],
-        weights_init_fn: Callable | None = None,
+        weights_init_fn: Callable | str | None = None,
         ignore_hparams: list[str] = [],
     ):
         super().__init__()
@@ -92,9 +93,9 @@ class BaseModel(pl.LightningModule):
         self.other_schedulers_step, self.other_schedulers_epoch = (
             UnitFactory.get_param_scheduler_instances_from_kwargs(other_schedulers)
         )
-        
+
         if weights_init_fn is not None:
-            self.model.apply(weights_init_fn)
+            self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
         
         self.save_hyperparameters(
             ignore=["ignore_hparams"] + ignore_hparams, logger=True
@@ -136,7 +137,7 @@ class BaseModel(pl.LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": lr_scheduler,
             }
-        
+
         return optimizer
     
     def get_step_scheduler_values(self) -> list[dict[str, Any]]:
@@ -224,6 +225,7 @@ class CLwAuxModel(BaseModel):
                 "name": "InfoNCELoss",
                 "temperature": loss_kwargs.get("temperature", 0.1),
                 "top_k_negatives": loss_kwargs.get("top_k_negatives"),
+                "logits_postprocess_fn": resolve_fn(logits_postprocess_fn),
             },
         ]
         self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
@@ -250,8 +252,6 @@ class CLwAuxModel(BaseModel):
                 "mode": "linear",
             },
         ]
-
-        # TODO: get functions from registry
 
         super().__init__(
             model_kwargs=model_kwargs,
@@ -360,12 +360,7 @@ class CLwAuxModel(BaseModel):
             batch["sub_id"], batch["ses_id"] = get_sub_ses_tensors(batch, batch["query"].device)
         return batch
     
-    def on_train_batch_end(
-        self,
-        outputs: Any,
-        batch: Any,
-        batch_idx: int,
-    ) -> None:
+    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         self._update_key_encoder()
     
     def training_step(self, batch: dict, batch_idx: int):
@@ -437,12 +432,11 @@ class CLwAuxModel(BaseModel):
             q_aux=q_aux,
             aux_spr=batch["aux_labels"],
         )
-        acc = top1_accuracy(q_proj, batch["aux_labels"])
-        
+                
         self.log_dict({
             "test/loss": loss,
             "test/loss_info_nce": loss_dict["loss_info_nce"],
             "test/loss_aux": loss_dict["loss_aux"],
             "test/loss_weight": loss_dict["loss_weight"],
-            "test/aux_acc": acc,
+            "test/aux_acc": top1_accuracy(q_proj, batch["aux_labels"]),
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
