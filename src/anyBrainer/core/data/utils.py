@@ -108,7 +108,7 @@ def check_flat_npy_data_dir(data_dir: Path | str) -> None:
     logger.info(f"Dataset contains {len(subjects)} subjects, "
                 f"{len(sessions)} sessions, {len(modalities)} modalities")
 
-def trivial_check_nested_nifti_dataset(data_dir: Path | str) -> None:
+def check_data_dir_exists(data_dir: Path | str) -> None:
     """
     Trivial check for nested nifti dataset.
     """
@@ -148,3 +148,12 @@ def resolve_transform(
         return cast(Callable, get(RK.TRANSFORM, transform))()
     
     return transform
+
+def resolve_fn(
+    fn: Callable | str | None,
+) -> Callable | None:
+    """Get function from config."""
+    if isinstance(fn, str):
+        return cast(Callable, get(RK.UTIL, fn))
+    
+    return fn

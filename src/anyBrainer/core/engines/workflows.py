@@ -55,6 +55,7 @@ class TrainingSettings:
     num_workers: int
     batch_size: int
     train_val_test_split: tuple[float, float, float] | list[float]
+    dataloader_kwargs: dict[str, Any]
     train_transforms: dict[str, Any] | str | None
     val_transforms: dict[str, Any] | str | None
     test_transforms: dict[str, Any] | str | None
@@ -92,7 +93,7 @@ class TrainWorkflow:
     settings: TrainingSettings = cast(TrainingSettings, ...)
     logging_manager: LoggingManager = cast(LoggingManager, ...)
     main_logger: logging.Logger = cast(logging.Logger, ...)
-    wandb_logger: WandbLogger = cast(WandbLogger, ...)
+    wandb_logger: WandbLogger | None = None
     datamodule: pl.LightningDataModule = cast(pl.LightningDataModule, ...)
     model: pl.LightningModule = cast(pl.LightningModule, ...)
     ckpt_path: Path | None = None
@@ -179,7 +180,7 @@ class TrainWorkflow:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    def setup_logging(self) -> tuple[LoggingManager, logging.Logger, WandbLogger]:
+    def setup_logging(self) -> tuple[LoggingManager, logging.Logger, WandbLogger | None]:
         """
         Returns logging configuration from self.settings.
         
@@ -202,8 +203,8 @@ class TrainWorkflow:
                 logging_manager_kwargs=logging_config
             )
         main_logger, wandb_logger = (
-            cast(logging.Logger, logging_manager.main_logger), 
-            cast(WandbLogger, logging_manager.wandb_logger)
+            logging_manager.main_logger, 
+            logging_manager.wandb_logger
         )
         return logging_manager, main_logger, wandb_logger
 
@@ -221,6 +222,7 @@ class TrainWorkflow:
             "data_handler_kwargs": self.settings.data_handler_kwargs,
             "batch_size": self.settings.batch_size,
             "num_workers": self.settings.num_workers,
+            "dataloader_kwargs": self.settings.dataloader_kwargs,
             "train_val_test_split": self.settings.train_val_test_split,
             "train_transforms": self.settings.train_transforms,
             "val_transforms": self.settings.val_transforms,

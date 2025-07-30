@@ -15,6 +15,8 @@ The datamodule is responsible for:
 - Saving and loading state_dicts
 """
 
+from __future__ import annotations
+
 __all__ = [
     "MAEDataModule",
     "ContrastiveDataModule",
@@ -22,7 +24,7 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Callable, Literal, Any
+from typing import Callable, Literal, Any, TYPE_CHECKING, cast
 from collections import defaultdict, Counter
 
 import lightning.pytorch as pl
@@ -35,12 +37,16 @@ from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
 from monai.data.utils import set_rnd
 
+if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
+
 from anyBrainer.registry import register
 from anyBrainer.core.data.utils import (
-    trivial_check_nested_nifti_dataset,
+    check_data_dir_exists,
     parse_filename_nested_nifti,
     get_summary_msg,
     resolve_transform,
+    resolve_fn,
 )
 from anyBrainer.core.utils import (
     split_data_by_subjects, 
@@ -80,46 +86,66 @@ class BaseDataModule(pl.LightningDataModule):
     
     Args: 
         data_dir: data directory
+        data_handler_kwargs: kwargs for DataHandler
         batch_size: batch size for dataloaders
         num_workers: number of workers for dataloaders
+        dataloader_kwargs: kwargs for DataLoader
         train_val_test_split: train/val/test split
+        worker_logging_fn: function to log worker information
+        worker_seeding_fn: function to seed worker
         seed: random seed for reproducibility
+        random_state: random state for reproducibility
+        train_transforms: transforms for train
+        val_transforms: transforms for val
+        test_transforms: transforms for test
+        predict_transforms: transforms for predict
+        predict_on_test: whether to predict on test set
     """
     def __init__(
         self,
         data_dir: Path | str,
+        data_handler_kwargs: dict = {},
         batch_size: int = 32,
         num_workers: int = 4,
+        dataloader_kwargs: dict = {},
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
-        worker_logging_fn: Callable | None = None,
-        worker_seeding_fn: Callable | None = set_rnd,
+        worker_logging_fn: Callable | str | None = None,
+        worker_seeding_fn: Callable | str | None = set_rnd,
+        collate_fn: Callable | str | None = None,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
         train_transforms: dict[str, Any] | str | list[Callable] | None = None,
         val_transforms: dict[str, Any] | str | list[Callable] | None = None,
         test_transforms: dict[str, Any] | str | list[Callable] | None = None,
         predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
+        predict_on_test: bool = False,
     ):
         super().__init__()
         self.data_dir = resolve_path(data_dir)
+        self.data_handler_kwargs = data_handler_kwargs
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.dataloader_kwargs = dataloader_kwargs
         self.train_val_test_split = train_val_test_split
         self.seed = seed
         self.set_random_state(seed, random_state)
-        self.worker_logging_fn = worker_logging_fn
-        self.worker_seeding_fn = worker_seeding_fn
+
+        self.worker_logging_fn = resolve_fn(worker_logging_fn)
+        self.worker_seeding_fn = resolve_fn(worker_seeding_fn)
+        self.collate_fn = resolve_fn(collate_fn)
 
         self.train_transforms = resolve_transform(train_transforms)
         self.val_transforms = resolve_transform(val_transforms)
         self.test_transforms = resolve_transform(test_transforms)
         self.predict_transforms = resolve_transform(predict_transforms)
 
+        self.predict_on_test = predict_on_test
+
         # Will be populated in setup()
-        self.train_data = None
-        self.val_data = None  
-        self.test_data = None
-        self.predict_data = None
+        self.train_data: list[Any] | None = None
+        self.val_data: list[Any] | None = None
+        self.test_data: list[Any] | None = None
+        self.predict_data: list[Any] | None = None
 
         # Will get updated by trainer.fit()
         self._current_epoch = 0
@@ -129,7 +155,6 @@ class BaseDataModule(pl.LightningDataModule):
                     f"num_workers: {self.num_workers}, train_val_test_split: {self.train_val_test_split}, "
                     f"seed: {self.seed}, random_state: {self.R}")
     
-
     def set_random_state(
         self, 
         seed: int | None = None, 
@@ -153,12 +178,19 @@ class BaseDataModule(pl.LightningDataModule):
         self.R = np.random.RandomState()
         return self
     
-    def _epoch_aware_determinism(
+    def seed_dataloaders(
         self, 
         stage: Literal["fit", "validate", "test", "predict"],
     ) -> tuple[Callable, torch.Generator | None]:
         """
         Make a worker init function and a torch generator for epoch-aware determinism.
+
+        Different handling for each stage (training, validation, testing, prediction).
+        Assumes that the Trainer uses the UpdateDatamoduleEpoch callback, as well as 
+        reload_dataloaders_every_n_epochs is set to 1 (default setting in the 
+        TrainWorkflow).
+
+        Override for custom seeding logic.
         """
         stage_offset = STAGE_SEED_OFFSET.get(stage, 3000) * self.num_workers
         
@@ -177,42 +209,212 @@ class BaseDataModule(pl.LightningDataModule):
             torch.Generator().manual_seed(seed) if seed is not None else None
         )
         
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         """
         One time only (downloading or preprocessing), not intended for 
-        assigning any state. 
+        assigning any state.
+
+        Current implementation is trivial; just checks if data_dir exists.
+
+        Override for custom prepare_data logic.
         """
-        raise NotImplementedError()
+        check_data_dir_exists(self.data_dir)
+    
+    def create_data_list(self) -> list[Any]:
+        """
+        Create list[Path] using the DataHandler kwargs.
+
+        Override for custom data list creation. In general, users are encouraged
+        to create new DataExplorer subclasses for custom data structures instead of
+        modifying this method.
+        """
+        logger.info(f"Creating data list from {self.data_dir}")
+        logger.info(f"This may take a while...")
+
+        explorer = DataHandler(self.data_dir, **self.data_handler_kwargs)
         
-    def setup(self, stage: str):
+        return cast(list[Path], explorer.get_all_nifti_files(as_list=True))
+
+    def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """
-        Assign train/val datasets for use in dataloaders
+        Process raw data list[Path] to create custom list of data entries; 
+        e.g., list[dict[str, Any]] for typical dictionary-based transforms.
+
+        The output of this method is used to create the dataset.
+
+        Current implementation is trivial; just returns the raw data list.
+        If list[Path] is not the desired format, override the build_data_list()
+        method that creates the data_list input. 
+
+        Override for custom data list processing.
+        """
+        return data_list
+    
+    def split_dataset(self, all_data: list[Any]) -> tuple[list[Any], list[Any], list[Any]]:
+        """
+        Split data into train/val/test sets.
+
+        Override for custom split logic.
+        """
+        return split_data_by_subjects(
+            all_data, 
+            train_val_test_split=self.train_val_test_split,
+            seed=self.seed,
+        )
+    
+    def setup(self, stage: str) -> None:
+        """
+        Assign train/val datasets for use in dataloaders. 
+
+        Responsibilities:
+        - Split data into train/val/test sets.
+        - Assign to self.train_data, self.val_data, self.test_data, self.predict_data.
+        """
+        raw_data = self.create_data_list()
+        all_data = self.process_data_list(raw_data)
+
+        # Split data
+        train_data, val_data, test_data = self.split_dataset(all_data)
         
-        Args: 
-            stage: separate setup logic for trainer.{fit,validate,test,predict}
+        if stage == "fit":
+            self.train_data = train_data
+            self.val_data = val_data
+        elif stage == "validate":
+            self.val_data = val_data
+        elif stage == "test":
+            self.test_data = test_data
+        elif stage == "predict":
+            self.predict_data = test_data if self.predict_on_test else all_data
+    
+    def train_dataloader(self) -> DataLoader:
         """
-        raise NotImplementedError()
+        Create train dataloader. 
+
+        Uses train_data created in setup(), together with train_transforms.
+        Uses seed_dataloaders() to create a worker_init_fn and a torch generator.
+
+        Override for custom train_dataloader logic.
+        """
+        if self.train_data is None:
+            msg = "train_data is None. Make sure setup('fit') was called."
+            logger.error(msg)
+            raise RuntimeError(msg)
+
+        logger.debug(f"Epoch {self._current_epoch}: Creating new DataLoader")
+        
+        # Create dataset with transforms
+        dataset = MONAIDataset(
+            data=self.train_data, 
+            transform=self.train_transforms
+        )
+        worker_init_fn, generator = self.seed_dataloaders("fit")
+
+        return MONAIDataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            generator=generator,
+            worker_init_fn=worker_init_fn,
+            collate_fn=self.collate_fn,
+            **self.dataloader_kwargs,
+        )
+
+    def val_dataloader(self) -> DataLoader:
+        """
+        Create val dataloader. 
+
+        Uses val_data created in setup(), together with val_transforms.
+        Uses seed_dataloaders() to create a worker_init_fn and a torch generator.
+
+        Override for custom val_dataloader logic.
+        """
+        if self.val_data is None:
+            msg = "val_data is None. Make sure setup('validate') was called."
+            logger.error(msg)
+            raise RuntimeError(msg)
+            
+        dataset = MONAIDataset(
+            data=self.val_data, 
+            transform=self.val_transforms
+        )
+        worker_init_fn, generator = self.seed_dataloaders("validate")
+
+        return MONAIDataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            generator=generator,
+            worker_init_fn=worker_init_fn,
+            collate_fn=self.collate_fn,
+            **self.dataloader_kwargs,
+        )
     
-    def train_dataloader(self):
-        """Create train dataloader with dataset from setup()"""
-        raise NotImplementedError()
+    def test_dataloader(self) -> DataLoader:
+        """
+        Create test dataloader. 
+
+        Uses test_data created in setup(), together with test_transforms.
+        Uses seed_dataloaders() to create a worker_init_fn and a torch generator.
+
+        Override for custom test_dataloader logic.
+        """
+        if self.test_data is None:
+            msg = "test_data is None. Make sure setup('test') was called."
+            logger.error(msg)
+            raise RuntimeError(msg)
+            
+        dataset = MONAIDataset(
+            data=self.test_data, 
+            transform=self.test_transforms
+        )
+        worker_init_fn, generator = self.seed_dataloaders("test")
+
+        return MONAIDataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            generator=generator,
+            worker_init_fn=worker_init_fn,
+            collate_fn=self.collate_fn,
+            **self.dataloader_kwargs,
+        )
     
-    def val_dataloader(self):
-        """Used by both trainer.fit() and trainer.validate()"""
-        raise NotImplementedError()
+    def predict_dataloader(self) -> DataLoader:
+        """
+        Create predict dataloader. 
+
+        Uses predict_data created in setup(), together with predict_transforms.
+        Uses seed_dataloaders() to create a worker_init_fn and a torch generator.
+
+        Override for custom predict_dataloader logic.
+        """
+        if self.predict_data is None:
+            msg = "predict_data is None. Make sure setup('predict') was called."
+            logger.error(msg)
+            raise RuntimeError(msg)
+            
+        dataset = MONAIDataset(
+            data=self.predict_data, 
+            transform=self.predict_transforms
+        )
+        worker_init_fn, generator = self.seed_dataloaders("predict")
+
+        return MONAIDataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            generator=generator,
+            worker_init_fn=worker_init_fn,
+            collate_fn=self.collate_fn,
+            **self.dataloader_kwargs,
+        )
     
-    def test_dataloader(self):
-        """Used by trainer.test()"""
-        raise NotImplementedError()
-    
-    def predict_dataloader(self):
-        """Inference-only, no labels. Used by trainer.predict()"""
-        raise NotImplementedError()
-    
-    def state_dict(self):
+    def state_dict(self) -> dict[str, Any]:
         """
         Lightning will call it automatically when saving a checkpoint - 
         only if defined.
+
+        Override for custom state_dict logic.
         """
         state = {
             "train_val_test_split": self.train_val_test_split,
@@ -220,10 +422,12 @@ class BaseDataModule(pl.LightningDataModule):
         }
         return state
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """
         Lightning will call it automatically when loading a checkpoint - 
         only if defined.
+
+        Override for custom load_state_dict logic.
         """
         self.train_val_test_split = state_dict.get(
             "train_val_test_split", self.train_val_test_split
@@ -250,11 +454,19 @@ class MAEDataModule(BaseDataModule):
                  sub_x_ses_y_modalityname_count_if_more_than_one.npy
         masks_dir: Directory containing brain masks with naming pattern 
                  sub_x_ses_y_mask.npy
-        transform_config: Configuration for transforms
+        dataloader_kwargs: Dataloader kwargs
         batch_size: Batch size for dataloaders
         num_workers: Number of workers for dataloaders
         train_val_test_split: Tuple of (train_ratio, val_ratio, test_ratio)
         seed: Random seed for reproducible splits
+        worker_logging_fn: function to log worker information
+        worker_seeding_fn: function to seed worker
+        random_state: random state for reproducibility
+        train_transforms: transforms for train
+        val_transforms: transforms for val
+        test_transforms: transforms for test
+        predict_transforms: transforms for predict
+        predict_on_test: whether to predict on test set
     """
     def __init__(
         self,
@@ -264,6 +476,7 @@ class MAEDataModule(BaseDataModule):
         data_handler_kwargs: dict = {},
         batch_size: int = 32,
         num_workers: int = 4,
+        dataloader_kwargs: dict = {},
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | None = None,
         worker_seeding_fn: Callable | None = set_rnd,
@@ -279,6 +492,7 @@ class MAEDataModule(BaseDataModule):
             data_dir=data_dir, 
             batch_size=batch_size, 
             num_workers=num_workers, 
+            dataloader_kwargs=dataloader_kwargs,
             train_val_test_split=train_val_test_split, 
             worker_logging_fn=worker_logging_fn, 
             worker_seeding_fn=worker_seeding_fn, 
@@ -296,34 +510,20 @@ class MAEDataModule(BaseDataModule):
         self.val_transforms = self.val_transforms or get_mae_val_transforms()
         self.test_transforms = self.test_transforms or get_mae_val_transforms()
         self.predict_transforms = self.predict_transforms or get_predict_transforms()
-    
-    def prepare_data(self):
-        """
-        One time only (downloading or preprocessing), not intended for 
-        assigning any state. 
-
-        Check if data_dir contains the .npy files and log basic statistics.
-        """
-        trivial_check_nested_nifti_dataset(self.data_dir)
         
-    def _create_data_list(self) -> List[Dict]:
+    def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """
         Create list[dict] for masked autoencoder setup.
 
         Each scan is a separate entry. A brain mask is optionally exctracted
         to restrict the calculation of loss. 
         """
-        logger.info(f"Creating data list from {self.data_dir}")
-        logger.info(f"This may take a while...")
-
-        explorer = DataHandler(self.data_dir, **self.data_handler_kwargs)
-
-        data_list = []
+        list_of_dicts = []
         subjects = set()
         sessions = set()
         modality_counts = Counter()
         
-        for file_path in explorer.get_all_nifti_files(as_list=True):
+        for file_path in data_list:
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
@@ -345,133 +545,10 @@ class MAEDataModule(BaseDataModule):
             else:
                 logger.warning(f"Mask file {brain_mask_path} does not exist")
     
-            data_list.append(data_entry)
+            list_of_dicts.append(data_entry)
         
         logger.info(get_summary_msg(subjects, sessions, modality_counts))
-        
-        return data_list
-        
-    def setup(self, stage: str):
-        """
-        Assign train/val datasets for use in dataloaders
-        
-        Args: 
-            stage: separate setup logic for trainer.{fit,validate,test,predict}
-        """
-        # Create list of data entries
-        all_data = self._create_data_list()
-        
-        # Split data
-        train_data, val_data, test_data = split_data_by_subjects(
-            all_data, 
-            train_val_test_split=self.train_val_test_split,
-            seed=self.seed, # use seed instead of rng for continuing experiments
-        )
-        
-        if stage == "fit":
-            self.train_data = train_data
-            self.val_data = val_data
-        elif stage == "validate":
-            self.val_data = val_data
-        elif stage == "test":
-            self.test_data = test_data
-        elif stage == "predict":
-            self.predict_data = all_data  # Use all data for prediction
-    
-    def train_dataloader(self):
-        """Create train dataloader with dataset from setup()"""
-        if self.train_data is None:
-            logger.error("train_data is None. Make sure setup('fit') was called.")
-            raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
-
-        logger.debug(f"Epoch {self._current_epoch}: Creating new DataLoader")
-        
-        # Create dataset with transforms
-        dataset = MONAIDataset(
-            data=self.train_data, 
-            transform=self.train_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("fit")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
-    
-    def val_dataloader(self):
-        """Used by both trainer.fit() and trainer.validate()"""
-        if self.val_data is None:
-            logger.error("val_data is None. Make sure setup('validate') was called.")
-            raise RuntimeError("val_data is None. Make sure setup() was called.")
-            
-        dataset = MONAIDataset(
-            data=self.val_data, 
-            transform=self.val_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("validate")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
-    
-    def test_dataloader(self):
-        """Used by trainer.test()"""
-        if self.test_data is None:
-            logger.error("test_data is None. Make sure setup('test') was called.")
-            raise RuntimeError("test_data is None. Make sure setup('test') was called.")
-            
-        dataset = MONAIDataset(
-            data=self.test_data, 
-            transform=self.test_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("test")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
-    
-    def predict_dataloader(self):
-        """Inference-only, no labels. Used by trainer.predict()"""
-        if self.predict_data is None:
-            logger.error("predict_data is None. Make sure setup('predict') was called.")
-            raise RuntimeError("predict_data is None. Make sure setup('predict') was called.")
-            
-        dataset = MONAIDataset(
-            data=self.predict_data, 
-            transform=self.predict_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("predict")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
+        return list_of_dicts
 
 
 @register(RK.DATAMODULE)
@@ -489,6 +566,14 @@ class ContrastiveDataModule(BaseDataModule):
         num_workers: Number of workers for dataloaders
         train_val_test_split: Tuple of (train_ratio, val_ratio, test_ratio)
         seed: Random seed for reproducible splits
+        worker_logging_fn: function to log worker information
+        worker_seeding_fn: function to seed worker
+        random_state: random state for reproducibility
+        train_transforms: transforms for train
+        val_transforms: transforms for val
+        test_transforms: transforms for test
+        predict_transforms: transforms for predict
+        predict_on_test: whether to predict on test set
     """
     def __init__(
         self,
@@ -497,6 +582,7 @@ class ContrastiveDataModule(BaseDataModule):
         data_handler_kwargs: dict = {},
         batch_size: int = 32,
         num_workers: int = 4,
+        dataloader_kwargs: dict = {},
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | None = None,
         worker_seeding_fn: Callable | None = set_rnd,
@@ -512,6 +598,7 @@ class ContrastiveDataModule(BaseDataModule):
             data_dir=data_dir, 
             batch_size=batch_size, 
             num_workers=num_workers, 
+            dataloader_kwargs=dataloader_kwargs,
             train_val_test_split=train_val_test_split, 
             worker_logging_fn=worker_logging_fn, 
             worker_seeding_fn=worker_seeding_fn, 
@@ -529,29 +616,17 @@ class ContrastiveDataModule(BaseDataModule):
         self.test_transforms = self.test_transforms or get_contrastive_val_transforms()
         self.predict_transforms = self.predict_transforms or get_predict_transforms()
     
-    def prepare_data(self):
+    def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """
-        One time only (downloading or preprocessing), not intended for 
-        assigning any state. 
-
-        Check if data_dir contains the .npy files and log basic statistics.
+        Create data list of dicts for contrastive - group by session.
         """
-        trivial_check_nested_nifti_dataset(self.data_dir)
-    
-    def _create_data_list(self) -> List[Dict]:
-        """Create data list for contrastive - group by session."""
-        logger.info(f"Grouping data by session from {self.data_dir}")
-        logger.info(f"This may take a while...")
-
-        explorer = DataHandler(self.data_dir, **self.data_handler_kwargs)
-
         session_groups = defaultdict(list)
         subjects = set()
         sessions = set()
         modality_counts = Counter()
 
         # Group by session
-        for file_path in explorer.get_all_nifti_files(as_list=True):
+        for file_path in data_list:
             metadata = parse_filename_nested_nifti(file_path)
             subjects.add(metadata['sub_id'])
             sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
@@ -560,7 +635,7 @@ class ContrastiveDataModule(BaseDataModule):
             session_key = f"{metadata['sub_id']}_ses_{metadata['ses_id']}"
             session_groups[session_key].append(metadata)
         
-        data_list = []
+        list_of_dicts = []
 
         for session_key, session_files in tqdm(session_groups.items(), desc="Creating data list"):
             if len(session_files) == 0:
@@ -577,130 +652,8 @@ class ContrastiveDataModule(BaseDataModule):
                 session_entry[f"img_{i}"] = file_metadata['file_name']
                 session_entry[f"mod_{i}"] = file_metadata['modality']
             
-            data_list.append(session_entry)
+            list_of_dicts.append(session_entry)
         
         logger.info(get_summary_msg(subjects, sessions, modality_counts))
         
-        return data_list
-        
-    def setup(self, stage: str):
-        """
-        Assign train/val datasets for use in dataloaders
-        
-        Args: 
-            stage: separate setup logic for trainer.{fit,validate,test,predict}
-        """
-        # Create list of data entries
-        all_data = self._create_data_list()
-        
-        # Split data
-        train_data, val_data, test_data = split_data_by_subjects(
-            all_data, 
-            train_val_test_split=self.train_val_test_split,
-            seed=self.seed, # use seed instead of rng for continuing experiments
-        )
-        
-        if stage == "fit":
-            self.train_data = train_data
-            self.val_data = val_data
-        elif stage == "validate":
-            self.val_data = val_data
-        elif stage == "test":
-            self.test_data = test_data
-        elif stage == "predict":
-            self.predict_data = all_data  # Use all data for prediction
-    
-    def train_dataloader(self):
-        """Create train dataloader with dataset from setup()"""
-        if self.train_data is None:
-            logger.error("train_data is None. Make sure setup('fit') was called.")
-            raise RuntimeError("train_data is None. Make sure setup('fit') was called.")
-        
-        logger.debug(f"Epoch {self._current_epoch}: Creating new DataLoader")
-        
-        # Create dataset with transforms
-        dataset = MONAIDataset(
-            data=self.train_data,
-            transform=self.train_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("fit")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
-    
-    def val_dataloader(self):
-        """Used by both trainer.fit() and trainer.validate()"""
-        if self.val_data is None:
-            logger.error("val_data is None. Make sure setup('validate') was called.")
-            raise RuntimeError("val_data is None. Make sure setup() was called.")
-            
-        dataset = MONAIDataset(
-            data=self.val_data, 
-            transform=self.val_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("validate")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
-    
-    def test_dataloader(self):
-        """Used by trainer.test()"""
-        if self.test_data is None:
-            logger.error("test_data is None. Make sure setup('test') was called.")
-            raise RuntimeError("test_data is None. Make sure setup('test') was called.")
-            
-        dataset = MONAIDataset(
-            data=self.test_data, 
-            transform=self.test_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("test")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
-    
-    def predict_dataloader(self):
-        """Inference-only, no labels. Used by trainer.predict()"""
-        if self.predict_data is None:
-            logger.error("predict_data is None. Make sure setup('predict') was called.")
-            raise RuntimeError("predict_data is None. Make sure setup('predict') was called.")
-            
-        dataset = MONAIDataset(
-            data=self.predict_data, 
-            transform=self.predict_transforms
-        )
-
-        worker_init_fn, generator = self._epoch_aware_determinism("predict")
-
-        return MONAIDataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=False,
-            generator=generator,
-            worker_init_fn=worker_init_fn,
-        )
+        return list_of_dicts
