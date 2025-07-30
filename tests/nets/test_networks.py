@@ -37,11 +37,11 @@ class TestSwinv2CL:
             feature_size=48,
             proj_dim=128,
             proj_hidden_dim=2048,
-            proj_hidden_act="gelu",
+            proj_hidden_act="GELU",
             aux_mlp_head=True,
             aux_mlp_num_classes=7,
             aux_mlp_hidden_dim=128,
-            aux_mlp_hidden_act="relu",
+            aux_mlp_hidden_act="ReLU",
             aux_mlp_dropout=0.0,
         )
         proj, aux = model(input_tensor)

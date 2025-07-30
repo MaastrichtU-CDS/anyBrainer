@@ -104,10 +104,10 @@ class BaseDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_dir: Path | str,
-        data_handler_kwargs: dict = {},
+        data_handler_kwargs: dict[str, Any] | None = None,
         batch_size: int = 32,
         num_workers: int = 4,
-        dataloader_kwargs: dict = {},
+        dataloader_kwargs: dict[str, Any] | None = None,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | str | None = None,
         worker_seeding_fn: Callable | str | None = set_rnd,
@@ -122,12 +122,20 @@ class BaseDataModule(pl.LightningDataModule):
     ):
         super().__init__()
         self.data_dir = resolve_path(data_dir)
+
+        if data_handler_kwargs is None:
+            data_handler_kwargs = {}
         self.data_handler_kwargs = data_handler_kwargs
+
+        if dataloader_kwargs is None:
+            dataloader_kwargs = {}
+        self.dataloader_kwargs = dataloader_kwargs
+
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.dataloader_kwargs = dataloader_kwargs
         self.train_val_test_split = train_val_test_split
         self.seed = seed
+
         self.set_random_state(seed, random_state)
 
         self.worker_logging_fn = resolve_fn(worker_logging_fn)
@@ -150,10 +158,13 @@ class BaseDataModule(pl.LightningDataModule):
         # Will get updated by trainer.fit()
         self._current_epoch = 0
 
-        logger.info(f"Datamodule initialized with following settings :"
+        logger.info(f"[{self.__class__.__name__}] Datamodule initialized with following settings: "
                     f"data_dir: {self.data_dir}, batch_size: {self.batch_size}, "
                     f"num_workers: {self.num_workers}, train_val_test_split: {self.train_val_test_split}, "
-                    f"seed: {self.seed}, random_state: {self.R}")
+                    f"seed: {self.seed}, random_state: {self.R}, "
+                    f"worker_logging_fn: {self.worker_logging_fn}, "
+                    f"worker_seeding_fn: {self.worker_seeding_fn}, "
+                    f"collate_fn: {self.collate_fn}")
     
     def set_random_state(
         self, 
@@ -473,10 +484,10 @@ class MAEDataModule(BaseDataModule):
         data_dir: Path | str,
         masks_dir: Path | str | None,
         *,
-        data_handler_kwargs: dict = {},
+        data_handler_kwargs: dict[str, Any] | None = None,
         batch_size: int = 32,
         num_workers: int = 4,
-        dataloader_kwargs: dict = {},
+        dataloader_kwargs: dict[str, Any] | None = None,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | None = None,
         worker_seeding_fn: Callable | None = set_rnd,
@@ -490,6 +501,7 @@ class MAEDataModule(BaseDataModule):
     ):
         super().__init__(
             data_dir=data_dir, 
+            data_handler_kwargs=data_handler_kwargs,
             batch_size=batch_size, 
             num_workers=num_workers, 
             dataloader_kwargs=dataloader_kwargs,
@@ -503,7 +515,6 @@ class MAEDataModule(BaseDataModule):
             predict_transforms=predict_transforms,
         )
         self.masks_dir = resolve_path(masks_dir) if masks_dir is not None else None
-        self.data_handler_kwargs = data_handler_kwargs
         
         # Get transforms
         self.train_transforms = self.train_transforms or get_mae_train_transforms()
@@ -579,10 +590,10 @@ class ContrastiveDataModule(BaseDataModule):
         self,
         data_dir: Path | str,
         *,
-        data_handler_kwargs: dict = {},
+        data_handler_kwargs: dict[str, Any] | None = None,
         batch_size: int = 32,
         num_workers: int = 4,
-        dataloader_kwargs: dict = {},
+        dataloader_kwargs: dict[str, Any] | None = None,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | None = None,
         worker_seeding_fn: Callable | None = set_rnd,
@@ -596,6 +607,7 @@ class ContrastiveDataModule(BaseDataModule):
     ):
         super().__init__(
             data_dir=data_dir, 
+            data_handler_kwargs=data_handler_kwargs,
             batch_size=batch_size, 
             num_workers=num_workers, 
             dataloader_kwargs=dataloader_kwargs,
@@ -608,7 +620,6 @@ class ContrastiveDataModule(BaseDataModule):
             test_transforms=test_transforms,
             predict_transforms=predict_transforms,
         )
-        self.data_handler_kwargs = data_handler_kwargs
 
         # Get transforms
         self.train_transforms = self.train_transforms or get_contrastive_train_transforms()

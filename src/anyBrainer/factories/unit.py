@@ -433,3 +433,40 @@ class UnitFactory:
             raise
 
         return transformslist
+
+    @classmethod
+    def get_activation_from_kwargs(
+        cls,
+        activation_fn_kwargs: dict[str, Any],
+    ) -> nn.Module:
+        """
+        Get activation function from torch.nn.
+
+        Raises:
+        - ValueError: If activation function name is not provided in activation_fn_kwargs.
+        - ValueError: If requested activation function is not found in torch.nn.
+        - Exception: If error occurs during activation function initialization.
+        """
+        if "name" not in activation_fn_kwargs:
+            msg = "Activation function name not provided in activation_fn_kwargs."
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        activation_fn_kwargs = activation_fn_kwargs.copy()
+        activation_fn_name = activation_fn_kwargs.pop("name")
+        
+        try:
+            activation_fn_cls = getattr(nn, activation_fn_name)
+        except AttributeError:
+            msg = f"Activation function '{activation_fn_name}' not found in torch.nn."
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        try:
+            activation_fn = activation_fn_cls(**activation_fn_kwargs) # type: ignore
+        except Exception as e:
+            msg = f"Error initializing activation function '{activation_fn_name}': {e}"
+            logger.exception(msg)
+            raise
+        
+        return activation_fn

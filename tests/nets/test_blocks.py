@@ -25,14 +25,14 @@ def bottleneck_output_invalid() -> torch.Tensor:
 
 class TestProjectionHead:
     """Test ProjectionHead in terms of shape, norm, and error handling."""
-    @pytest.mark.parametrize("activation", ["relu", "gelu", "silu"])
+    @pytest.mark.parametrize("activation", ["ReLU", "GELU", "SiLU"])
     def test_forward(self, bottleneck_output, activation):
         head = ProjectionHead(in_dim=768, hidden_dim=2048, proj_dim=128, activation=activation)
         output = head(bottleneck_output)
         assert output.shape == (8, 128)
         assert torch.allclose(torch.norm(output, p=2, dim=1), torch.ones(8))
     
-    @pytest.mark.parametrize("activation", ["relu", "gelu", "silu"])
+    @pytest.mark.parametrize("activation", ["ReLU", "GELU", "SiLU"])
     def test_norm_output(self, bottleneck_output, activation):
         head = ProjectionHead(in_dim=768, hidden_dim=2048, proj_dim=128, activation=activation)
         output = head(bottleneck_output)
@@ -56,9 +56,9 @@ class TestProjectionHead:
 
 class TestClassificationHead:
     """Test ClassificationHead in terms of shape, and error handling."""
-    @pytest.mark.parametrize("activation", ["relu", "gelu", "silu"])
+    @pytest.mark.parametrize("activation", ["ReLU", "GELU", "SiLU"])
     @pytest.mark.parametrize("dropout", [0.0, 0.5])
-    @pytest.mark.parametrize("hidden_dim", [None, 1024])
+    @pytest.mark.parametrize("hidden_dim", [0, 1024])
     def test_forward(self, bottleneck_output, activation, dropout, hidden_dim):
         head = ClassificationHead(in_dim=768, num_classes=7, activation=activation, 
                                 dropout=dropout, hidden_dim=hidden_dim)

@@ -81,11 +81,15 @@ class BaseModel(pl.LightningModule):
         loss_fn_kwargs: dict[str, Any] | list[dict[str, Any]],
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
-        other_schedulers: list[dict[str, Any]] = [],
+        other_schedulers: list[dict[str, Any]] | None = None,
         weights_init_fn: Callable | str | None = None,
-        ignore_hparams: list[str] = [],
+        ignore_hparams: list[str] | None = None,
     ):
         super().__init__()
+
+        if other_schedulers is None:
+            other_schedulers = []
+
         self.model = UnitFactory.get_model_instance_from_kwargs(model_kwargs)
         self.loss_fn = UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
         self.optimizer_kwargs = optimizer_kwargs # instantiated in configure_optimizers
@@ -97,6 +101,9 @@ class BaseModel(pl.LightningModule):
         if weights_init_fn is not None:
             self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
         
+        if ignore_hparams is None:
+            ignore_hparams = []
+
         self.save_hyperparameters(
             ignore=["ignore_hparams"] + ignore_hparams, logger=True
         )
@@ -212,20 +219,29 @@ class CLwAuxModel(BaseModel):
         model_kwargs: dict[str, Any],
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
-        loss_kwargs: dict[str, Any] = {},
-        loss_scheduler_kwargs: dict[str, Any] = {},
-        momentum_scheduler_kwargs: dict[str, Any] = {},
+        loss_kwargs: dict[str, Any] | None = None,
+        loss_scheduler_kwargs: dict[str, Any] | None = None,
+        momentum_scheduler_kwargs: dict[str, Any] | None = None,
         weights_init_fn: Callable | str | None = init_swin_with_residual_convs,
         logits_postprocess_fn: Callable | str | None = None,
-        ignore_hparams: list[str] = [],
+        ignore_hparams: list[str] | None = None,
         **kwargs,
     ):  
+        if loss_kwargs is None:
+            loss_kwargs = {}
+
+        if loss_scheduler_kwargs is None:
+            loss_scheduler_kwargs = {}
+
+        if momentum_scheduler_kwargs is None:
+            momentum_scheduler_kwargs = {}
+
         loss_fn_kwargs = [
             {
                 "name": "InfoNCELoss",
                 "temperature": loss_kwargs.get("temperature", 0.1),
                 "top_k_negatives": loss_kwargs.get("top_k_negatives"),
-                "logits_postprocess_fn": resolve_fn(logits_postprocess_fn),
+                "postprocess_fn": resolve_fn(logits_postprocess_fn),
             },
         ]
         self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))

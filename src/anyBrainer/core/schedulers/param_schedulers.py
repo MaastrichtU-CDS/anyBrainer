@@ -52,8 +52,8 @@ class StepwiseParameterScheduler(ParameterScheduler):
         self.end_value = float(end_value)
         self.mode = mode
 
-        logger.info(f"Initialized {self.param_name} scheduler with: "
-                    f"start_step={self.start_step}, end_step={self.end_step}, "
+        logger.info(f"[StepwiseParameterScheduler] Initialized {self.param_name} "
+                    f"scheduler with: start_step={self.start_step}, end_step={self.end_step}, "
                     f"start_value={self.start_value}, end_value={self.end_value}, "
                     f"mode={self.mode}.")
 

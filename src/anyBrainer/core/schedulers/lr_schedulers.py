@@ -44,7 +44,7 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         self.eta_min = eta_min
         super().__init__(optimizer, last_epoch)
 
-        logger.info(f"\nInitialized CosineAnnealingWithWarmup scheduler with:\n"
+        logger.info(f"\n[CosineAnnealingWithWarmup] Initialized scheduler with:\n"
                     f"warmup_iters={self.warmup_iters}\n"
                     f"total_iters={self.total_iters}\n"
                     f"eta_min={self.eta_min}\n"
