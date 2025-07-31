@@ -5,7 +5,7 @@ import torch
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
-from anyBrainer.core.networks import Swinv2CL
+from anyBrainer.core.networks import Swinv2CL, Swinv2Classifier
 
 
 @pytest.fixture(autouse=True)
@@ -63,3 +63,26 @@ class TestSwinv2CL:
         proj, aux = model(input_tensor)
         assert proj.shape == (8, 128)
         assert aux is None
+
+
+class TestSwinv2Classifier:
+    @pytest.mark.parametrize("mlp_num_classes", [2, 4, 8, 100])
+    def test_forward(self, input_tensor, mlp_num_classes):
+        """Test that the model can forward pass."""
+        model = Swinv2Classifier(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            feature_size=48,
+            mlp_num_classes=mlp_num_classes,
+            mlp_num_hidden_layers=2,
+            mlp_hidden_dim=[128, 64],
+            mlp_dropout=0.3,
+            mlp_activations="LeakyReLU",
+            mlp_activation_kwargs={"negative_slope": 0.1},
+        )
+        output = model(input_tensor)
+        assert output.shape == (8, mlp_num_classes)
