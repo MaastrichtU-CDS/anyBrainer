@@ -73,21 +73,22 @@ class UnitFactory:
     def get_optimizer_instances_from_kwargs(
         cls,
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
-        model: nn.Module,
     ) -> optim.Optimizer | list[optim.Optimizer]:
         """
         Get optimizer instances from kwargs.
 
         Optimizer class is retrieved from torch.optim.
+        Expects users to provide param_groups: list[nn.Parameter] | Iterable[nn.Parameter]
+        inside optimizer_kwargs.
 
         If optimizer_kwargs is a list, return a list of optimizers through recursive calls.
 
         Args:
             optimizer_kwargs: optimizer kwargs, containing "name" key.
-            model: nn.Module - model to optimize.
 
         Raises:
             - ValueError: If optimizer name is not provided in optimizer_kwargs.
+            - ValueError: If param_groups is not provided in optimizer_kwargs.
             - ValueError: If requested optimizer is not found in torch.optim.
             - Exception: If error occurs during optimizer initialization.
         """
@@ -95,7 +96,7 @@ class UnitFactory:
         if isinstance(optimizer_kwargs, list):
             optimizers_list = []
             for _optimizer_kwargs in optimizer_kwargs:
-                optimizers_list.append(cls.get_optimizer_instances_from_kwargs(_optimizer_kwargs, model))
+                optimizers_list.append(cls.get_optimizer_instances_from_kwargs(_optimizer_kwargs))
             return optimizers_list
 
         # Ensure required keys are provided
@@ -103,14 +104,19 @@ class UnitFactory:
             msg = "Optimizer name not found in optimizer_kwargs."
             logger.error(msg)
             raise ValueError(msg)
+        
+        if "param_groups" not in optimizer_kwargs:
+            msg = "Param groups not found in optimizer_kwargs."
+            logger.error(msg)
+            raise ValueError(msg)
 
         optimizer_kwargs = optimizer_kwargs.copy()
         cls_name = optimizer_kwargs.pop("name")
+        param_groups = optimizer_kwargs.pop("param_groups")
         
         # Extract requested optimizer class
         try:
             optimizer_cls = getattr(optim, cls_name)
-
         except AttributeError:
             msg = f"Optimizer '{cls_name}' not found in torch.optim."
             logger.error(msg)
@@ -118,7 +124,7 @@ class UnitFactory:
         
         # Handle improper initialization args
         try:
-            optimizer = optimizer_cls(model.parameters(), **optimizer_kwargs)
+            optimizer = optimizer_cls(param_groups, **optimizer_kwargs)
         except Exception as e:
             msg = f"Error initializing optimizer '{cls_name}': {e}"
             logger.exception(msg)

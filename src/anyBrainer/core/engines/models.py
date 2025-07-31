@@ -12,7 +12,7 @@ The model is responsible for:
 
 __all__ = [
     "BaseModel",
-    "CLwAuxModel",
+    "CLwAuxModel",  
 ]
 
 import logging
@@ -34,11 +34,13 @@ from anyBrainer.core.engines.utils import (
     resolve_fn,
 )
 from anyBrainer.core.utils import (
+    resolve_path,
     summarize_model_params,
     init_swin_with_residual_convs,
     modality_to_idx,
     top1_accuracy,  
     load_param_group_from_ckpt,
+    get_parameter_groups_from_prefixes,
 )
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.factories import UnitFactory
@@ -59,7 +61,8 @@ class BaseModel(pl.LightningModule):
     Args:
         model_name: Name of the model to use.
         model_kwargs: Keyword arguments for the model.
-        optimizer_kwargs: Keyword arguments for the optimizer, including the optimizer name.
+        optimizer_kwargs: Keyword arguments for the optimizer, including the optimizer name
+            and param_groups, given as list of prefixes.
         scheduler_kwargs: Keyword arguments for the learning rate scheduler, including:
             - name: Name of the learning rate scheduler.
             - interval: Interval of the learning rate scheduler.
@@ -68,6 +71,11 @@ class BaseModel(pl.LightningModule):
             - strict (optional): Whether to strict the learning rate scheduler.
             - other arguments: Other arguments for the learning rate scheduler.
             If None, no scheduler is used.
+        - other_schedulers: Additional warmup/decay/etc. schedulers to be manually stepped.
+            These are not handled by Lightning and must be stepped via `get_step_scheduler_values()` 
+            or `get_epoch_scheduler_values()`.
+        load_pretrain_weights: Path to the pretrained weights.
+        load_param_group_prefix: Prefix of the parameter group to load.
         weights_init_fn: Function to initialize the model weights.
         ignore_hparams: List of hyperparameters to ignore.
     
@@ -82,30 +90,117 @@ class BaseModel(pl.LightningModule):
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         other_schedulers: list[dict[str, Any]] | None = None,
         weights_init_fn: Callable | str | None = None,
+        load_pretrain_weights: str | None = None,
+        load_param_group_prefix: str | list[str] | None = None,
         ignore_hparams: list[str] | None = None,
     ):
+        """
+        Initializes the following:
+        - model (network architecture)
+        - loss_fn (list, can be multiple)
+        - optimizer_kwargs (list, can be multiple)
+        - lr_scheduler_kwargs (list, can be multiple)
+        - other_schedulers (list, can be multiple)
+
+        Proceeds to perform:
+        - weight initialization (if provided)
+        - load pretrained weights (if provided; skips weight initialization)
+        - saves hyperparameters
+        """
         super().__init__()
 
-        if other_schedulers is None:
-            other_schedulers = []
+        self._init_model(model_kwargs)
+        self._init_loss_fn(loss_fn_kwargs)
+        self._init_other_schedulers(other_schedulers)
+        self._setup_optimization(optimizer_kwargs, lr_scheduler_kwargs)
+        self._init_model_weights(weights_init_fn, load_pretrain_weights, load_param_group_prefix)
+        self._save_hparams(ignore_hparams)
 
+    def _init_model(self, model_kwargs: dict[str, Any]) -> None:
+        """Initialize model."""
         self.model = UnitFactory.get_model_instance_from_kwargs(model_kwargs)
+    
+    def _init_loss_fn(self, loss_fn_kwargs: dict[str, Any] | list[dict[str, Any]]) -> None:
+        """Initialize loss function."""
         self.loss_fn = UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
-        self.optimizer_kwargs = optimizer_kwargs # instantiated in configure_optimizers
-        self.lr_scheduler_kwargs = lr_scheduler_kwargs # instantiated in configure_optimizers
+    
+    def _init_other_schedulers(self, other_schedulers: list[dict[str, Any]] | None) -> None:
+        """Initialize other schedulers."""
+        if other_schedulers is None:
+            return
+
         self.other_schedulers_step, self.other_schedulers_epoch = (
             UnitFactory.get_param_scheduler_instances_from_kwargs(other_schedulers)
         )
+    
+    def _setup_optimization(
+        self,
+        optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
+        lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Setup optimization; to be instantiated in configure_optimizers."""
+        # Get parameter groups for each optimizer
+        if isinstance(optimizer_kwargs, list):
+            for cfg in optimizer_kwargs:
+                cfg["param_groups"] = get_parameter_groups_from_prefixes(
+                    self.model, cfg.pop("param_group_prefix", None)
+                )
+        else:
+            optimizer_kwargs["param_groups"] = get_parameter_groups_from_prefixes(
+                self.model, optimizer_kwargs.pop("param_group_prefix", None)
+            )
+
+        self.optimizer_kwargs = optimizer_kwargs # instantiated in configure_optimizers
+        self.lr_scheduler_kwargs = lr_scheduler_kwargs # instantiated in configure_optimizers
+
+    def _init_model_weights(
+        self,
+        weights_init_fn: Callable | str | None,
+        load_pretrain_weights: str | None,
+        load_param_group_prefix: str | list[str] | None,
+    ) -> None:
+        """Initialize model weights."""
+        if load_pretrain_weights is not None:
+            if weights_init_fn is not None:
+                logger.warning(f"[{self.__class__.__name__}] Provided both "
+                                f"load_pretrain_weights and weights_init_fn. "
+                                f"weights_init_fn will be ignored.")
+            
+            try:
+                self.model, stats = load_param_group_from_ckpt(
+                    model_instance=self.model,
+                    checkpoint_path=resolve_path(cast(str, load_pretrain_weights)),
+                    param_group_prefix=load_param_group_prefix,
+                )
+                logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
+                            f"{load_pretrain_weights}\n#### Summary ####"
+                            f"\n- Attempted to load {len(stats['loaded_keys'])} parameters "
+                            f"(filtered out {len(stats['ignored_keys'])} parameters)"
+                            f"\n- Unexpected {len(stats['unexpected_keys'])} parameters"
+                            f"\n- Missing {len(stats['missing_keys'])} parameters")
+            except Exception as e:
+                logger.error(f"[{self.__class__.__name__}] Failed to load pretrained weights: {e}")
+                raise e
+            return
 
         if weights_init_fn is not None:
             self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
-        
+            logger.info(f"[{self.__class__.__name__}] Initialized model weights with "
+                        f"{weights_init_fn}.")
+            return
+
+        logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
+    
+    def _save_hparams(self, ignore_hparams: list[str] | None = None) -> None:
+        """Save hyperparameters."""
         if ignore_hparams is None:
             ignore_hparams = []
 
         self.save_hyperparameters(
             ignore=["ignore_hparams"] + ignore_hparams, logger=True
         )
+        logger.info(f"\n[{self.__class__.__name__}] Lightning module initialized with following "
+                    f"hyperparameters:\n{self.hparams}")
     
     def configure_optimizers(
         self,
@@ -122,7 +217,7 @@ class BaseModel(pl.LightningModule):
         - A list of optimizers with a list of lr_scheduler_configs
         """
         optimizer = (
-            UnitFactory.get_optimizer_instances_from_kwargs(self.optimizer_kwargs, self.model)
+            UnitFactory.get_optimizer_instances_from_kwargs(self.optimizer_kwargs)
         )
 
         if self.lr_scheduler_kwargs is not None:
@@ -133,7 +228,11 @@ class BaseModel(pl.LightningModule):
             lr_scheduler = None
 
         if isinstance(optimizer, list) and lr_scheduler is not None:
-            return optimizer, lr_scheduler # type: ignore
+            if len(optimizer) != len(lr_scheduler):
+                msg = "Number of optimizers and LR schedulers must match."
+                logger.error(msg)
+                raise ValueError(msg)
+            return optimizer, cast(list[dict[str, Any]], lr_scheduler)
         
         if isinstance(optimizer, list) and lr_scheduler is None:
             return optimizer
@@ -290,7 +389,7 @@ class CLwAuxModel(BaseModel):
         self.register_buffer("queue_ids", torch.full((self.queue_size,), -1, dtype=torch.long))
         self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
 
-        logger.info(f"\nLightning module initialized with following "
+        logger.info(f"\n[CLwAuxModel] Lightning module initialized with following "
                     f"hyperparameters:\n{self.hparams}")
 
     @torch.no_grad()
@@ -459,13 +558,49 @@ class CLwAuxModel(BaseModel):
 
 class ClassificationModel(BaseModel):
     """Classification model."""
-    def __init__(
-        self, 
-        *, 
-        load_encoder_from_checkpoint: str | None = None,
-        encoder_name: str = "encoder",
-        classifier_name: str = "classification_head",
-        **base_model_kwargs):
-        super().__init__(**base_model_kwargs)
+    def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
+        """Get modality one-hot labels to device."""
+        if dataloader_idx != 3: # not for prediction
+            # TODO: change util for classification
+            batch["label"] = modality_to_idx(batch, "mod", batch["query"].device)
+        return batch
+    
+    def _shared_step(self, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Shared step."""
+        out = self.model(batch["img"])
+        loss = self.loss_fn[0](out, batch["label"]) # type: ignore
+        return loss, {"loss": loss, "acc": top1_accuracy(out, batch["label"])}
+    
+    def _log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
+        """Log step statistics"""
+        self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
+                      on_step=True, on_epoch=True, prog_bar=True, 
+                      sync_dist=sync_dist_safe(self))
 
-        self.load_encoder_from_checkpoint = load_encoder_from_checkpoint
+    def training_step(self, batch: dict, batch_idx: int):
+        """Training step."""
+        loss, stats = self._shared_step(batch)
+        self._log_step("train", stats)
+        return loss
+    
+    def validation_step(self, batch: dict, batch_idx: int):
+        """Validation step."""
+        loss, stats = self._shared_step(batch)
+        self._log_step("val", stats)
+        return loss
+    
+    def test_step(self, batch: dict, batch_idx: int):
+        """
+        Test step.
+        
+        TODO: sliding window test
+        """
+    
+    def predict_step(self, batch: dict, batch_idx: int):
+        """
+        Predict step.
+        
+        TODO: sliding window prediction
+        """
+        out = self.model(batch["img"])
+        return out

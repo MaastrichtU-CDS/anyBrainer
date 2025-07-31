@@ -6,6 +6,7 @@ __all__ = [
     "get_total_grad_norm",
     "get_optimizer_lr",
     "init_swin_with_residual_convs",
+    "get_parameter_groups_from_prefixes",
 ]
 
 import logging
@@ -62,6 +63,29 @@ def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
         for i, opt in enumerate(optimizers)
         for j, group in enumerate(opt.param_groups)
     }
+
+def get_parameter_groups_from_prefixes(
+    model: nn.Module,
+    prefixes: str | list[str] | None = None,
+    trainable_only: bool = True,
+) -> list[nn.Parameter]:
+    if prefixes is None:
+        return [p for p in model.parameters() if p.requires_grad or not trainable_only]
+
+    if isinstance(prefixes, str):
+        prefixes = [prefixes]
+
+    params = [
+        p for n, p in model.named_parameters()
+        if any(n.startswith(pref) for pref in prefixes)
+        and (p.requires_grad or not trainable_only)
+    ]
+    if not params:
+        msg = f"No parameters found for prefixes: {prefixes}"
+        logger.error(msg)
+        raise ValueError(msg)
+    
+    return params
 
 def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,
                    a: float = -2., b: float = 2.) -> torch.Tensor:
