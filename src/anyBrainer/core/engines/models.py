@@ -456,3 +456,17 @@ class CLwAuxModel(BaseModel):
             "test/loss_weight": loss_dict["loss_weight"],
             "test/aux_acc": top1_accuracy(q_proj, batch["aux_labels"]),
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
+
+
+class ClassificationModel(BaseModel):
+    """Classification model."""
+    def __init__(
+        self, 
+        *, 
+        load_encoder_from_checkpoint: str | None = None,
+        encoder_name: str = "encoder",
+        classifier_name: str = "classification_head",
+        **base_model_kwargs):
+        super().__init__(**base_model_kwargs)
+
+        self.load_encoder_from_checkpoint = load_encoder_from_checkpoint

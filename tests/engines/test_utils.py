@@ -1,5 +1,7 @@
 """Test engine utilities."""
 
+from pathlib import Path
+
 import pytest
 
 import torch
@@ -11,7 +13,31 @@ from anyBrainer.core.engines.utils import (
 from anyBrainer.core.utils import (
     modality_to_onehot,
     get_total_grad_norm,
+    load_param_group_from_ckpt,
 )
+from anyBrainer.core.networks import Swinv2Classifier
+
+@pytest.fixture(autouse=True)
+def mock_torch_load(monkeypatch):
+    """Mock the torch.load function."""
+    def mock_load(*args, **kwargs):
+        return {
+            "state_dict": {
+                "encoder.patch_embed.proj.weight": torch.randn(48, 1, 128, 128, 128),
+                "encoder.patch_embed.proj.bias": torch.randn(48),
+                "encoder.layers1.0.blocks.0.attn.qkv.weight": torch.randn(144, 48),
+                "encoder.layers1.0.blocks.0.attn.qkv.bias": torch.randn(144),
+                "encoder.layers1.0.blocks.0.attn.proj.weight": torch.randn(48, 48),
+                "encoder.layers1.0.blocks.0.attn.proj.bias": torch.randn(48),
+
+                "encoder.weight": torch.randn(128),
+                "encoder.bias": torch.randn(128),
+
+                "classifier.weight": torch.randn(2, 128),
+                "classifier.bias": torch.randn(2),
+            }
+        }
+    monkeypatch.setattr("torch.load", mock_load)
 
 @pytest.fixture(scope="module")
 def input_batch():
@@ -23,6 +49,19 @@ def input_batch():
         "sub_id": ["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"],
         "ses_id": ["ses_01", "ses_01", "ses_01", "ses_02", "ses_01", "ses_01", "ses_01", "ses_01"],
     }
+
+@pytest.fixture(scope="module")
+def classification_model_w_encoder():
+    """Classification model with encoder."""
+    model = Swinv2Classifier(
+        patch_size=128,
+        mlp_num_classes=2,
+        mlp_num_hidden_layers=1,
+        mlp_hidden_dim=64,
+        mlp_dropout=0.1,
+        mlp_activations="GELU",
+    )
+    return model
 
 def test_modality_to_onehot(input_batch):
     """Test that the modality to one-hot encoding is correct."""
@@ -87,3 +126,14 @@ def test_get_total_norm(model_with_grads):
     )
 
     assert torch.equal(norm, ref_norm)
+
+def test_load_encoder_from_checkpoint(classification_model_w_encoder):
+    """Test that the encoder is loaded correctly."""
+    model, stats = load_param_group_from_ckpt(
+        model_instance=classification_model_w_encoder,
+        checkpoint_path=Path("test.pt"),
+        param_group_prefix="encoder",
+    )
+    print(stats)
+    assert len(stats["loaded_keys"]) == 8
+    assert len(stats["unexpected_keys"]) == 2

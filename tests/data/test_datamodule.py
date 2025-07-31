@@ -63,17 +63,28 @@ def mock_load_image(monkeypatch):
 
 data_settings = {
     'data_dir': '/Users/project/dataset',
-    'masks_dir': '/Users/project/masks',
     'batch_size': 2, 
     'num_workers': 4, 
     'train_val_test_split': (0.7, 0.2, 0.1),
-    'seed': 12345
+    'seed': 12345,
+}
+transforms_mae = {
+    'train_transforms': 'get_mae_train_transforms',
+    'val_transforms': 'get_mae_val_transforms',
+    'test_transforms': 'get_mae_val_transforms',
+    'predict_transforms': 'get_predict_transforms',
+}
+transforms_contrastive = {
+    'train_transforms': 'get_contrastive_train_transforms',
+    'val_transforms': 'get_contrastive_val_transforms',
+    'test_transforms': 'get_contrastive_val_transforms',
+    'predict_transforms': 'get_predict_transforms',
 }
 
 class TestMAEDataModule: 
     @pytest.fixture
     def data_module(self):
-        return MAEDataModule(**data_settings)
+        return MAEDataModule(masks_dir='/Users/project/masks', **transforms_mae, **data_settings)
     
     def test_data_splits(self, data_module):
         data_module.setup(stage="fit")
@@ -126,7 +137,7 @@ class TestMAEDataModule:
 class TestContrastiveDataModule: 
     @pytest.fixture
     def data_module(self):
-        return ContrastiveDataModule(**data_settings)
+        return ContrastiveDataModule(**transforms_contrastive, **data_settings)
 
     def test_data_splits(self, data_module):
         data_module.setup(stage="fit")
@@ -184,7 +195,7 @@ class TestContrastiveDataModule:
 class TestEpochAwareDeterminism:
     @pytest.fixture
     def data_module(self):
-        return MAEDataModule(**data_settings)
+        return MAEDataModule(masks_dir='/Users/project/masks', **transforms_mae, **data_settings)
     
     def test_different_seeds_per_stage(self, data_module):
         """Check that different stages have different seeds"""
@@ -255,7 +266,7 @@ class TestEpochAwareDeterminism:
         state = data_module.state_dict()
         state['epoch'] = 4
         
-        new_data_module = MAEDataModule(**data_settings)
+        new_data_module = MAEDataModule(masks_dir='/Users/project/masks', **transforms_mae, **data_settings)
         new_data_module.setup(stage="fit")
         new_data_module.load_state_dict(state)
         train_loader_iter = iter(new_data_module.train_dataloader())

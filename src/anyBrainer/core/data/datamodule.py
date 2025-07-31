@@ -35,7 +35,7 @@ from tqdm import tqdm
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
-from monai.data.utils import set_rnd
+from monai.data.utils import set_rnd, list_data_collate
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
 
 class BaseDataModule(pl.LightningDataModule):
     """
-    Base DataModule class. 
+    Base DataModule class.
     
     Args: 
         data_dir: data directory
@@ -93,6 +93,7 @@ class BaseDataModule(pl.LightningDataModule):
         train_val_test_split: train/val/test split
         worker_logging_fn: function to log worker information
         worker_seeding_fn: function to seed worker
+        collate_fn: function to collate data
         seed: random seed for reproducibility
         random_state: random state for reproducibility
         train_transforms: transforms for train
@@ -111,7 +112,7 @@ class BaseDataModule(pl.LightningDataModule):
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | str | None = None,
         worker_seeding_fn: Callable | str | None = set_rnd,
-        collate_fn: Callable | str | None = None,
+        collate_fn: Callable | str | None = list_data_collate,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
         train_transforms: dict[str, Any] | str | list[Callable] | None = None,
@@ -461,66 +462,21 @@ class MAEDataModule(BaseDataModule):
     sub_x_ses_y_modalityname_count_if_more_than_one.npy
     
     Args: 
-        data_dir: Directory containing .npy files with naming pattern 
-                 sub_x_ses_y_modalityname_count_if_more_than_one.npy
         masks_dir: Directory containing brain masks with naming pattern 
-                 sub_x_ses_y_mask.npy
-        dataloader_kwargs: Dataloader kwargs
-        batch_size: Batch size for dataloaders
-        num_workers: Number of workers for dataloaders
-        train_val_test_split: Tuple of (train_ratio, val_ratio, test_ratio)
-        seed: Random seed for reproducible splits
-        worker_logging_fn: function to log worker information
-        worker_seeding_fn: function to seed worker
-        random_state: random state for reproducibility
-        train_transforms: transforms for train
-        val_transforms: transforms for val
-        test_transforms: transforms for test
-        predict_transforms: transforms for predict
-        predict_on_test: whether to predict on test set
+            sub_x_ses_y_mask.npy
+        **base_module_kwargs: kwargs for BaseDataModule
+            All other keyword arguments are passed to the `BaseDataModule` constructor.
+            Refer to `BaseDataModule` for supported options such as `data_dir`, `batch_size`,
+            `num_workers`, and preprocessing transforms.
     """
     def __init__(
         self,
-        data_dir: Path | str,
-        masks_dir: Path | str | None,
         *,
-        data_handler_kwargs: dict[str, Any] | None = None,
-        batch_size: int = 32,
-        num_workers: int = 4,
-        dataloader_kwargs: dict[str, Any] | None = None,
-        train_val_test_split: tuple = (0.7, 0.15, 0.15),
-        worker_logging_fn: Callable | None = None,
-        worker_seeding_fn: Callable | None = set_rnd,
-        seed: int | None = None,
-        random_state: np.random.RandomState | None = None,
-        train_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        val_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        test_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        **kwargs
+        masks_dir: Path | str | None = None,
+        **base_module_kwargs,
     ):
-        super().__init__(
-            data_dir=data_dir, 
-            data_handler_kwargs=data_handler_kwargs,
-            batch_size=batch_size, 
-            num_workers=num_workers, 
-            dataloader_kwargs=dataloader_kwargs,
-            train_val_test_split=train_val_test_split, 
-            worker_logging_fn=worker_logging_fn, 
-            worker_seeding_fn=worker_seeding_fn, 
-            seed=seed, random_state=random_state,
-            train_transforms=train_transforms,
-            val_transforms=val_transforms,
-            test_transforms=test_transforms,
-            predict_transforms=predict_transforms,
-        )
+        super().__init__(**base_module_kwargs)
         self.masks_dir = resolve_path(masks_dir) if masks_dir is not None else None
-        
-        # Get transforms
-        self.train_transforms = self.train_transforms or get_mae_train_transforms()
-        self.val_transforms = self.val_transforms or get_mae_val_transforms()
-        self.test_transforms = self.test_transforms or get_mae_val_transforms()
-        self.predict_transforms = self.predict_transforms or get_predict_transforms()
         
     def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """
@@ -567,66 +523,15 @@ class ContrastiveDataModule(BaseDataModule):
     """
     DataModule for brain MRI foundation model training using contrastive learning.
 
-    The data_dir should contain .npy files with naming pattern 
-    sub_x_ses_y_modalityname_count_if_more_than_one.npy
-    
-    Args: 
-        data_dir: Directory containing .npy files with naming pattern 
-                 sub_x_ses_y_modalityname_count_if_more_than_one.npy
-        batch_size: Batch size for dataloaders
-        num_workers: Number of workers for dataloaders
-        train_val_test_split: Tuple of (train_ratio, val_ratio, test_ratio)
-        seed: Random seed for reproducible splits
-        worker_logging_fn: function to log worker information
-        worker_seeding_fn: function to seed worker
-        random_state: random state for reproducibility
-        train_transforms: transforms for train
-        val_transforms: transforms for val
-        test_transforms: transforms for test
-        predict_transforms: transforms for predict
-        predict_on_test: whether to predict on test set
-    """
-    def __init__(
-        self,
-        data_dir: Path | str,
-        *,
-        data_handler_kwargs: dict[str, Any] | None = None,
-        batch_size: int = 32,
-        num_workers: int = 4,
-        dataloader_kwargs: dict[str, Any] | None = None,
-        train_val_test_split: tuple = (0.7, 0.15, 0.15),
-        worker_logging_fn: Callable | None = None,
-        worker_seeding_fn: Callable | None = set_rnd,
-        seed: int | None = None,
-        random_state: np.random.RandomState | None = None,
-        train_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        val_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        test_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
-        **kwargs
-    ):
-        super().__init__(
-            data_dir=data_dir, 
-            data_handler_kwargs=data_handler_kwargs,
-            batch_size=batch_size, 
-            num_workers=num_workers, 
-            dataloader_kwargs=dataloader_kwargs,
-            train_val_test_split=train_val_test_split, 
-            worker_logging_fn=worker_logging_fn, 
-            worker_seeding_fn=worker_seeding_fn, 
-            seed=seed, random_state=random_state,
-            train_transforms=train_transforms,
-            val_transforms=val_transforms,
-            test_transforms=test_transforms,
-            predict_transforms=predict_transforms,
-        )
+    This subclass organizes scans into session-level groups so that multiple
+    modalities or time points from the same session can be used as positive
+    pairs in contrastive setups.
 
-        # Get transforms
-        self.train_transforms = self.train_transforms or get_contrastive_train_transforms()
-        self.val_transforms = self.val_transforms or get_contrastive_val_transforms()
-        self.test_transforms = self.test_transforms or get_contrastive_val_transforms()
-        self.predict_transforms = self.predict_transforms or get_predict_transforms()
-    
+    The `data_dir` should contain `.npy` files with naming pattern:
+    `sub-<x>_ses-<y>_<modality>[_<index_if_multiple>].npy`
+
+    See `BaseDataModule` for all initialization parameters.
+    """
     def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """
         Create data list of dicts for contrastive - group by session.

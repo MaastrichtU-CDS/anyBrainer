@@ -5,11 +5,15 @@ __all__ = [
     "create_save_dirs",
     "load_model_from_ckpt",
     "load_config",
+    "load_param_group_from_ckpt",
 ]
 
 import logging
 from pathlib import Path
 from typing import Any
+
+import torch
+import torch.nn as nn
 
 import lightning.pytorch as pl
 import yaml
@@ -83,3 +87,39 @@ def load_config(path: Path) -> dict[str, Any]:
     raise RuntimeError(
         "Unsupported config format – use .yaml, .yml or .json",
     )
+
+def load_param_group_from_ckpt(
+    model_instance: torch.nn.Module,
+    checkpoint_path: Path,
+    param_group_prefix: str | list[str] | None = None,
+    strict: bool = False,
+) -> tuple[torch.nn.Module, dict[str, Any]]:
+    """
+    Load an encoder from a checkpoint file.
+    """
+    # Get checkpoint
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = ckpt.get("state_dict", ckpt)  # Works with weights-only files
+    
+    # Determine which keys to load
+    if param_group_prefix is None:
+        filtered_dict = state_dict
+    else:
+        if isinstance(param_group_prefix, str):
+            param_group_prefix = [param_group_prefix]
+        filtered_dict = {
+            k: v for k, v in state_dict.items()
+            if any(k.startswith(p) for p in param_group_prefix)
+        }
+
+    missing_keys, unexpected_keys = model_instance.load_state_dict(
+        filtered_dict, strict=strict
+    )
+
+    stats = {
+        "loaded_keys": list(filtered_dict.keys()),
+        "missing_keys": missing_keys,
+        "unexpected_keys": unexpected_keys,
+    }
+
+    return model_instance, stats
