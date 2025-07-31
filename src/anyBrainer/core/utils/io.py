@@ -112,12 +112,15 @@ def load_param_group_from_ckpt(
             if any(k.startswith(p) for p in param_group_prefix)
         }
 
+    ignored_keys = [k for k in state_dict.keys() if k not in filtered_dict]
+
     missing_keys, unexpected_keys = model_instance.load_state_dict(
         filtered_dict, strict=strict
     )
 
     stats = {
         "loaded_keys": list(filtered_dict.keys()),
+        "ignored_keys": ignored_keys,
         "missing_keys": missing_keys,
         "unexpected_keys": unexpected_keys,
     }

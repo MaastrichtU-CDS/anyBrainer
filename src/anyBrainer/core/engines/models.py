@@ -36,10 +36,9 @@ from anyBrainer.core.engines.utils import (
 from anyBrainer.core.utils import (
     summarize_model_params,
     init_swin_with_residual_convs,
-)
-from anyBrainer.core.utils import (
     modality_to_idx,
     top1_accuracy,  
+    load_param_group_from_ckpt,
 )
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.factories import UnitFactory
