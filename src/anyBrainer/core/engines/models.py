@@ -168,8 +168,6 @@ class CLwAuxModel(BaseModel):
         momentum_scheduler_kwargs: dict[str, Any] | None = None,
         weights_init_kwargs: dict[str, Any] | None = None,
         logits_postprocess_fn: Callable | str | None = None,
-        ignore_hparams: list[str] | None = None,
-        **extra,
     ):  
         if loss_kwargs is None:
             loss_kwargs = {}
@@ -210,6 +208,10 @@ class CLwAuxModel(BaseModel):
                 "mode": "linear",
             },
         ]
+        
+        ignore_hparams = (["loss_fn_kwargs", "other_schedulers", "logits_postprocess_fn"] 
+                          if isinstance(logits_postprocess_fn, str) 
+                          else ["loss_fn_kwargs", "other_schedulers"])
 
         super().__init__(
             model_kwargs=model_kwargs,
@@ -219,7 +221,6 @@ class CLwAuxModel(BaseModel):
             param_scheduler_kwargs=other_schedulers,
             weights_init_kwargs=weights_init_kwargs,
             ignore_hparams=ignore_hparams,
-            **extra,
         )
        
         # Initialize key encoder
