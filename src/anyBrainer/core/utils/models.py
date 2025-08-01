@@ -5,7 +5,7 @@ __all__ = [
     "summarize_model_params",
     "get_total_grad_norm",
     "get_optimizer_lr",
-    "init_swin_with_residual_convs",
+    "init_swin_v2",
     "get_parameter_groups_from_prefixes",
 ]
 
@@ -110,21 +110,21 @@ def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,
     return tensor
 
 @register(RK.UTIL)
-def init_swin_with_residual_convs(model: nn.Module,
+def init_swin_v2(model: nn.Module,
                                   *,
                                   proj_std: float = 0.02,
                                   conv_mode: str = "fan_out",
                                   zero_init_residual: bool = False) -> None:
     """
-    Weight initialisation for a Swin-style ViT that contains
+    Weight initialisation for a Swinv2-style ViT that contains
     linear projection layers and (optionally 3 x 3) residual convolutions
-    before each Swin block.
+    before each Swinv2 block.
 
     Args:
         model : nn.Module
-            Your complete Swin ViT model (or sub-module).
+            Complete Swinv2 ViT model (or sub-module).
         proj_std : float, default 0.02
-            Std for truncated-normal init of all nn.Linear weights (ViT default).
+            Std for truncated-normal init of all nn.Linear weights (Swinv2 default).
         conv_mode : {"fan_out", "fan_in"}, default "fan_out"
             Kaiming mode for convolutions. "fan_out" is common in modern conv nets.
         zero_init_residual : bool, default False

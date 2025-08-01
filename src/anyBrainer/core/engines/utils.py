@@ -12,8 +12,7 @@ if TYPE_CHECKING:
 
 from anyBrainer.registry import get
 from anyBrainer.registry import RegistryKind as RK
-if TYPE_CHECKING:
-    from anyBrainer.interfaces import PLModuleMixin
+from anyBrainer.interfaces import PLModuleMixin
 
 logger = logging.getLogger(__name__)
 

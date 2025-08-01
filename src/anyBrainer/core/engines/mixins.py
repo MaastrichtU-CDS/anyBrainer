@@ -15,10 +15,7 @@ import logging
 from typing import Any, Callable, TYPE_CHECKING, cast
 from copy import deepcopy
 
-if TYPE_CHECKING:
-    import torch.optim as optim
-    from torch.nn import Module as nnModule
-    import lightning.pytorch as pl
+from lightning.pytorch import LightningModule as plModule
 
 from anyBrainer.core.utils import (
     get_parameter_groups_from_prefixes,
@@ -30,7 +27,10 @@ from anyBrainer.core.engines.utils import (
 )
 from anyBrainer.factories import UnitFactory
 from anyBrainer.interfaces.mixin import PLModuleMixin
+
 if TYPE_CHECKING:
+    import torch.optim as optim
+    from torch.nn import Module as nnModule
     from anyBrainer.interfaces import ParameterScheduler
 
 logger = logging.getLogger(__name__)
@@ -73,9 +73,9 @@ class LossMixin(PLModuleMixin):
         **kwargs,
     ) -> None:
         """Create single or list of loss fn instances using the dedicated factory."""
-        if not isinstance(loss_fn_kwargs, dict):
+        if not isinstance(loss_fn_kwargs, (list, dict)):
             msg = (f"[{self.__class__.__name__}] `loss_fn_kwargs` must be a dict, "
-                   f"got {type(loss_fn_kwargs).__name__}.")
+                   f"or list, got {type(loss_fn_kwargs).__name__}.")
             logger.error(msg)
             raise TypeError(msg)
 
@@ -361,7 +361,7 @@ class HParamsMixin(PLModuleMixin):
             logger.error(msg)
             raise TypeError(msg)
 
-        pl_module = cast(pl.LightningModule, self)
+        pl_module = cast(plModule, self)
 
         if ignore_hparams is None:
             ignore_hparams = []

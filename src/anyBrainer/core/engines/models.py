@@ -20,8 +20,6 @@ from typing import Any, Callable
 from copy import deepcopy
 
 import torch
-import torch.optim as optim
-import torch.nn as nn
 import lightning.pytorch as pl
 import torch.nn.functional as F
 
@@ -36,7 +34,6 @@ from anyBrainer.core.engines.utils import (
 )
 from anyBrainer.core.utils import (
     summarize_model_params,
-    init_swin_with_residual_convs,
     modality_to_idx,
     top1_accuracy,  
 )
@@ -170,10 +167,10 @@ class CLwAuxModel(BaseModel):
         loss_kwargs: dict[str, Any] | None = None,
         loss_scheduler_kwargs: dict[str, Any] | None = None,
         momentum_scheduler_kwargs: dict[str, Any] | None = None,
-        weights_init_fn: Callable | str | None = init_swin_with_residual_convs,
+        weights_init_kwargs: dict[str, Any] | None = None,
         logits_postprocess_fn: Callable | str | None = None,
         ignore_hparams: list[str] | None = None,
-        **kwargs,
+        **extra,
     ):  
         if loss_kwargs is None:
             loss_kwargs = {}
@@ -184,14 +181,12 @@ class CLwAuxModel(BaseModel):
         if momentum_scheduler_kwargs is None:
             momentum_scheduler_kwargs = {}
 
-        loss_fn_kwargs = [
-            {
+        loss_fn_kwargs = {
                 "name": "InfoNCELoss",
                 "temperature": loss_kwargs.get("temperature", 0.1),
                 "top_k_negatives": loss_kwargs.get("top_k_negatives"),
                 "postprocess_fn": resolve_fn(logits_postprocess_fn),
-            },
-        ]
+        }
         self.ce_weights = dict_get_as_tensor(loss_kwargs.get("cross_entropy_weights"))
         
         other_schedulers = [
@@ -222,9 +217,10 @@ class CLwAuxModel(BaseModel):
             loss_fn_kwargs=loss_fn_kwargs,
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
-            other_schedulers=other_schedulers,
-            weights_init_fn=weights_init_fn, # type: ignore
+            param_scheduler_kwargs=other_schedulers,
+            weights_init_kwargs=weights_init_kwargs,
             ignore_hparams=ignore_hparams,
+            **extra,
         )
        
         # Initialize key encoder
@@ -300,7 +296,7 @@ class CLwAuxModel(BaseModel):
         aux_spr: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute combined InfoNCE loss with auxiliary CE loss."""
-        loss_info_nce, cl_stats = self.loss_fn[0](q_proj, k_proj, queue) # type: ignore
+        loss_info_nce, cl_stats = self.loss_fn(q_proj, k_proj, queue) # type: ignore
 
         if self.ce_weights is not None:
             self.ce_weights = self.ce_weights.to(q_aux.device)
