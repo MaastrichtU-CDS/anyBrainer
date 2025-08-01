@@ -249,12 +249,10 @@ class TrainWorkflow(Workflow):
 
         Override for custom model configuration.
         """
-        pl_module_config = {
-            "name": self.settings.pl_module_name,
-            **self.settings.pl_module_kwargs,
-        }
         ckpt_path = (self.settings.model_checkpoint or 
                      self.settings.exp_dir / "checkpoints" / "last.ckpt")
+        
+        self.main_logger.info(f"{self.settings.pl_module_kwargs}")
 
         if not self.settings.new_version:
             model = load_model_from_ckpt(
@@ -266,9 +264,10 @@ class TrainWorkflow(Workflow):
             return model, ckpt_path
 
         return (
-            cast(pl.LightningModule, 
-                 ModuleFactory.get_pl_module_instance_from_kwargs(pl_module_config)), 
-            None
+            ModuleFactory.get_pl_module_instance_from_kwargs(
+                pl_module_kwargs=self.settings.pl_module_kwargs
+            ),
+            None,
         )
         
     def setup_callbacks(self) -> list[pl.Callback]:
