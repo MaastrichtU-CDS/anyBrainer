@@ -21,6 +21,7 @@ from anyBrainer.interfaces import (
     DataExplorer,
     LoggingManager,
     ParameterScheduler,
+    Workflow,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ ALLOWED_TYPES: dict[RegistryKind, tuple[object, ...]] = {
     RegistryKind.DATA_EXPLORER:   (DataExplorer,),
     RegistryKind.LOGGING_MANAGER: (LoggingManager,),
     RegistryKind.PARAM_SCHEDULER: (ParameterScheduler,),
-    RegistryKind.WORKFLOW:        (type,),
+    RegistryKind.WORKFLOW:        (Workflow,),
     RegistryKind.METRIC:          (type,),
     RegistryKind.TRAINER:         (pl.Trainer,),
     RegistryKind.PL_MODULE:       (pl.LightningModule,),

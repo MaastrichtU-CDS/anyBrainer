@@ -10,7 +10,7 @@ import logging
 import time
 from pathlib import Path
 import resource
-from typing import Any, cast
+from typing import Any, cast, TYPE_CHECKING
 from dataclasses import dataclass
 
 import torch
@@ -33,7 +33,12 @@ from anyBrainer.factories import (
     ModuleFactory,
     UnitFactory,
 )
-from anyBrainer.interfaces import LoggingManager
+
+if TYPE_CHECKING:
+    from anyBrainer.interfaces import (
+        LoggingManager,
+        Workflow,
+    )
 
 @dataclass
 class TrainingSettings:
@@ -84,19 +89,19 @@ class TrainingSettings:
 
 
 @register(RK.WORKFLOW)
-class TrainWorkflow:
+class TrainWorkflow(Workflow):
     """
     Basic workflow for wrapping pytorch lightning trainer operations.
     """
-    settings: TrainingSettings = cast(TrainingSettings, ...)
-    logging_manager: LoggingManager = cast(LoggingManager, ...)
-    main_logger: logging.Logger = cast(logging.Logger, ...)
-    wandb_logger: WandbLogger | None = None
-    datamodule: pl.LightningDataModule = cast(pl.LightningDataModule, ...)
-    model: pl.LightningModule = cast(pl.LightningModule, ...)
-    ckpt_path: Path | None = None
-    callbacks: list[pl.Callback] = cast(list[pl.Callback], ...)
-    trainer: pl.Trainer = cast(pl.Trainer, ...)
+    settings: TrainingSettings
+    logging_manager: LoggingManager
+    main_logger: logging.Logger
+    wandb_logger: WandbLogger | None
+    datamodule: pl.LightningDataModule
+    model: pl.LightningModule
+    ckpt_path: Path | None
+    callbacks: list[pl.Callback]
+    trainer: pl.Trainer
 
     def __init__(
         self,
@@ -108,7 +113,7 @@ class TrainWorkflow:
         pl_trainer_settings: dict[str, Any],
         logging_settings: dict[str, Any] = {},
         ckpt_settings: dict[str, Any] = {},
-        **kwargs,
+        **extra,
     ):  
         self.settings = TrainingSettings(
             **unpack_settings_for_train_workflow(
