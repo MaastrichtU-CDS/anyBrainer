@@ -21,7 +21,6 @@ from monai.utils.misc import set_determinism
 
 from anyBrainer.core.utils import (
     create_save_dirs,
-    load_model_from_ckpt,
     resolve_path,
 )
 from anyBrainer.core.engines.utils import (
@@ -239,34 +238,31 @@ class TrainWorkflow(Workflow):
 
     def setup_model(self) -> tuple[pl.LightningModule, Path | None]:
         """
-        Returns model configuration from settings.
+        Creates a new model instance from settings.
 
-        If not new version of the experiment or model checkpoint is provided,
-        it attempts to load the model from the checkpoint. If successful, it 
-        populates self.ckpt_path. Otherwise, it creates a new model instance.
+        If not `new_version` of the experiment or model checkpoint is provided,
+        it attempts to find a checkpoint in the experiment directory. If not
+        found, `ckpt_path` is set to None. Returns model instance and `ckpt_path`.
 
         Will populate self.model and self.ckpt_path.
 
         Override for custom model configuration.
         """
+        model = ModuleFactory.get_pl_module_instance_from_kwargs(
+            pl_module_kwargs=self.settings.pl_module_kwargs
+        )
+        if self.settings.new_version:
+            return model, None
+        
         ckpt_path = (self.settings.model_checkpoint or 
                      self.settings.exp_dir / "checkpoints" / "last.ckpt")
         
-        if not self.settings.new_version:
-            model = load_model_from_ckpt(
-                model_cls=cast(type[pl.LightningModule], get(RK.PL_MODULE, self.settings.pl_module_name)),
-                ckpt_path=ckpt_path,
-            )
+        if not ckpt_path.exists():
+            self.main_logger.warning(f"Checkpoint file {ckpt_path} does not exist; "
+                                     "will create new model.")
+            return model, None
 
-        if model is not None:
-            return model, ckpt_path
-
-        return (
-            ModuleFactory.get_pl_module_instance_from_kwargs(
-                pl_module_kwargs=self.settings.pl_module_kwargs
-            ),
-            None,
-        )
+        return model, ckpt_path
         
     def setup_callbacks(self) -> list[pl.Callback]:
         """

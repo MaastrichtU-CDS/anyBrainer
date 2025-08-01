@@ -209,9 +209,9 @@ class CLwAuxModel(BaseModel):
             },
         ]
         
-        ignore_hparams = (["loss_fn_kwargs", "other_schedulers", "logits_postprocess_fn"] 
-                          if isinstance(logits_postprocess_fn, str) 
-                          else ["loss_fn_kwargs", "other_schedulers"])
+        ignore_hparams = ["loss_fn_kwargs", "other_schedulers", "weights_init_kwargs"]
+        if not isinstance(logits_postprocess_fn, str):
+            ignore_hparams.append("logits_postprocess_fn")
 
         super().__init__(
             model_kwargs=model_kwargs,
