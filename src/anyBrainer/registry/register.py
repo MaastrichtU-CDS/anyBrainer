@@ -76,7 +76,6 @@ def register(kind: RegistryKind) -> Callable[[T], T]:
         check_allowed_types(kind.value, obj, ALLOWED_TYPES[kind])
         bucket = REGISTRIES[kind]
         name = getattr(obj, "__name__", repr(obj))
-        print(f"Registering {name} in {kind}")
         if name in bucket:
             msg = f"{name} already registered in {kind}"
             logger.error(msg)

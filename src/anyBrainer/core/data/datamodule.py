@@ -108,7 +108,7 @@ class BaseDataModule(pl.LightningDataModule):
         data_handler_kwargs: dict[str, Any] | None = None,
         batch_size: int = 32,
         num_workers: int = 4,
-        dataloader_kwargs: dict[str, Any] | None = None,
+        extra_dataloader_kwargs: dict[str, Any] | None = None,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         worker_logging_fn: Callable | str | None = None,
         worker_seeding_fn: Callable | str | None = set_rnd,
@@ -128,9 +128,9 @@ class BaseDataModule(pl.LightningDataModule):
             data_handler_kwargs = {}
         self.data_handler_kwargs = data_handler_kwargs
 
-        if dataloader_kwargs is None:
-            dataloader_kwargs = {}
-        self.dataloader_kwargs = dataloader_kwargs
+        if extra_dataloader_kwargs is None:
+            extra_dataloader_kwargs = {}
+        self.extra_dataloader_kwargs = extra_dataloader_kwargs
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -328,7 +328,7 @@ class BaseDataModule(pl.LightningDataModule):
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.dataloader_kwargs,
+            **self.extra_dataloader_kwargs,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -358,7 +358,7 @@ class BaseDataModule(pl.LightningDataModule):
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.dataloader_kwargs,
+            **self.extra_dataloader_kwargs,
         )
     
     def test_dataloader(self) -> DataLoader:
@@ -388,7 +388,7 @@ class BaseDataModule(pl.LightningDataModule):
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.dataloader_kwargs,
+            **self.extra_dataloader_kwargs,
         )
     
     def predict_dataloader(self) -> DataLoader:
@@ -418,7 +418,7 @@ class BaseDataModule(pl.LightningDataModule):
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.dataloader_kwargs,
+            **self.extra_dataloader_kwargs,
         )
     
     def state_dict(self) -> dict[str, Any]:
