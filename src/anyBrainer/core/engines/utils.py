@@ -131,11 +131,17 @@ def resolve_fn(
     return fn
 
 def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
-    """Setup all mixins for a PL module."""
-    logger.info(f"MRO: {module.__class__.__mro__}")
+    """Setup all registered mixins for a PL module."""
     for cls in module.__class__.__mro__:
-        if issubclass(cls, PLModuleMixin) and cls is not PLModuleMixin:
-            try:
-                cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
-            except TypeError:
-                pass
+        try:
+            mixin_cls = get(RK.PL_MODULE_MIXIN, cls.__name__)
+        except KeyError:
+            continue 
+
+        if not issubclass(mixin_cls, PLModuleMixin):
+            continue
+
+        try:
+            mixin_cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
+        except TypeError:
+            pass

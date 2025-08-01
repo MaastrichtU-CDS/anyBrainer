@@ -22,6 +22,7 @@ from anyBrainer.interfaces import (
     LoggingManager,
     ParameterScheduler,
     Workflow,
+    PLModuleMixin
 )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class RegistryKind(str, Enum):
     LOGGING_MANAGER = "logging_manager"
     TRAINER         = "trainer"
     PL_MODULE       = "pl_module"
+    PL_MODULE_MIXIN = "pl_module_mixin"
     DATAMODULE      = "datamodule"
     NETWORK         = "network"
     LOSS            = "loss"
@@ -59,6 +61,7 @@ ALLOWED_TYPES: dict[RegistryKind, tuple[object, ...]] = {
     RegistryKind.METRIC:          (type,),
     RegistryKind.TRAINER:         (pl.Trainer,),
     RegistryKind.PL_MODULE:       (pl.LightningModule,),
+    RegistryKind.PL_MODULE_MIXIN: (PLModuleMixin,),
     RegistryKind.DATAMODULE:      (pl.LightningDataModule,),
     RegistryKind.NETWORK:         (nn.Module,),
     RegistryKind.LOSS:            (nn.Module,),

@@ -26,7 +26,8 @@ from anyBrainer.core.engines.utils import (
     resolve_fn,
 )
 from anyBrainer.factories import UnitFactory
-from anyBrainer.interfaces.mixin import PLModuleMixin
+from anyBrainer.interfaces import PLModuleMixin
+from anyBrainer.registry import register, RegistryKind as RK
 
 if TYPE_CHECKING:
     import torch.optim as optim
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@register(RK.PL_MODULE_MIXIN)
 class ModelInitMixin(PLModuleMixin):
     """
     Adds support for instantiating the model.
@@ -61,6 +63,7 @@ class ModelInitMixin(PLModuleMixin):
         self.model = UnitFactory.get_model_instance_from_kwargs(model_kwargs)
 
 
+@register(RK.PL_MODULE_MIXIN)
 class LossMixin(PLModuleMixin):
     """
     Adds support for instantiating the loss function(s).
@@ -86,6 +89,7 @@ class LossMixin(PLModuleMixin):
         self.loss_fn = UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
 
 
+@register(RK.PL_MODULE_MIXIN)
 class ParamSchedulerMixin(PLModuleMixin):
     """
     Adds support for extra (non-optimizer) schedulers; e.g., contrastive 
@@ -139,6 +143,7 @@ class ParamSchedulerMixin(PLModuleMixin):
         ]
 
 
+@register(RK.PL_MODULE_MIXIN)
 class OptimConfigMixin(PLModuleMixin):
     """
     Adds support for configuring optimizers and LR schedulers for 
@@ -251,6 +256,7 @@ class OptimConfigMixin(PLModuleMixin):
         return optimizer
 
 
+@register(RK.PL_MODULE_MIXIN)
 class WeightInitMixin(PLModuleMixin):
     """
     Adds support for initializing model weights.
@@ -345,6 +351,7 @@ class WeightInitMixin(PLModuleMixin):
             raise e
     
 
+@register(RK.PL_MODULE_MIXIN)
 class HParamsMixin(PLModuleMixin):
     """
     Adds support for saving and logging hyperparameters.
@@ -372,4 +379,3 @@ class HParamsMixin(PLModuleMixin):
 
         logger.info(f"\n[{self.__class__.__name__}] Lightning module initialized with following "
                     f"hyperparameters:\n{pl_module.hparams}")
-        
