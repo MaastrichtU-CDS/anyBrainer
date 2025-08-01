@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import pickle
 import torch
 import torch.nn as nn
 
@@ -88,6 +89,16 @@ def load_config(path: Path) -> dict[str, Any]:
         "Unsupported config format – use .yaml, .yml or .json",
     )
 
+def safe_load_state_dict(ckpt_path: str | Path, **load_kwargs) -> dict[str, Any]:
+    """Load a state_dict from a checkpoint file."""
+    try:
+        return torch.load(ckpt_path, **load_kwargs)
+    except Exception:
+        # Fallback: manually open the file and extract state_dict if possible
+        with open(ckpt_path, "rb") as f:
+            raw = pickle.load(f)
+            return raw["state_dict"] if "state_dict" in raw else raw
+
 def load_param_group_from_ckpt(
     model_instance: torch.nn.Module,
     checkpoint_path: Path,
@@ -101,11 +112,7 @@ def load_param_group_from_ckpt(
         extra_load_kwargs = {}
 
     # Get checkpoint
-    ckpt = torch.load(
-        checkpoint_path, 
-        weights_only=extra_load_kwargs.get("weights_only", True),
-        map_location=extra_load_kwargs.get("map_location"),
-    )
+    ckpt = safe_load_state_dict(checkpoint_path, **extra_load_kwargs)
     state_dict = ckpt.get("state_dict", ckpt)
     
     # Determine which keys to load
