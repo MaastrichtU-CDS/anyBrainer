@@ -1,13 +1,19 @@
 """Utility functions for creating and running models."""
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, cast, TYPE_CHECKING
 
 import torch
+if TYPE_CHECKING:
+    import lightning.pytorch as pl
 
 from anyBrainer.registry import get
 from anyBrainer.registry import RegistryKind as RK
+if TYPE_CHECKING:
+    from anyBrainer.interfaces import PLModuleMixin
 
 logger = logging.getLogger(__name__)
 
@@ -124,3 +130,12 @@ def resolve_fn(
     if isinstance(fn, str):
         return cast(Callable, get(RK.UTIL, fn))
     return fn
+
+def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
+    """Setup all mixins for a PL module."""
+    for cls in module.__class__.__mro__:
+        if issubclass(cls, PLModuleMixin) and cls is not PLModuleMixin:
+            try:
+                cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
+            except TypeError:
+                pass

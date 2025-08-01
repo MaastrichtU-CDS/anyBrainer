@@ -16,7 +16,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Callable, cast
+from typing import Any, Callable
 from copy import deepcopy
 
 import torch
@@ -32,53 +32,61 @@ from anyBrainer.core.engines.utils import (
     get_sub_ses_tensors,
     dict_get_as_tensor,
     resolve_fn,
+    setup_all_mixins,
 )
 from anyBrainer.core.utils import (
-    resolve_path,
     summarize_model_params,
     init_swin_with_residual_convs,
     modality_to_idx,
     top1_accuracy,  
-    load_param_group_from_ckpt,
-    get_parameter_groups_from_prefixes,
 )
 from anyBrainer.registry import RegistryKind as RK
-from anyBrainer.factories import UnitFactory
-
+from anyBrainer.core.engines.mixins import (
+    ModelInitMixin,
+    LossMixin,
+    ParamSchedulerMixin,
+    OptimConfigMixin,
+    WeightInitMixin,
+    HParamsMixin,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class BaseModel(pl.LightningModule):
+class CoreLM(pl.LightningModule):
     """
-    Base class based on PyTorch Lightning Module for all models.
-    
-    This class is responsible for:
-    - Defining the model architecture
-    - Defining the optimizer
-    - Defining the learning rate scheduler
+    Core Lightning Module that enables the use of mixins.
 
-    Args:
-        model_name: Name of the model to use.
-        model_kwargs: Keyword arguments for the model.
-        optimizer_kwargs: Keyword arguments for the optimizer, including the optimizer name
-            and param_groups, given as list of prefixes.
-        scheduler_kwargs: Keyword arguments for the learning rate scheduler, including:
-            - name: Name of the learning rate scheduler.
-            - interval: Interval of the learning rate scheduler.
-            - frequency: Frequency of the learning rate scheduler.
-            - monitor (optional): Metric to monitor.
-            - strict (optional): Whether to strict the learning rate scheduler.
-            - other arguments: Other arguments for the learning rate scheduler.
-            If None, no scheduler is used.
-        - other_schedulers: Additional warmup/decay/etc. schedulers to be manually stepped.
-            These are not handled by Lightning and must be stepped via `get_step_scheduler_values()` 
-            or `get_epoch_scheduler_values()`.
-        load_pretrain_weights: Path to the pretrained weights.
-        load_param_group_prefix: Prefix of the parameter group to load.
-        weights_init_fn: Function to initialize the model weights.
-        ignore_hparams: List of hyperparameters to ignore.
-    
+    Expects all configuration to be passed via kwargs and delegated
+    to setup_mixin() methods defined in PLModuleMixin subclasses.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        setup_all_mixins(self, *args, **kwargs)
+
+
+class BaseModel(
+    ModelInitMixin,
+    WeightInitMixin,
+    LossMixin,
+    OptimConfigMixin,
+    ParamSchedulerMixin,
+    HParamsMixin,
+    CoreLM,
+):
+    """
+    High-level LightningModule that wires together all standard mixins.
+
+    Required args:
+        model_kwargs: model initialization arguments
+        loss_fn_kwargs: loss function parameters; can be multiple
+        optimizer_kwargs: optimizer parameters; can be multiple
+
+    Optional kwargs (pass through to the relevant mixin, default = None):
+        lr_scheduler_kwargs: learning rate scheduler parameters; can be multiple
+        param_scheduler_kwargs: non-optimizer schedulers; can be multiple
+        weights_init_kwargs: weight initialization parameters; includes checkpoint
+        ignore_hparams: list of hyperparameters to ignore when saving ckpt
     """
 
     def __init__(
@@ -88,196 +96,38 @@ class BaseModel(pl.LightningModule):
         loss_fn_kwargs: dict[str, Any] | list[dict[str, Any]],
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
-        other_schedulers: list[dict[str, Any]] | None = None,
-        weights_init_fn: Callable | str | None = None,
-        load_pretrain_weights: str | None = None,
-        load_param_group_prefix: str | list[str] | None = None,
+        param_scheduler_kwargs: list[dict[str, Any]] | None = None,
+        weights_init_kwargs: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
+        **extra,
     ):
-        """
-        Initializes the following:
-        - model (network architecture)
-        - loss_fn (list, can be multiple)
-        - optimizer_kwargs (list, can be multiple)
-        - lr_scheduler_kwargs (list, can be multiple)
-        - other_schedulers (list, can be multiple)
-
-        Proceeds to perform:
-        - weight initialization (if provided)
-        - load pretrained weights (if provided; skips weight initialization)
-        - saves hyperparameters
-        """
-        super().__init__()
-
-        self._init_model(model_kwargs)
-        self._init_loss_fn(loss_fn_kwargs)
-        self._init_other_schedulers(other_schedulers)
-        self._setup_optimization(optimizer_kwargs, lr_scheduler_kwargs)
-        self._init_model_weights(weights_init_fn, load_pretrain_weights, load_param_group_prefix)
-        self._save_hparams(ignore_hparams)
-
-    def _init_model(self, model_kwargs: dict[str, Any]) -> None:
-        """Initialize model."""
-        self.model = UnitFactory.get_model_instance_from_kwargs(model_kwargs)
-    
-    def _init_loss_fn(self, loss_fn_kwargs: dict[str, Any] | list[dict[str, Any]]) -> None:
-        """Initialize loss function."""
-        self.loss_fn = UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
-    
-    def _init_other_schedulers(self, other_schedulers: list[dict[str, Any]] | None) -> None:
-        """Initialize other schedulers."""
-        if other_schedulers is None:
-            return
-
-        self.other_schedulers_step, self.other_schedulers_epoch = (
-            UnitFactory.get_param_scheduler_instances_from_kwargs(other_schedulers)
-        )
-    
-    def _setup_optimization(
-        self,
-        optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
-        lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
-    ) -> None:
-        """Setup optimization; to be instantiated in configure_optimizers."""
-        # Get parameter groups for each optimizer
-        if isinstance(optimizer_kwargs, list):
-            for cfg in optimizer_kwargs:
-                cfg["param_groups"] = get_parameter_groups_from_prefixes(
-                    self.model, cfg.pop("param_group_prefix", None)
-                )
-        else:
-            optimizer_kwargs["param_groups"] = get_parameter_groups_from_prefixes(
-                self.model, optimizer_kwargs.pop("param_group_prefix", None)
-            )
-
-        self.optimizer_kwargs = optimizer_kwargs # instantiated in configure_optimizers
-        self.lr_scheduler_kwargs = lr_scheduler_kwargs # instantiated in configure_optimizers
-
-    def _init_model_weights(
-        self,
-        weights_init_fn: Callable | str | None,
-        load_pretrain_weights: str | None,
-        load_param_group_prefix: str | list[str] | None,
-    ) -> None:
-        """Initialize model weights."""
-        if load_pretrain_weights is not None:
-            if weights_init_fn is not None:
-                logger.warning(f"[{self.__class__.__name__}] Provided both "
-                                f"load_pretrain_weights and weights_init_fn. "
-                                f"weights_init_fn will be ignored.")
-            
-            try:
-                self.model, stats = load_param_group_from_ckpt(
-                    model_instance=self.model,
-                    checkpoint_path=resolve_path(cast(str, load_pretrain_weights)),
-                    param_group_prefix=load_param_group_prefix,
-                )
-                logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
-                            f"{load_pretrain_weights}\n#### Summary ####"
-                            f"\n- Attempted to load {len(stats['loaded_keys'])} parameters "
-                            f"(filtered out {len(stats['ignored_keys'])} parameters)"
-                            f"\n- Unexpected {len(stats['unexpected_keys'])} parameters"
-                            f"\n- Missing {len(stats['missing_keys'])} parameters")
-            except Exception as e:
-                logger.error(f"[{self.__class__.__name__}] Failed to load pretrained weights: {e}")
-                raise e
-            return
-
-        if weights_init_fn is not None:
-            self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
-            logger.info(f"[{self.__class__.__name__}] Initialized model weights with "
-                        f"{weights_init_fn}.")
-            return
-
-        logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
-    
-    def _save_hparams(self, ignore_hparams: list[str] | None = None) -> None:
-        """Save hyperparameters."""
-        if ignore_hparams is None:
-            ignore_hparams = []
-
-        self.save_hyperparameters(
-            ignore=["ignore_hparams"] + ignore_hparams, logger=True
-        )
-        logger.info(f"\n[{self.__class__.__name__}] Lightning module initialized with following "
-                    f"hyperparameters:\n{self.hparams}")
-    
-    def configure_optimizers(
-        self,
-    ) -> (optim.Optimizer | dict[str, Any] | list[optim.Optimizer] | 
-          tuple[list[optim.Optimizer], list[dict[str, Any]]]):
-        """
-        Configure optimizers and LR schedulers.
-        
-        Aligning with Lighnting's documentation, it can return the following:
-        (depending on the optimizer_kwargs and scheduler_kwargs inputs)
-        - A single optimizer
-        - A dict with a single optimizer and a single lr_scheduler_config
-        - A list of optimizers
-        - A list of optimizers with a list of lr_scheduler_configs
-        """
-        optimizer = (
-            UnitFactory.get_optimizer_instances_from_kwargs(self.optimizer_kwargs)
-        )
-
-        if self.lr_scheduler_kwargs is not None:
-            lr_scheduler = (
-                UnitFactory.get_lr_scheduler_instances_from_kwargs(self.lr_scheduler_kwargs, optimizer)
-            )
-        else:
-            lr_scheduler = None
-
-        if isinstance(optimizer, list) and lr_scheduler is not None:
-            if len(optimizer) != len(lr_scheduler):
-                msg = "Number of optimizers and LR schedulers must match."
-                logger.error(msg)
-                raise ValueError(msg)
-            return optimizer, cast(list[dict[str, Any]], lr_scheduler)
-        
-        if isinstance(optimizer, list) and lr_scheduler is None:
-            return optimizer
-        
-        if lr_scheduler is not None:
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": lr_scheduler,
-            }
-
-        return optimizer
-    
-    def get_step_scheduler_values(self) -> list[dict[str, Any]]:
-        """
-        Get values for step-based schedulers.
-        
-        Assumes custom schedulers contain a get_value method that accepts 
-        the current global step as an argument.
-        """
-        if not hasattr(self, "global_step"):
-            msg = "Global step not found in model."
+        if not model_kwargs:
+            msg = "`model_kwargs` must be supplied and non-empty."
             logger.error(msg)
             raise ValueError(msg)
-        
-        step_scheduler_values = []
-        for scheduler in self.other_schedulers_step:
-            step_scheduler_values.append(scheduler.get_value(self.global_step))
-        return step_scheduler_values
-    
-    def get_epoch_scheduler_values(self) -> list[float]:
-        """
-        Get values for epoch-based schedulers.
-        
-        Assumes custom schedulers contain a get_value method that accepts 
-        the current global epoch as an argument.
-        """
-        if not hasattr(self, "current_epoch"):
-            msg = "Current epoch not found in model."
+        if not loss_fn_kwargs:
+            msg = "`loss_fn_kwargs` must be supplied and non-empty."
             logger.error(msg)
             raise ValueError(msg)
-        
-        epoch_scheduler_values = []
-        for scheduler in self.other_schedulers_epoch:
-            epoch_scheduler_values.append(scheduler.get_value(self.current_epoch))
-        return epoch_scheduler_values
+        if not optimizer_kwargs:
+            msg = "`optimizer_kwargs` must be supplied and non-empty."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        super().__init__(
+            model_kwargs=model_kwargs,
+            loss_fn_kwargs=loss_fn_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            lr_scheduler_kwargs=lr_scheduler_kwargs,
+            param_scheduler_kwargs=param_scheduler_kwargs,
+            weights_init_kwargs=weights_init_kwargs,
+            ignore_hparams=ignore_hparams,
+            **extra,
+        )
+
+    def configure_optimizers(self):
+        """OptimConfigMixin defines get_optimizers_and_schedulers()"""
+        return self.get_optimizers_and_schedulers()
 
     def summarize(self) -> None:
         """Show model parameters."""
@@ -602,5 +452,3 @@ class ClassificationModel(BaseModel):
         
         TODO: sliding window prediction
         """
-        out = self.model(batch["img"])
-        return out
