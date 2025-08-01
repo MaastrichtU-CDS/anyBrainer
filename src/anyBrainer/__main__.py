@@ -21,12 +21,8 @@ from pathlib import Path
 import sys
 
 from anyBrainer.core.utils import load_config
-from anyBrainer.core.engines.workflows import TrainWorkflow
+from anyBrainer.registry import get, RegistryKind as RK
 
-# TODO: replace with registry.py
-WORKFLOW_REGISTRY = {
-    "train_workflow": TrainWorkflow,
-}
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
@@ -45,7 +41,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    WorkflowCls = WORKFLOW_REGISTRY[args.workflow]
+    WorkflowCls = get(RK.WORKFLOW, args.workflow)
     cfg = load_config(args.config)
 
     if not isinstance(cfg, dict):
