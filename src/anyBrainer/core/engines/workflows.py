@@ -55,7 +55,7 @@ class TrainingSettings:
     num_workers: int
     batch_size: int
     train_val_test_split: tuple[float, float, float] | list[float]
-    dataloader_kwargs: dict[str, Any]
+    extra_dataloader_kwargs: dict[str, Any]
     train_transforms: dict[str, Any] | str | None
     val_transforms: dict[str, Any] | str | None
     test_transforms: dict[str, Any] | str | None
@@ -222,7 +222,7 @@ class TrainWorkflow:
             "data_handler_kwargs": self.settings.data_handler_kwargs,
             "batch_size": self.settings.batch_size,
             "num_workers": self.settings.num_workers,
-            "dataloader_kwargs": self.settings.dataloader_kwargs,
+            "extra_dataloader_kwargs": self.settings.extra_dataloader_kwargs,
             "train_val_test_split": self.settings.train_val_test_split,
             "train_transforms": self.settings.train_transforms,
             "val_transforms": self.settings.val_transforms,

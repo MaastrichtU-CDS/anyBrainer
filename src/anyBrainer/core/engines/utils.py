@@ -91,7 +91,7 @@ def unpack_settings_for_train_workflow(
         "data_handler_kwargs": pl_datamodule_settings.get("data_handler_kwargs", {}),
         "num_workers": pl_datamodule_settings.get("num_workers", 32),
         "batch_size": pl_datamodule_settings.get("batch_size", 8),
-        "dataloader_kwargs": pl_datamodule_settings.get("dataloader_kwargs", {}),
+        "extra_dataloader_kwargs": pl_datamodule_settings.get("extra_dataloader_kwargs", {}),
         "train_val_test_split": pl_datamodule_settings.get("train_val_test_split", (0.7, 0.15, 0.15)),
         "train_transforms": pl_datamodule_settings.get("train_transforms"),
         "val_transforms": pl_datamodule_settings.get("val_transforms"),

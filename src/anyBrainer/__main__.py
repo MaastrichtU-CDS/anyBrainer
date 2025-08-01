@@ -20,8 +20,8 @@ import argparse
 from pathlib import Path
 import sys
 
-from anyBrainer.utils import load_config
-from anyBrainer.engines.workflows import TrainWorkflow
+from anyBrainer.core.utils import load_config
+from anyBrainer.core.engines.workflows import TrainWorkflow
 
 # TODO: replace with registry.py
 WORKFLOW_REGISTRY = {
