@@ -11,7 +11,6 @@ The model is responsible for:
 """
 
 __all__ = [
-    "BaseModel",
     "CLwAuxModel",  
 ]
 
@@ -234,9 +233,6 @@ class CLwAuxModel(BaseModel):
         self.register_buffer("queue", torch.zeros(self.queue_size, self.proj_dim))
         self.register_buffer("queue_ids", torch.full((self.queue_size,), -1, dtype=torch.long))
         self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
-
-        logger.info(f"\n[CLwAuxModel] Lightning module initialized with following "
-                    f"hyperparameters:\n{self.hparams}")
 
     @torch.no_grad()
     def _update_queue(self, key: torch.Tensor, key_ids: torch.Tensor) -> None:
