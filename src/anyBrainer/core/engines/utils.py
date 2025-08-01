@@ -10,7 +10,7 @@ import torch
 if TYPE_CHECKING:
     import lightning.pytorch as pl
 
-from anyBrainer.registry import get
+from anyBrainer.registry import flush, get  
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.interfaces import PLModuleMixin
 
@@ -132,16 +132,10 @@ def resolve_fn(
 
 def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
     """Setup all registered mixins for a PL module."""
+    mixins = flush(RK.PL_MODULE_MIXIN)
     for cls in module.__class__.__mro__:
-        try:
-            mixin_cls = get(RK.PL_MODULE_MIXIN, cls.__name__)
-        except ValueError:
-            continue 
-
-        if not issubclass(mixin_cls, PLModuleMixin):
-            continue
-
-        try:
-            mixin_cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
-        except TypeError:
-            pass
+        if cls.__name__ in mixins:
+            try:
+                cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
+            except TypeError:
+                pass

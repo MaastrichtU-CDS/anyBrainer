@@ -4,10 +4,12 @@ __all__ = [
     "RegistryKind",
     "register",
     "get",
+    "flush",
 ]
 
 import logging
 from enum import Enum
+from copy import deepcopy
 from typing import Callable, TypeVar, Any
 from collections.abc import Callable as ABCCallable
 
@@ -88,9 +90,20 @@ def register(kind: RegistryKind) -> Callable[[T], T]:
     return _decorator
 
 def get(kind: RegistryKind, name: str) -> Any:
+    """Get an object from the registry."""
     try:
         return REGISTRIES[kind][name]
     except KeyError:
         msg = f"{name!r} not found in {kind.value} registry"
         logger.error(msg)
         raise ValueError(msg)
+
+def flush(
+    kind: RegistryKind | None = None
+) -> dict[str, Any] | dict[RegistryKind, dict[str, Any]]:
+    """Return a copy of the registry contents."""
+    if kind is not None:
+        if kind not in REGISTRIES:
+            raise KeyError(f"Unknown registry kind: {kind}")
+        return deepcopy(REGISTRIES[kind])
+    return deepcopy(REGISTRIES)
