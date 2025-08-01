@@ -135,7 +135,7 @@ def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
     for cls in module.__class__.__mro__:
         try:
             mixin_cls = get(RK.PL_MODULE_MIXIN, cls.__name__)
-        except KeyError:
+        except ValueError:
             continue 
 
         if not issubclass(mixin_cls, PLModuleMixin):
