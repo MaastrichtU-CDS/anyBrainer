@@ -287,7 +287,7 @@ class WeightInitMixin(PLModuleMixin):
         weights_init_fn = weights_init_kwargs.get("weights_init_fn")
         load_pretrain_weights = weights_init_kwargs.get("load_pretrain_weights")
         load_param_group_prefix = weights_init_kwargs.get("load_param_group_prefix")
-        strict_load = weights_init_kwargs.get("strict_load", False)
+        extra_load_kwargs = weights_init_kwargs.get("extra_load_kwargs", {})
 
         if load_pretrain_weights is not None:
             if weights_init_fn is not None:
@@ -297,7 +297,7 @@ class WeightInitMixin(PLModuleMixin):
             self._load_pretrain_weights(
                 load_pretrain_weights=load_pretrain_weights,
                 load_param_group_prefix=load_param_group_prefix,
-                strict=strict_load,
+                extra_load_kwargs=extra_load_kwargs,
             )
             return
 
@@ -313,7 +313,7 @@ class WeightInitMixin(PLModuleMixin):
         self,
         load_pretrain_weights: str,
         load_param_group_prefix: str | list[str] | None,
-        strict: bool = False,
+        extra_load_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """
         Load pretrained weights from checkpoint.
@@ -325,7 +325,7 @@ class WeightInitMixin(PLModuleMixin):
                 model_instance=self.model,
                 checkpoint_path=resolve_path(load_pretrain_weights),
                 param_group_prefix=load_param_group_prefix,
-                strict=strict,
+                extra_load_kwargs=extra_load_kwargs,
             )
             logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
                         f"{load_pretrain_weights}\n#### Summary ####"
@@ -377,5 +377,5 @@ class HParamsMixin(PLModuleMixin):
             ignore=["ignore_hparams"] + ignore_hparams, logger=True
         )
 
-        logger.info(f"\n[{self.__class__.__name__}] Lightning module initialized with following "
+        logger.info(f"[{self.__class__.__name__}] Lightning module initialized with following "
                     f"hyperparameters:\n{pl_module.hparams}")

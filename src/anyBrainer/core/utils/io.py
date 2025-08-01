@@ -92,14 +92,21 @@ def load_param_group_from_ckpt(
     model_instance: torch.nn.Module,
     checkpoint_path: Path,
     param_group_prefix: str | list[str] | None = None,
-    strict: bool = False,
+    extra_load_kwargs: dict[str, Any] | None = None,
 ) -> tuple[torch.nn.Module, dict[str, Any]]:
     """
     Load an encoder from a checkpoint file.
     """
+    if extra_load_kwargs is None:
+        extra_load_kwargs = {}
+
     # Get checkpoint
-    ckpt = torch.load(checkpoint_path, map_location="cpu")
-    state_dict = ckpt.get("state_dict", ckpt)  # Works with weights-only files
+    state_dict = torch.load(
+        checkpoint_path, 
+        weights_only=extra_load_kwargs.get("weights_only", True),
+        map_location=extra_load_kwargs.get("map_location"),
+        strict=extra_load_kwargs.get("strict", False),
+    )
     
     # Determine which keys to load
     if param_group_prefix is None:
@@ -115,7 +122,7 @@ def load_param_group_from_ckpt(
     ignored_keys = [k for k in state_dict.keys() if k not in filtered_dict]
 
     missing_keys, unexpected_keys = model_instance.load_state_dict(
-        filtered_dict, strict=strict
+        filtered_dict, strict=extra_load_kwargs.get("strict", False)
     )
 
     stats = {
