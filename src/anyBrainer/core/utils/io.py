@@ -105,7 +105,6 @@ def load_param_group_from_ckpt(
         checkpoint_path, 
         weights_only=extra_load_kwargs.get("weights_only", True),
         map_location=extra_load_kwargs.get("map_location"),
-        strict=extra_load_kwargs.get("strict", False),
     )
     
     # Determine which keys to load
