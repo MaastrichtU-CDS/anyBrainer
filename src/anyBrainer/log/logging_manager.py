@@ -55,7 +55,8 @@ class DefaultLoggingManager(LoggingManager):
         self.main_logger = self.setup_main_logging()
         self.log_queue, self.listener = self.setup_parallel_logging()
 
-        self.main_logger.info(f"Logging manager initialized with settings: {self.settings}")
+        self.main_logger.info(f"[{self.__class__.__name__}] Logging manager "
+                              f"initialized with settings: {self.settings}")
     
     def setup_main_logging(self) -> logging.Logger:
         """Sets up the main process logging handlers and loggers."""

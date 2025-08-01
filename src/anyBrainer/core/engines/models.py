@@ -148,7 +148,7 @@ class BaseModel(
     def predict_step(self, batch: dict, batch_idx: int):
         """Predict step."""
         raise NotImplementedError("Predict step not implemented")
-
+        
 
 @register(RK.PL_MODULE)
 class CLwAuxModel(BaseModel):
