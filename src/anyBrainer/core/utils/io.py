@@ -101,11 +101,12 @@ def load_param_group_from_ckpt(
         extra_load_kwargs = {}
 
     # Get checkpoint
-    state_dict = torch.load(
+    ckpt = torch.load(
         checkpoint_path, 
         weights_only=extra_load_kwargs.get("weights_only", True),
         map_location=extra_load_kwargs.get("map_location"),
     )
+    state_dict = ckpt.get("state_dict", ckpt)
     
     # Determine which keys to load
     if param_group_prefix is None:
