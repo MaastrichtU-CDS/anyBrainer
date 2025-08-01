@@ -10,7 +10,7 @@ import logging
 import time
 from pathlib import Path
 import resource
-from typing import Any, TYPE_CHECKING, cast
+from typing import Any, cast
 from dataclasses import dataclass
 
 import torch
@@ -33,9 +33,7 @@ from anyBrainer.factories import (
     ModuleFactory,
     UnitFactory,
 )
-if TYPE_CHECKING:
-    from anyBrainer.interfaces import LoggingManager
-
+from anyBrainer.interfaces import LoggingManager
 
 @dataclass
 class TrainingSettings:
