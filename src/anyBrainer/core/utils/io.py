@@ -64,6 +64,8 @@ def load_model_from_ckpt(
     ckpt_path: Path,
 ) -> pl.LightningModule | None:
     """Load a model from a checkpoint file."""
+    ckpt = torch.load(ckpt_path)
+    print(ckpt)
     if not ckpt_path.exists():
         logger.warning(f"Checkpoint file {ckpt_path} does not exist; "
                        "will create new model.")

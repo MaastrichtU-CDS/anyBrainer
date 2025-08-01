@@ -252,8 +252,6 @@ class TrainWorkflow(Workflow):
         ckpt_path = (self.settings.model_checkpoint or 
                      self.settings.exp_dir / "checkpoints" / "last.ckpt")
         
-        self.main_logger.info(f"{self.settings.pl_module_kwargs}")
-
         if not self.settings.new_version:
             model = load_model_from_ckpt(
                 model_cls=cast(type[pl.LightningModule], get(RK.PL_MODULE, self.settings.pl_module_name)),

@@ -132,10 +132,10 @@ def resolve_fn(
 
 def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
     """Setup all mixins for a PL module."""
-    logger.info(f"SETUP_MIXINS CALLED for {module.__class__.__name__}")
     for cls in module.__class__.__mro__:
         if issubclass(cls, PLModuleMixin) and cls is not PLModuleMixin:
             try:
+                logger.info(f"SETUP_MIXINS CALLED for {cls.__name__}")
                 cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
             except TypeError:
                 pass
