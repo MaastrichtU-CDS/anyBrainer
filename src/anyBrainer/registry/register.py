@@ -73,6 +73,7 @@ ALLOWED_TYPES: dict[RegistryKind, tuple[object, ...]] = {
 def register(kind: RegistryKind) -> Callable[[T], T]:
     """Decorator that records the object and returns it unchanged."""
     def _decorator(obj: T) -> T:
+        print(f"Registering {obj} as {kind}")
         check_allowed_types(kind.value, obj, ALLOWED_TYPES[kind])
         bucket = REGISTRIES[kind]
         name = getattr(obj, "__name__", repr(obj))
