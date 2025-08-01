@@ -97,6 +97,8 @@ def load_param_group_from_ckpt(
 ) -> tuple[torch.nn.Module, dict[str, Any]]:
     """
     Load an encoder from a checkpoint file.
+
+    Do not include `model.` in parameter group prefix.
     """
     if extra_load_kwargs is None:
         extra_load_kwargs = {}
@@ -113,7 +115,7 @@ def load_param_group_from_ckpt(
             param_group_prefix = [param_group_prefix]
         filtered_dict = {
             k: v for k, v in state_dict.items()
-            if any(k.startswith(p) for p in param_group_prefix)
+            if any(k.startswith(f"model.{p}") for p in param_group_prefix)
         }
 
     ignored_keys = [k for k in state_dict.keys() if k not in filtered_dict]
