@@ -1,3 +1,2 @@
-import logging
-
-logging.getLogger().setLevel(logging.INFO)
+from .core import *
+from .log import *

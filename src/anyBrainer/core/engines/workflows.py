@@ -190,7 +190,7 @@ class TrainWorkflow(Workflow):
         Override for custom logging configuration.
         """
         logging_config = {
-            "name": "LoggingManager", 
+            "name": "DefaultLoggingManager", 
             "logs_root": self.settings.exp_dir / "logs",
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,
