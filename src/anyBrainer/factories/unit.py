@@ -78,18 +78,18 @@ class UnitFactory:
         Get optimizer instances from kwargs.
 
         Optimizer class is retrieved from torch.optim.
-        Expects users to provide param_groups: list[nn.Parameter] | Iterable[nn.Parameter]
-        inside optimizer_kwargs.
+        Expects users to provide `params`: list[nn.Parameter] | Iterable[nn.Parameter]
+        inside `optimizer_kwargs`.
 
-        If optimizer_kwargs is a list, return a list of optimizers through recursive calls.
+        If `optimizer_kwargs` is a list, return a list of optimizers through recursive calls.
 
         Args:
-            optimizer_kwargs: optimizer kwargs, containing "name" key.
+            optimizer_kwargs: optimizer kwargs, containing `name` key.
 
         Raises:
-            - ValueError: If optimizer name is not provided in optimizer_kwargs.
-            - ValueError: If param_groups is not provided in optimizer_kwargs.
-            - ValueError: If requested optimizer is not found in torch.optim.
+            - ValueError: If optimizer `name` is not provided in optimizer_kwargs.
+            - ValueError: If `params` is not provided in optimizer_kwargs.
+            - ValueError: If requested optimizer is not found in `torch.optim`.
             - Exception: If error occurs during optimizer initialization.
         """
         # Handle multiple optimizers with recursive calls
@@ -105,14 +105,14 @@ class UnitFactory:
             logger.error(msg)
             raise ValueError(msg)
         
-        if "param_groups" not in optimizer_kwargs:
-            msg = "Param groups not found in optimizer_kwargs."
+        if "params" not in optimizer_kwargs:
+            msg = "`params` not found in optimizer_kwargs."
             logger.error(msg)
             raise ValueError(msg)
 
         optimizer_kwargs = optimizer_kwargs.copy()
         cls_name = optimizer_kwargs.pop("name")
-        param_groups = optimizer_kwargs.pop("param_groups")
+        params = optimizer_kwargs.pop("params")
         
         # Extract requested optimizer class
         try:
@@ -124,7 +124,7 @@ class UnitFactory:
         
         # Handle improper initialization args
         try:
-            optimizer = optimizer_cls(param_groups, **optimizer_kwargs)
+            optimizer = optimizer_cls(params, **optimizer_kwargs)
         except Exception as e:
             msg = f"Error initializing optimizer '{cls_name}': {e}"
             logger.exception(msg)

@@ -64,6 +64,101 @@ class ModelInitMixin(PLModuleMixin):
 
 
 @register(RK.PL_MODULE_MIXIN)
+class WeightInitMixin(PLModuleMixin):
+    """
+    Adds support for initializing model weights.
+    """
+    def setup_mixin(
+        self,
+        weights_init_kwargs: dict[str, Any] | None,
+        **kwargs,
+    ) -> None:
+        """
+        Initialize model weights either through a pretrained checkpoint or a 
+        custom weight initialization function.
+        """
+        if not isinstance(weights_init_kwargs, (dict, type(None))):
+            msg = (f"[{self.__class__.__name__}] `weights_init_kwargs` must be a dict, "
+                   f"or None, got {type(weights_init_kwargs).__name__}.")
+            logger.error(msg)
+            raise TypeError(msg)
+
+        if not hasattr(self, "model"):
+            msg = "Expected attribute 'model' before calling WeightInitMixin.setup_mixin()."
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        if weights_init_kwargs is None:
+            weights_init_kwargs = {}
+        
+        weights_init_fn = weights_init_kwargs.get("weights_init_fn")
+        load_pretrain_weights = weights_init_kwargs.get("load_pretrain_weights")
+        load_param_group_prefix = weights_init_kwargs.get("load_param_group_prefix")
+        extra_load_kwargs = weights_init_kwargs.get("extra_load_kwargs", {})
+
+        if load_pretrain_weights is not None:
+            if weights_init_fn is not None:
+                logger.warning(f"[{self.__class__.__name__}] Provided both "
+                                f"load_pretrain_weights and weights_init_fn. "
+                                f"weights_init_fn will be ignored.")
+            self._load_pretrain_weights(
+                load_pretrain_weights=load_pretrain_weights,
+                load_param_group_prefix=load_param_group_prefix,
+                extra_load_kwargs=extra_load_kwargs,
+            )
+            return
+
+        if weights_init_fn is not None:
+            self._apply_weights_init_fn(
+                weights_init_fn=weights_init_fn,
+            )
+            return
+
+        logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
+    
+    def _load_pretrain_weights(
+        self,
+        load_pretrain_weights: str,
+        load_param_group_prefix: str | list[str] | None,
+        extra_load_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Load pretrained weights from checkpoint.
+        
+        Allows selective loading of specific parameter groups. 
+        """
+        try:
+            self.model, stats = load_param_group_from_ckpt(
+                model_instance=self.model,
+                checkpoint_path=resolve_path(load_pretrain_weights),
+                param_group_prefix=load_param_group_prefix,
+                extra_load_kwargs=extra_load_kwargs,
+            )
+            logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
+                        f"{load_pretrain_weights}\n#### Summary ####"
+                        f"\n- Attempted to load {len(stats['loaded_keys'])} parameters "
+                        f"(filtered out {len(stats['ignored_keys'])} parameters)"
+                            f"\n- Unexpected {len(stats['unexpected_keys'])} parameters"
+                            f"\n- Missing {len(stats['missing_keys'])} parameters")
+        except Exception as e:
+            logger.error(f"[{self.__class__.__name__}] Failed to load pretrained weights: {e}")
+            raise e
+    
+    def _apply_weights_init_fn(
+        self,
+        weights_init_fn: Callable | str,
+    ) -> None:
+        """Apply weight initialization function to model."""
+        try:
+            self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
+            logger.info(f"[{self.__class__.__name__}] Initialized model weights with "
+                        f"{weights_init_fn}.")
+        except Exception as e:
+            logger.error(f"[{self.__class__.__name__}] Failed to apply weight initialization function: {e}")
+            raise e
+
+
+@register(RK.PL_MODULE_MIXIN)
 class LossMixin(PLModuleMixin):
     """
     Adds support for instantiating the loss function(s).
@@ -186,14 +281,40 @@ class OptimConfigMixin(PLModuleMixin):
             raise ValueError(msg)
 
         if isinstance(optimizer_kwargs, list):
+            # Multiple optimizers
             for cfg in optimizer_kwargs:
-                cfg["param_groups"] = get_parameter_groups_from_prefixes(
-                    self.model, cfg.pop("param_group_prefix", None) # type: ignore
+                param_prefix = cfg.pop("param_group_prefix")
+                cfg["params"] = get_parameter_groups_from_prefixes(
+                    self.model, param_prefix # type: ignore
                 )
         else:
-            optimizer_kwargs["param_groups"] = get_parameter_groups_from_prefixes(
-                self.model, optimizer_kwargs.pop("param_group_prefix", None) # type: ignore
-            )
+            # Single optimizer
+            param_group_cfgs = optimizer_kwargs.pop("param_groups")
+            param_prefix = optimizer_kwargs.pop("param_group_prefix")
+
+            # User provides separate param groups
+            if param_group_cfgs is not None:
+                if not isinstance(param_group_cfgs, list):
+                    msg = (f"[{self.__class__.__name__}] `param_groups` must be a list, "
+                           f"got {type(param_group_cfgs).__name__}.")
+                    logger.error(msg)
+                    raise TypeError(msg)
+                
+                resolved_groups = []
+                for group_cfg in param_group_cfgs:
+                    resolved = group_cfg.copy()
+                    resolved["params"] = (
+                        get_parameter_groups_from_prefixes(
+                            self.model, group_cfg.pop("param_group_prefix") # type: ignore
+                        )
+                    )
+                    resolved_groups.append(resolved)
+                optimizer_kwargs["params"] = resolved_groups
+            else:
+                # One param group from a single prefix
+                optimizer_kwargs["params"] = (
+                    get_parameter_groups_from_prefixes(self.model, param_prefix) # type: ignore
+                )
 
         self.optimizer_kwargs = optimizer_kwargs
         self.lr_scheduler_kwargs = lr_scheduler_kwargs
@@ -254,101 +375,6 @@ class OptimConfigMixin(PLModuleMixin):
             }
 
         return optimizer
-
-
-@register(RK.PL_MODULE_MIXIN)
-class WeightInitMixin(PLModuleMixin):
-    """
-    Adds support for initializing model weights.
-    """
-    def setup_mixin(
-        self,
-        weights_init_kwargs: dict[str, Any] | None,
-        **kwargs,
-    ) -> None:
-        """
-        Initialize model weights either through a pretrained checkpoint or a 
-        custom weight initialization function.
-        """
-        if not isinstance(weights_init_kwargs, (dict, type(None))):
-            msg = (f"[{self.__class__.__name__}] `weights_init_kwargs` must be a dict, "
-                   f"or None, got {type(weights_init_kwargs).__name__}.")
-            logger.error(msg)
-            raise TypeError(msg)
-
-        if not hasattr(self, "model"):
-            msg = "Expected attribute 'model' before calling WeightInitMixin.setup_mixin()."
-            logger.error(msg)
-            raise ValueError(msg)
-        
-        if weights_init_kwargs is None:
-            weights_init_kwargs = {}
-        
-        weights_init_fn = weights_init_kwargs.get("weights_init_fn")
-        load_pretrain_weights = weights_init_kwargs.get("load_pretrain_weights")
-        load_param_group_prefix = weights_init_kwargs.get("load_param_group_prefix")
-        extra_load_kwargs = weights_init_kwargs.get("extra_load_kwargs", {})
-
-        if load_pretrain_weights is not None:
-            if weights_init_fn is not None:
-                logger.warning(f"[{self.__class__.__name__}] Provided both "
-                                f"load_pretrain_weights and weights_init_fn. "
-                                f"weights_init_fn will be ignored.")
-            self._load_pretrain_weights(
-                load_pretrain_weights=load_pretrain_weights,
-                load_param_group_prefix=load_param_group_prefix,
-                extra_load_kwargs=extra_load_kwargs,
-            )
-            return
-
-        if weights_init_fn is not None:
-            self._apply_weights_init_fn(
-                weights_init_fn=weights_init_fn,
-            )
-            return
-
-        logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
-    
-    def _load_pretrain_weights(
-        self,
-        load_pretrain_weights: str,
-        load_param_group_prefix: str | list[str] | None,
-        extra_load_kwargs: dict[str, Any] | None = None,
-    ) -> None:
-        """
-        Load pretrained weights from checkpoint.
-        
-        Allows selective loading of specific parameter groups. 
-        """
-        try:
-            self.model, stats = load_param_group_from_ckpt(
-                model_instance=self.model,
-                checkpoint_path=resolve_path(load_pretrain_weights),
-                param_group_prefix=load_param_group_prefix,
-                extra_load_kwargs=extra_load_kwargs,
-            )
-            logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
-                        f"{load_pretrain_weights}\n#### Summary ####"
-                        f"\n- Attempted to load {len(stats['loaded_keys'])} parameters "
-                        f"(filtered out {len(stats['ignored_keys'])} parameters)"
-                            f"\n- Unexpected {len(stats['unexpected_keys'])} parameters"
-                            f"\n- Missing {len(stats['missing_keys'])} parameters")
-        except Exception as e:
-            logger.error(f"[{self.__class__.__name__}] Failed to load pretrained weights: {e}")
-            raise e
-    
-    def _apply_weights_init_fn(
-        self,
-        weights_init_fn: Callable | str,
-    ) -> None:
-        """Apply weight initialization function to model."""
-        try:
-            self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
-            logger.info(f"[{self.__class__.__name__}] Initialized model weights with "
-                        f"{weights_init_fn}.")
-        except Exception as e:
-            logger.error(f"[{self.__class__.__name__}] Failed to apply weight initialization function: {e}")
-            raise e
     
 
 @register(RK.PL_MODULE_MIXIN)
