@@ -10,7 +10,7 @@ __all__ = [
     'get_classification_val_transforms',
 ]
 
-from typing import Sequence
+from typing import Sequence, Callable
 
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
@@ -40,7 +40,9 @@ from anyBrainer.registry import register, RegistryKind as RK
 OPEN_KEYS = [f"img_{i}" for i in range(1, 20)]
 
 @register(RK.TRANSFORM)
-def get_mae_train_transforms(patch_size: int | Sequence[int] = 128):
+def get_mae_train_transforms(
+    patch_size: int | Sequence[int] = 128,
+) -> list[Callable]:
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
@@ -65,7 +67,9 @@ def get_mae_train_transforms(patch_size: int | Sequence[int] = 128):
     ]
 
 @register(RK.TRANSFORM)
-def get_mae_val_transforms(patch_size: int | Sequence[int] = 128):
+def get_mae_val_transforms(
+    patch_size: int | Sequence[int] = 128,
+) -> list[Callable]:
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
                    ensure_channel_first=True, allow_missing_keys=True),
@@ -79,7 +83,9 @@ def get_mae_val_transforms(patch_size: int | Sequence[int] = 128):
     ]
 
 @register(RK.TRANSFORM)
-def get_contrastive_train_transforms(patch_size: int | Sequence[int] = 128):
+def get_contrastive_train_transforms(
+    patch_size: int | Sequence[int] = 128,
+) -> list[Callable]:
     return [
         GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
                      extra_keys=['sub_id', 'ses_id']),
@@ -112,7 +118,9 @@ def get_contrastive_train_transforms(patch_size: int | Sequence[int] = 128):
     ]
 
 @register(RK.TRANSFORM)
-def get_contrastive_val_transforms(patch_size: int | Sequence[int] = 128):
+def get_contrastive_val_transforms(
+    patch_size: int | Sequence[int] = 128,
+) -> list[Callable]:
     return [
         GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
                      extra_keys=['sub_id', 'ses_id']),
@@ -134,50 +142,64 @@ def get_contrastive_val_transforms(patch_size: int | Sequence[int] = 128):
     ]
 
 @register(RK.TRANSFORM)
-def get_predict_transforms(patch_size: int | Sequence[int] = 128):
+def get_predict_transforms(
+    patch_size: int | Sequence[int] = 128, 
+    keys: list[str] = OPEN_KEYS,
+    allow_missing_keys: bool = True,
+) -> list[Callable]:
     return [
-        LoadImaged(keys=['img'], reader='NumpyReader', ensure_channel_first=True),
-        SpatialPadd(keys=['img'], spatial_size=patch_size, mode='constant'),
+        LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True,
+                   allow_missing_keys=allow_missing_keys),
+        SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant',
+                    allow_missing_keys=allow_missing_keys),
     ]
 
 @register(RK.TRANSFORM)
-def get_classification_train_transforms(patch_size: int | Sequence[int] = 128):
+def get_classification_train_transforms(
+    patch_size: int | Sequence[int] = 128,
+    keys: list[str] = OPEN_KEYS,
+    allow_missing_keys: bool = True,
+) -> list[Callable]:
     return [
-        LoadImaged(keys=OPEN_KEYS, reader='NumpyReader', ensure_channel_first=True, 
-                   allow_missing_keys=True),
-        SpatialPadd(keys=OPEN_KEYS, spatial_size=patch_size, mode='constant', 
-                    allow_missing_keys=True),
-        RandFlipd(keys=OPEN_KEYS, spatial_axis=(0, 1), prob=0.3, 
-                  allow_missing_keys=True),
-        RandAffined(keys=OPEN_KEYS, rotate_range=(0.3, 0.3, 0.3),
+        LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
+                   allow_missing_keys=allow_missing_keys),
+        SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+                    allow_missing_keys=allow_missing_keys),
+        RandFlipd(keys=keys, spatial_axis=(0, 1), prob=0.3, 
+                  allow_missing_keys=allow_missing_keys),
+        RandAffined(keys=keys, rotate_range=(0.3, 0.3, 0.3),
                     scale_range=(0.1, 0.1, 0.1), shear_range=(0.3, 0.3, 0.3),
                     mode='bilinear', padding_mode='zeros', prob=1.0,
-                    allow_missing_keys=True),
-        RandSpatialCropd(keys=OPEN_KEYS, roi_size=patch_size, 
-                         allow_missing_keys=True),
-        RandScaleIntensityFixedMeand(keys=OPEN_KEYS, factors=0.1, prob=0.3, 
+                    allow_missing_keys=allow_missing_keys),
+        RandSpatialCropd(keys=keys, roi_size=patch_size, 
+                         allow_missing_keys=allow_missing_keys),
+        RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.3, 
                                      allow_missing_keys=True),
-        RandGaussianNoised(keys=OPEN_KEYS, std=0.01, prob=0.2, 
-                           allow_missing_keys=True),
-        RandGaussianSmoothd(keys=OPEN_KEYS, sigma_x=(0.5, 1.0), prob=0.2, 
-                            allow_missing_keys=True),
-        RandBiasFieldd(keys=OPEN_KEYS, coeff_range=(0.0, 0.05), prob=0.3, 
-                       allow_missing_keys=True),
-        RandGibbsNoised(keys=OPEN_KEYS, alpha=(0.2, 0.4), prob=0.2, 
-                        allow_missing_keys=True),
-        RandAdjustContrastd(keys=OPEN_KEYS, gamma=(0.9, 1.1), prob=0.3, 
-                            allow_missing_keys=True),
-        RandSimulateLowResolutiond(keys=OPEN_KEYS, prob=0.1, zoom_range=(0.5, 1.0),
-                                   allow_missing_keys=True),
+        RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
+                           allow_missing_keys=allow_missing_keys),
+        RandGaussianSmoothd(keys=keys, sigma_x=(0.5, 1.0), prob=0.2, 
+                            allow_missing_keys=allow_missing_keys),
+        RandBiasFieldd(keys=keys, coeff_range=(0.0, 0.05), prob=0.3, 
+                       allow_missing_keys=allow_missing_keys),
+        RandGibbsNoised(keys=keys, alpha=(0.2, 0.4), prob=0.2, 
+                        allow_missing_keys=allow_missing_keys),
+        RandAdjustContrastd(keys=keys, gamma=(0.9, 1.1), prob=0.3, 
+                            allow_missing_keys=allow_missing_keys),
+        RandSimulateLowResolutiond(keys=keys, prob=0.1, zoom_range=(0.5, 1.0),
+                                   allow_missing_keys=allow_missing_keys),
     ]
 
 @register(RK.TRANSFORM)
-def get_classification_val_transforms(patch_size: int | Sequence[int] = 128):
+def get_classification_val_transforms(
+    patch_size: int | Sequence[int] = 128,
+    keys: list[str] = OPEN_KEYS,
+    allow_missing_keys: bool = True,
+) -> list[Callable]:
     return [
-        LoadImaged(keys=OPEN_KEYS, reader='NumpyReader', ensure_channel_first=True, 
-                   allow_missing_keys=True),
-        SpatialPadd(keys=OPEN_KEYS, spatial_size=patch_size, mode='constant', 
-                    allow_missing_keys=True),
-        RandSpatialCropd(keys=OPEN_KEYS, roi_size=patch_size, 
-                         allow_missing_keys=True),
+        LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
+                   allow_missing_keys=allow_missing_keys),
+        SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+                    allow_missing_keys=allow_missing_keys),
+        RandSpatialCropd(keys=keys, roi_size=patch_size, 
+                         allow_missing_keys=allow_missing_keys),
     ]

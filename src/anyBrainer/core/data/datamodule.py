@@ -20,12 +20,13 @@ from __future__ import annotations
 __all__ = [
     "MAEDataModule",
     "ContrastiveDataModule",
+    "ClassificationDataModule",
 ]
 
 import logging
 from pathlib import Path
 from typing import Callable, Literal, Any, TYPE_CHECKING, cast
-from collections import defaultdict, Counter
+from collections import Counter
 
 import lightning.pytorch as pl
 import numpy as np
@@ -44,21 +45,17 @@ from anyBrainer.registry import register
 from anyBrainer.core.data.utils import (
     check_data_dir_exists,
     parse_filename_nested_nifti,
+    group_data,
     get_summary_msg,
+    get_summary_msg_w_labels,
     resolve_transform,
     resolve_fn,
+    read_label_from_txt,
 )
 from anyBrainer.core.utils import (
     split_data_by_subjects, 
     resolve_path,
     make_worker_init_fn,
-)
-from anyBrainer.core.transforms import(
-    get_mae_train_transforms,
-    get_mae_val_transforms,
-    get_contrastive_train_transforms,
-    get_contrastive_val_transforms,
-    get_predict_transforms,
 )
 from anyBrainer.core.data.explorer import DataHandler
 from anyBrainer.registry import RegistryKind as RK
@@ -536,24 +533,12 @@ class ContrastiveDataModule(BaseDataModule):
         """
         Create data list of dicts for contrastive - group by session.
         """
-        session_groups = defaultdict(list)
-        subjects = set()
-        sessions = set()
-        modality_counts = Counter()
-
-        # Group by session
-        for file_path in data_list:
-            metadata = parse_filename_nested_nifti(file_path)
-            subjects.add(metadata['sub_id'])
-            sessions.add(f"{metadata['sub_id']}_ses_{metadata['ses_id']}")
-            modality_counts[metadata['modality']] += 1
-
-            session_key = f"{metadata['sub_id']}_ses_{metadata['ses_id']}"
-            session_groups[session_key].append(metadata)
+        grouped_data = group_data(group_by="session", data_list=data_list)
         
         list_of_dicts = []
 
-        for session_key, session_files in tqdm(session_groups.items(), desc="Creating data list"):
+        for session_files in tqdm(grouped_data["grouped_data"].values(), 
+                                  desc="Creating data list"):
             if len(session_files) == 0:
                 continue
             
@@ -570,6 +555,119 @@ class ContrastiveDataModule(BaseDataModule):
             
             list_of_dicts.append(session_entry)
         
-        logger.info(get_summary_msg(subjects, sessions, modality_counts))
+        logger.info(get_summary_msg(grouped_data["subjects"], 
+                                    grouped_data["sessions"], 
+                                    grouped_data["modality_counts"]))
+        return list_of_dicts
+
+
+@register(RK.DATAMODULE)
+class ClassificationDataModule(BaseDataModule):
+    """
+    DataModule for any classification task.
+
+    The `labels_dir` should be either a directory with the same structure as `data_dir`
+    or `data_dir` itself. The label is retrieved from `labels_filename`.
+
+    Args:
+        labels_dir: Directory containing labels with naming pattern 
+            sub_x_ses_y_labels.txt
+        labels_filename: Name of the label file
+        expected_labels: Expected labels in the label file
+        strict: Whether to raise an error when label does not match expected labels. 
+            If False, it skips the session; can be used for label filtering.
+        modalities: List of modalities to include. If None, all modalities are included.
+
+    See `BaseDataModule` for all initialization parameters.
+    """
+    def __init__(
+        self,
+        *,
+        labels_dir: Path | str | None = None,
+        labels_filename: str = "labels.txt",
+        expected_labels: list[str] = ['0', '1'],
+        strict: bool = False,
+        modalities: list[str] | None = None,
+        **base_module_kwargs,
+    ):
+        super().__init__(**base_module_kwargs)
+
+        self.labels_dir = (resolve_path(labels_dir) 
+                           if labels_dir is not None else self.data_dir)
+        self.labels_filename = labels_filename
+        self.expected_labels = expected_labels
+        self.strict = strict
+        self.modalities = modalities
+
+    def process_data_list(self, data_list: list[Path]) -> list[Any]:
+        """
+        Create data list of session-level entries for classification.
+
+        Skips sessions with no label file.
+        """
+        grouped_data = group_data(group_by="session", data_list=data_list) # list(sessions(list(files+metadata)))
         
+        list_of_dicts = []
+        used_subjects = set()
+        used_sessions = set()
+        used_modality_counts = Counter()
+        label_counts = Counter()
+
+        for session, session_files in tqdm(grouped_data["grouped_data"].items(), 
+                                  desc="Creating data list"):
+            # Filter by modality
+            if self.modalities is not None:
+                session_files = [
+                    f for f in session_files 
+                    if f['modality'] in self.modalities
+                ]
+                if not session_files:
+                    logger.warning(f"No valid modalities found for session "
+                                   f"{session}; skipping")
+                    continue
+
+            file_metadata = session_files[0]
+            label_path = (self.labels_dir / 
+                        file_metadata['file_name'].relative_to(self.data_dir).parent / 
+                        self.labels_filename)
+
+            if label_path.exists():
+                label = read_label_from_txt(label_path, 
+                                            expected_labels=self.expected_labels,
+                                            strict=self.strict)
+                if label is None:
+                    logger.warning(f"Label of session {session} does not match "
+                                   f"expected labels; skipping")
+                    continue
+            else:
+                logger.warning(f"Label file {label_path} not found for session "
+                               f"{session}; skipping")
+                continue
+
+            # Build the session entry
+            session_entry = {
+                'sub_id': file_metadata['sub_id'],
+                'ses_id': file_metadata['ses_id'],
+                'count': len(session_files),
+                'label': label,
+            }
+
+            for i, f in enumerate(session_files):
+                session_entry[f"img_{i}"] = f['file_name']
+                session_entry[f"mod_{i}"] = f['modality']
+                used_modality_counts[f['modality']] += 1
+
+            used_subjects.add(file_metadata['sub_id'])
+            used_sessions.add(f"{file_metadata['sub_id']}_{file_metadata['ses_id']}")
+            label_counts[label] += 1
+
+            list_of_dicts.append(session_entry)
+
+        logger.info(get_summary_msg_w_labels(
+            used_subjects,
+            used_sessions,
+            used_modality_counts,
+            label_counts,
+        ))
+
         return list_of_dicts

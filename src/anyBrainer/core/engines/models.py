@@ -148,7 +148,7 @@ class BaseModel(
     def predict_step(self, batch: dict, batch_idx: int):
         """Predict step."""
         raise NotImplementedError("Predict step not implemented")
-        
+
 
 @register(RK.PL_MODULE)
 class CLwAuxModel(BaseModel):
@@ -411,7 +411,7 @@ class ClassificationModel(BaseModel):
     def _shared_step(self, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
         """Shared step."""
         out = self.model(batch["img"])
-        loss = self.loss_fn[0](out, batch["label"]) # type: ignore
+        loss = self.loss_fn(out, batch["label"]) # type: ignore
         return loss, {"loss": loss, "acc": top1_accuracy(out, batch["label"])}
     
     def _log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:

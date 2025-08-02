@@ -3,8 +3,8 @@
 import logging
 from pathlib import Path
 import re
-from collections import Counter
-from typing import Any, Callable, cast
+from collections import Counter, defaultdict
+from typing import Any, Callable, Literal, cast
 
 from anyBrainer.registry import get, RegistryKind as RK
 from anyBrainer.factories import UnitFactory
@@ -117,6 +117,47 @@ def check_data_dir_exists(data_dir: Path | str) -> None:
         logger.error(f"Data directory {data_dir} does not exist")
         raise FileNotFoundError(f"Data directory {data_dir} does not exist")
 
+def group_data(
+    group_by: Literal["modality","subject", "session", "img"], 
+    data_list: list[Path],
+) -> dict[str, Any]:
+    """
+    Group data by a given key.
+
+    Assumes that filename contains: sub_x_ses_y_ModalityName_CountIfMoreThanOne.npy
+    """
+    grouped_data = defaultdict(list)
+    subjects = set()
+    sessions = set()
+    modality_counts = Counter()
+
+    # Group by session
+    for file_path in data_list:
+        metadata = parse_filename_nested_nifti(file_path)
+        subject = metadata['sub_id']
+        session = f"{subject}_ses_{metadata['ses_id']}"
+        modality = metadata['modality']
+        
+        subjects.add(subject)
+        sessions.add(session)
+        modality_counts[modality] += 1
+
+        if group_by == "modality":
+            grouped_data[modality].append(metadata)
+        elif group_by == "subject":
+            grouped_data[subject].append(metadata)
+        elif group_by == "session":
+            grouped_data[session].append(metadata)
+        elif group_by == "img":
+            grouped_data[file_path].append(metadata)
+
+    return {
+        "grouped_data": grouped_data,
+        "subjects": subjects,
+        "sessions": sessions,
+        "modality_counts": modality_counts,
+    }
+
 def get_summary_msg(
     subjects: set, 
     sessions: set, 
@@ -134,6 +175,28 @@ def get_summary_msg(
     for mod, count in modality_counts.items():
         msg += (f"\n    - {mod}: {count} files "
                 f"({count/sum(modality_counts.values())*100:.2f}%)")
+
+    return msg
+
+def get_summary_msg_w_labels(
+    subjects: set, 
+    sessions: set, 
+    modality_counts: Counter,
+    label_counts: Counter,
+) -> str:
+    """
+    Get summary message for list of data creation.
+    """
+    msg = f"\n#### Data Collection Completed ####\nSummary:"
+    msg += f"\n  - {len(subjects)} subjects"
+    msg += f"\n  - {len(sessions)} sessions"
+    msg += f"\n  - {sum(modality_counts.values())} scans"
+    msg += f"\n  - {len(label_counts)} labels"
+    msg += f"\n  - Label distribution:"
+    
+    for label, count in label_counts.items():
+        msg += (f"\n    - {label}: {count} files "
+                f"({count/sum(label_counts.values())*100:.2f}%)")
 
     return msg
 
@@ -157,3 +220,24 @@ def resolve_fn(
         return cast(Callable, get(RK.UTIL, fn))
     
     return fn
+
+def read_label_from_txt(
+    file_path: Path | str, 
+    expected_labels: list[str] = ['0', '1'],
+    strict: bool = True,
+) -> int | None:
+    """Read label from txt file."""
+    file_path = Path(file_path)
+    content = file_path.read_text().strip()
+
+    if content not in expected_labels:
+        msg = (f"Unexpected label '{content}' in {file_path}. "
+               f"Expected one of {expected_labels}.")
+        if strict:
+            logger.error(msg)
+            raise ValueError(msg)
+        else:
+            logger.warning(msg)
+            return None
+
+    return int(content)

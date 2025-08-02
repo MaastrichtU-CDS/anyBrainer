@@ -14,8 +14,10 @@ from anyBrainer.core.data.explorer import GenericNiftiDataExplorer
 from anyBrainer.core.data import (
     MAEDataModule,
     ContrastiveDataModule,
+    ClassificationDataModule,
 )
 from anyBrainer.core.utils import make_worker_init_fn
+from anyBrainer.core.data.utils import group_data
 
 @pytest.fixture(autouse=True)
 def mock_data_explorer(monkeypatch):
@@ -72,12 +74,21 @@ transforms_mae = {
     'train_transforms': 'get_mae_train_transforms',
     'val_transforms': 'get_mae_val_transforms',
     'test_transforms': 'get_mae_val_transforms',
-    'predict_transforms': 'get_predict_transforms',
+    'predict_transforms': {
+        'name': 'get_predict_transforms', 
+        'keys': ['img'],
+    },
 }
 transforms_contrastive = {
     'train_transforms': 'get_contrastive_train_transforms',
     'val_transforms': 'get_contrastive_val_transforms',
     'test_transforms': 'get_contrastive_val_transforms',
+    'predict_transforms': 'get_predict_transforms',
+}
+transforms_classification = {
+    'train_transforms': 'get_classification_train_transforms',
+    'val_transforms': 'get_classification_val_transforms',
+    'test_transforms': 'get_classification_val_transforms',
     'predict_transforms': 'get_predict_transforms',
 }
 
