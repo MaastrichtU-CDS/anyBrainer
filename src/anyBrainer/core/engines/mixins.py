@@ -318,7 +318,7 @@ class OptimConfigMixin(PLModuleMixin):
 
         self.optimizer_kwargs = optimizer_kwargs
         self.lr_scheduler_kwargs = lr_scheduler_kwargs
-    
+  
     def get_optimizers_and_schedulers(
         self,
     ) -> (optim.Optimizer | dict[str, Any] | list[optim.Optimizer] | 
