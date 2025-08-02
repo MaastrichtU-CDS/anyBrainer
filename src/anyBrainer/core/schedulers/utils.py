@@ -15,7 +15,7 @@ def resolve_num_list_arg(
         return [arg_value] * n_groups # type: ignore
     
     if len(arg_value) != n_groups:
-        msg = f"[{arg_name}] Expected {n_groups} values, got {len(arg_value)}."
+        msg = f"{arg_name} expected {n_groups} values, got {len(arg_value)}."
         logger.error(msg)
         raise ValueError(msg)
     

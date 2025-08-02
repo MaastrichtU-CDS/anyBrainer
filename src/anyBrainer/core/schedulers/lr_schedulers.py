@@ -44,9 +44,15 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         """
         n_groups = len(optimizer.param_groups)
 
-        self.warmup_iters = resolve_num_list_arg(warmup_iters, n_groups, "warmup_iters")
-        self.total_iters = resolve_num_list_arg(total_iters, n_groups, "total_iters")
-        self.eta_min = resolve_num_list_arg(eta_min, n_groups, "eta_min")
+        self.warmup_iters = resolve_num_list_arg(
+            warmup_iters, n_groups, f"[CosineAnnealingWithWarmup] `warmup_iters`"
+        )
+        self.total_iters = resolve_num_list_arg(
+            total_iters, n_groups, f"[CosineAnnealingWithWarmup] `total_iters`"
+        )
+        self.eta_min = resolve_num_list_arg(
+            eta_min, n_groups, f"[CosineAnnealingWithWarmup] `eta_min`"
+        )
 
         super().__init__(optimizer, last_epoch)
 
