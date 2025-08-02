@@ -56,8 +56,6 @@ class LogLR(pl.Callback):
         if not isinstance(trainer.optimizers, list):
             logger.warning("Cannot log LR because pl_module.optimizers is not a list.")
             return
-
-        logger.info(f"trainer.optimizers: {trainer.optimizers}")
         
         pl_module.log_dict(
             get_optimizer_lr(trainer.optimizers),
