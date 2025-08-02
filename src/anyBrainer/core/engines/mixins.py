@@ -289,8 +289,8 @@ class OptimConfigMixin(PLModuleMixin):
                 )
         else:
             # Single optimizer
-            param_group_cfgs = optimizer_kwargs.pop("param_groups")
-            param_prefix = optimizer_kwargs.pop("param_group_prefix")
+            param_group_cfgs = optimizer_kwargs.pop("param_groups", None)
+            param_prefix = optimizer_kwargs.pop("param_group_prefix", None)
 
             # User provides separate param groups
             if param_group_cfgs is not None:
@@ -305,7 +305,7 @@ class OptimConfigMixin(PLModuleMixin):
                     resolved = group_cfg.copy()
                     resolved["params"] = (
                         get_parameter_groups_from_prefixes(
-                            self.model, group_cfg.pop("param_group_prefix") # type: ignore
+                            self.model, group_cfg.pop("param_group_prefix", None) # type: ignore
                         )
                     )
                     resolved_groups.append(resolved)
