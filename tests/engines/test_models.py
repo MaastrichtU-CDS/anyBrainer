@@ -84,7 +84,6 @@ class TestCLwAuxModel:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            total_steps=10000,
         )
         proj, aux = model(input_tensor)
         assert proj.shape == (8, 128)
@@ -102,7 +101,6 @@ class TestCLwAuxModel:
                 model_kwargs={"wrong_key": "wrong_value"},
                 optimizer_kwargs=swinv2cl_optimizer_kwargs,
                 lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-                total_steps=10000,
             )
             
 
@@ -118,7 +116,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, dict)
@@ -138,7 +135,6 @@ class TestConfigureOptimizers:
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
-            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, optim.Optimizer)
@@ -152,7 +148,6 @@ class TestConfigureOptimizers:
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs, swinv2cl_optimizer_kwargs],
-            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, list)
@@ -171,7 +166,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs, swinv2cl_optimizer_kwargs],
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, tuple)
@@ -197,7 +191,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs, swinv2cl_optimizer_kwargs],
             lr_scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
-            total_steps=10000,
         )
         out = model.configure_optimizers()
         assert isinstance(out, tuple)
@@ -223,7 +216,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
-            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -238,7 +230,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=[swinv2cl_optimizer_kwargs],
             lr_scheduler_kwargs=[swinv2cl_scheduler_kwargs, swinv2cl_scheduler_kwargs],
-            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -250,7 +241,6 @@ class TestConfigureOptimizers:
         model = CLwAuxModel(
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs={"name": "WrongOptim", "lr": 1e-4, "weight_decay": 1e-5},
-            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -264,7 +254,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs={"name": "WrongScheduler", "interval": "step", "frequency": 1},
-            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -278,7 +267,6 @@ class TestConfigureOptimizers:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs={"name": "CosineAnnealingWithWarmup", "frequency": 1},
-            total_steps=10000,
         )
         with pytest.raises(ValueError):
             model.configure_optimizers()
@@ -292,7 +280,6 @@ class TestConfigureOptimizers:
                 model_kwargs=swinv2cl_model_kwargs,
                 optimizer_kwargs={"name": "AdamW", "wrong_key": 1e-4, "weight_decay": 1e-5},
                 lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-                total_steps=10000,
             )
         with pytest.raises(Exception):
             model.configure_optimizers()
@@ -307,7 +294,6 @@ class TestConfigureOptimizers:
                 model_kwargs=swinv2cl_model_kwargs,
                 optimizer_kwargs=swinv2cl_optimizer_kwargs,
                 lr_scheduler_kwargs={"name": "WrongScheduler", "interval": "step", "frequency": 1},
-                total_steps=10000,
             )
         with pytest.raises(Exception):
             model.configure_optimizers()
@@ -327,7 +313,6 @@ class TestInitializations:
                 model_kwargs=swinv2cl_model_kwargs,
                 optimizer_kwargs=swinv2cl_optimizer_kwargs,
                 lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-                total_steps=10000,
                 loss_kwargs={"temperature": 0.1, "top_k_negatives": 1000},
                 loss_scheduler_kwargs={"loss_weight_step_start": 1000, "loss_weight_step_end": 3000},
                 momentum_scheduler_kwargs={"momentum_start_value": 0.996, "momentum_end_value": 0.999},
@@ -349,7 +334,6 @@ class TestInitializations:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            total_steps=10000,
         )
         model.summarize()
         
@@ -366,8 +350,6 @@ class TestTrainingStep:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            test_mode=True,
-            total_steps=10000,
             momentum_scheduler_kwargs={
                 "momentum_step_start": 0,
                 "momentum_step_end": 2000,
@@ -471,7 +453,6 @@ class TestValTestSteps:
             model_kwargs=swinv2cl_model_kwargs,
             optimizer_kwargs=swinv2cl_optimizer_kwargs,
             lr_scheduler_kwargs=swinv2cl_scheduler_kwargs,
-            total_steps=10000,
         )
     def test_val_step(self, model, input_batch):
         """Test that the validation step works."""

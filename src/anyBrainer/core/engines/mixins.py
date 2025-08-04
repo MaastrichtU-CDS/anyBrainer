@@ -7,6 +7,7 @@ __all__ = [
     "LossMixin",
     "ParamSchedulerMixin",
     "OptimConfigMixin",
+    "FreezeMixin",
     "WeightInitMixin",
     "HParamsMixin",
 ]
@@ -16,6 +17,7 @@ from typing import Any, Callable, TYPE_CHECKING, cast
 from copy import deepcopy
 
 from lightning.pytorch import LightningModule as plModule
+from torch.nn.modules.batchnorm import _BatchNorm
 
 from anyBrainer.core.utils import (
     get_parameter_groups_from_prefixes,
@@ -88,8 +90,7 @@ class WeightInitMixin(PLModuleMixin):
             logger.error(msg)
             raise ValueError(msg)
         
-        if weights_init_kwargs is None:
-            weights_init_kwargs = {}
+        weights_init_kwargs = weights_init_kwargs or {}
         
         weights_init_fn = weights_init_kwargs.get("weights_init_fn")
         load_pretrain_weights = weights_init_kwargs.get("load_pretrain_weights")
@@ -283,7 +284,7 @@ class OptimConfigMixin(PLModuleMixin):
         if isinstance(optimizer_kwargs, list):
             # Multiple optimizers
             for cfg in optimizer_kwargs:
-                param_prefix = cfg.pop("param_group_prefix")
+                param_prefix = cfg.pop("param_group_prefix", None)
                 cfg["params"] = get_parameter_groups_from_prefixes(
                     self.model, param_prefix # type: ignore
                 )
@@ -375,7 +376,142 @@ class OptimConfigMixin(PLModuleMixin):
             }
 
         return optimizer
+
+
+@register(RK.PL_MODULE_MIXIN)
+class FreezeMixin(PLModuleMixin):
+    """
+    Adds support for freezing model parameters.
+    """
+    def setup_mixin(
+        self,
+        freeze_kwargs: dict[str, Any] | None,
+        **kwargs,
+    ) -> None:
+        """
+        Freeze model parameters.
+        
+        Args:
+            freeze_kwargs: Dictionary containing (optionally) the following keys:
+                - param_group_prefix: List of parameter group prefixes to freeze
+                - freeze_epoch: Epoch at which to freeze the parameter groups;
+                    can be a single epoch or a list (len(freeze_epoch) == len(param_group_prefix)).
+                - unfreeze_epoch: Epoch at which to unfreeze the parameter groups;
+                    same format as freeze_epoch.
+                - train_bn: Whether to keep BatchNorm layers in train mode.
+        """
+        freeze_kwargs = freeze_kwargs or {}
+        if not isinstance(freeze_kwargs, dict):
+            msg = (f"[{self.__class__.__name__}] `freeze_kwargs` must be a dict, "
+                   f"got {type(freeze_kwargs).__name__}.")
+            logger.error(msg)
+            raise TypeError(msg)
+
+        if not hasattr(self, "model"):
+            msg = (f"[{self.__class__.__name__}] Expected attribute 'model' "
+                   "before calling FreezeMixin.setup_mixin().")
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        # Get parameter groups from prefixes as list of lists
+        self.prefixes = freeze_kwargs.get("param_group_prefix", [])
+        if isinstance(self.prefixes, str):
+            self.prefixes = [self.prefixes]
+
+        self.params_to_freeze = [
+            get_parameter_groups_from_prefixes(
+                model=self.model, # type: ignore
+                prefixes=pref,
+                trainable_only=False,
+                silent=True,
+            )
+            for pref in self.prefixes
+        ]
+
+        # Resolve freeze_epoch and unfreeze_epoch
+        self.freeze_epoch = freeze_kwargs.get("freeze_epoch", 0)
+        if isinstance(self.freeze_epoch, int):
+            self.freeze_epoch = [self.freeze_epoch] * len(self.params_to_freeze)
+        elif len(self.freeze_epoch) != len(self.params_to_freeze):
+            msg = (f"[{self.__class__.__name__}] Length of `freeze_epoch` must be "
+                   f"equal to the number of parameter groups, got {len(self.freeze_epoch)} "
+                   f"and {len(self.params_to_freeze)}.")
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.unfreeze_epoch = freeze_kwargs.get("unfreeze_epoch", 0)
+        if isinstance(self.unfreeze_epoch, int):
+            self.unfreeze_epoch = [self.unfreeze_epoch] * len(self.params_to_freeze)
+        elif len(self.unfreeze_epoch) != len(self.params_to_freeze):
+            msg = (f"[{self.__class__.__name__}] Length of `unfreeze_epoch` must be "
+                   f"equal to the number of parameter groups, got {len(self.unfreeze_epoch)} "
+                   f"and {len(self.params_to_freeze)}.")
+            logger.error(msg)
+            raise ValueError(msg)
+
+        # Resolve freezing of BatchNorm layers in train mode
+        self.train_bn = bool(freeze_kwargs.get("train_bn", False))
+
+        # Track param groups freezing
+        self._are_frozen = [False] * len(self.params_to_freeze)
+
+        logger.info(f"[{self.__class__.__name__}] Freezing {len(self.params_to_freeze)} "
+                    f"parameter groups at epochs {self.freeze_epoch} and unfreezing at "
+                    f"epochs {self.unfreeze_epoch}.")
     
+    def handle_param_freeze(self) -> None:
+        """
+        Handle parameter freezing based on current epoch.
+        To be called in on_train_epoch_start.
+        """
+        if not hasattr(self, "current_epoch"):
+            msg = (f"[{self.__class__.__name__}] Expected attribute 'current_epoch' "
+                   "before calling FreezeMixin.handle_param_freeze().")
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        frozen_param_groups = self._freeze_param_groups()
+        unfrozen_param_groups = self._unfreeze_param_groups()
+        train_mode = self._set_batchnorm_mode()
+
+        msg = (f"[{self.__class__.__name__}] Epoch {self.current_epoch}: " # type: ignore
+               f"\nFroze param groups: [{', '.join(self.prefixes[i] for i in frozen_param_groups)}]"
+               f"\nUnfroze param groups: [{', '.join(self.prefixes[i] for i in unfrozen_param_groups)}]")
+        if train_mode is not None:
+            msg += f"\nBatchNorm layers are in train mode: {train_mode}."
+        logger.info(msg)
+    
+    def _freeze_param_groups(self) -> list[int]:
+        """Freeze parameter groups."""
+        frozen_param_groups = []
+        for i, param_group in enumerate(self.params_to_freeze):
+            if self.current_epoch in self.freeze_epoch[i]: # type: ignore
+                for param in param_group:
+                    param.requires_grad = False
+                self._are_frozen[i] = True
+                frozen_param_groups.append(i)
+        return frozen_param_groups
+    
+    def _unfreeze_param_groups(self) -> list[int]:
+        """Unfreeze parameter groups."""
+        frozen_param_groups = []
+        for i, param_group in enumerate(self.params_to_freeze):
+            if self.current_epoch in self.unfreeze_epoch[i]: # type: ignore
+                for param in param_group:
+                    param.requires_grad = True
+                self._are_frozen[i] = False
+                frozen_param_groups.append(i)
+        return frozen_param_groups
+    
+    def _set_batchnorm_mode(self) -> bool | None:
+        """Set all BatchNorm layers to train or eval mode."""
+        train_mode = None
+        for m in self.model.modules(): # type: ignore
+            if isinstance(m, _BatchNorm):
+                train_mode = self.train_bn or not any(self._are_frozen)
+                m.train(train_mode)
+        return train_mode
+
 
 @register(RK.PL_MODULE_MIXIN)
 class HParamsMixin(PLModuleMixin):

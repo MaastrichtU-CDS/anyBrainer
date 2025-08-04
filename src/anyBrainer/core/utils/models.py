@@ -67,7 +67,9 @@ def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
 def get_parameter_groups_from_prefixes(
     model: nn.Module,
     prefixes: str | list[str] | None = None,
+    *,
     trainable_only: bool = True,
+    silent: bool = False,
 ) -> list[nn.Parameter]:
     if prefixes is None:
         return [p for p in model.parameters() if p.requires_grad or not trainable_only]
@@ -80,7 +82,7 @@ def get_parameter_groups_from_prefixes(
         if any(n.startswith(pref) for pref in prefixes)
         and (p.requires_grad or not trainable_only)
     ]
-    if not params:
+    if not silent and not params:
         msg = f"No parameters found for prefixes: {prefixes}"
         logger.error(msg)
         raise ValueError(msg)
