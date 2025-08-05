@@ -80,35 +80,19 @@ logger = logging.getLogger(__name__)
 class BaseDataModule(pl.LightningDataModule):
     """
     Base DataModule class.
-    
-    Args: 
-        data_dir: data directory
-        data_handler_kwargs: kwargs for DataHandler
-        batch_size: batch size for dataloaders
-        num_workers: number of workers for dataloaders
-        dataloader_kwargs: kwargs for DataLoader
-        train_val_test_split: train/val/test split
-        worker_logging_fn: function to log worker information
-        worker_seeding_fn: function to seed worker
-        collate_fn: function to collate data
-        seed: random seed for reproducibility
-        random_state: random state for reproducibility
-        train_transforms: transforms for train
-        val_transforms: transforms for val
-        test_transforms: transforms for test
-        predict_transforms: transforms for predict
-        predict_on_test: whether to predict on test set
     """
     def __init__(
         self,
         data_dir: Path | str,
+        *,
         data_handler_kwargs: dict[str, Any] | None = None,
         batch_size: int = 32,
         num_workers: int = 4,
         extra_dataloader_kwargs: dict[str, Any] | None = None,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
         val_mode: Literal["single", "repeated"] = "single",
-        val_n: int | None = None,
+        n_splits: int | None = None,
+        current_split: int = 0,
         worker_logging_fn: Callable | str | None = None,
         worker_seeding_fn: Callable | str | None = set_rnd,
         collate_fn: Callable | str | None = list_data_collate,
@@ -120,6 +104,30 @@ class BaseDataModule(pl.LightningDataModule):
         predict_transforms: dict[str, Any] | str | list[Callable] | None = None,
         predict_on_test: bool = False,
     ):
+        """
+        Initializes the datamodule.
+        
+        Resolves any *_fn args and transforms into callable objects.
+
+        Args: 
+        - data_dir: data directory
+        - data_handler_kwargs: kwargs for DataHandler
+        - batch_size: batch size for dataloaders
+        - num_workers: number of workers for dataloaders
+        - dataloader_kwargs: kwargs for DataLoader
+        - train_val_test_split: train/val/test split
+        - worker_logging_fn: function to log worker information
+        - worker_seeding_fn: function to seed worker
+        - collate_fn: function to collate data
+        - seed: random seed for reproducibility
+        - random_state: random state for reproducibility
+        - train_transforms: transforms for train
+        - val_transforms: transforms for val
+        - test_transforms: transforms for test
+        - predict_transforms: transforms for predict
+        - predict_on_test: whether to predict on test set
+
+        """
         super().__init__()
         self.data_dir = resolve_path(data_dir)
         data_handler_kwargs = data_handler_kwargs or {}
@@ -129,12 +137,12 @@ class BaseDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_val_test_split = train_val_test_split
-        if val_mode != "single" and val_n is None:
-            msg = "val_n must be provided when val_mode is not 'single'."
+        if val_mode != "single" and n_splits is None:
+            msg = "n_splits must be provided when val_mode is not 'single'."
             logger.error(msg)
             raise ValueError(msg)
         self.val_mode = val_mode
-        self.val_n = val_n
+        self.n_splits = n_splits
         self.predict_on_test = predict_on_test
         self.seed = seed
         self.set_random_state(seed, random_state)
@@ -157,7 +165,7 @@ class BaseDataModule(pl.LightningDataModule):
 
         # Will get updated by trainer.fit()
         self._current_epoch = 0
-        self._current_run = 0
+        self._current_split = current_split
         
         logger.info(f"[{self.__class__.__name__}] Datamodule initialized with following settings: "
                     f"data_dir: {self.data_dir}, batch_size: {self.batch_size}, "
@@ -166,7 +174,7 @@ class BaseDataModule(pl.LightningDataModule):
                     f"worker_logging_fn: {self.worker_logging_fn}, "
                     f"worker_seeding_fn: {self.worker_seeding_fn}, "
                     f"collate_fn: {self.collate_fn}, "
-                    f"val_mode: {self.val_mode}, val_n: {self.val_n}, "
+                    f"val_mode: {self.val_mode}, n_splits: {self.n_splits}, "
                     f"predict_on_test: {self.predict_on_test}")
     
     def set_random_state(
@@ -278,12 +286,12 @@ class BaseDataModule(pl.LightningDataModule):
             )
         elif self.val_mode == "repeated":
             logger.info(f"Splitting data into train/val/test sets for "
-                        f"{self._current_run}th repeated split")
+                        f"{self._current_split}th repeated split")
             if self.seed is None:
                 _seed = None
                 _rng = self.R
             else:
-                _seed = self.seed + self._current_run
+                _seed = self.seed + self._current_split
                 _rng = None
 
             return split_data_by_subjects(
@@ -321,7 +329,7 @@ class BaseDataModule(pl.LightningDataModule):
         elif stage == "predict":
             self.predict_data = test_data if self.predict_on_test else all_data
         
-        self._current_run += 1 # update for next run
+        self._current_split += 1 # update for next split
     
     def train_dataloader(self) -> DataLoader:
         """
@@ -456,7 +464,7 @@ class BaseDataModule(pl.LightningDataModule):
         state = {
             "train_val_test_split": self.train_val_test_split,
             "datamodule_base_seed": self.seed,
-            "current_run": self._current_run,
+            "current_split": self._current_split,
         }
         return state
 
@@ -471,14 +479,14 @@ class BaseDataModule(pl.LightningDataModule):
             "train_val_test_split", self.train_val_test_split
         )
         self.seed = state_dict.get("datamodule_base_seed")
-        self._current_run = state_dict.get("current_run", 0)
+        self._current_split = state_dict.get("current_split", 0)
         self._current_epoch = state_dict.get("epoch", 0)
 
         logger.info(f"Loaded from checkpoint: "
                     f"train_val_test_split: {self.train_val_test_split}, "
                     f"base_seed: {self.seed}, "
                     f"current_epoch: {self._current_epoch}, "
-                    f"current_run: {self._current_run}")
+                    f"current_split: {self._current_split}")
 
 
 @register(RK.DATAMODULE)
@@ -488,14 +496,6 @@ class MAEDataModule(BaseDataModule):
     
     The data_dir should contain .npy files with naming pattern 
     sub_x_ses_y_modalityname_count_if_more_than_one.npy
-    
-    Args: 
-        masks_dir: Directory containing brain masks with naming pattern 
-            sub_x_ses_y_mask.npy
-        **base_module_kwargs: kwargs for BaseDataModule
-            All other keyword arguments are passed to the `BaseDataModule` constructor.
-            Refer to `BaseDataModule` for supported options such as `data_dir`, `batch_size`,
-            `num_workers`, and preprocessing transforms.
     """
     def __init__(
         self,
@@ -503,6 +503,15 @@ class MAEDataModule(BaseDataModule):
         masks_dir: Path | str | None = None,
         **base_module_kwargs,
     ):
+        """
+        Args: 
+        - masks_dir: Directory containing brain masks with naming pattern 
+            sub_x_ses_y_mask.npy
+        - **base_module_kwargs: kwargs for BaseDataModule
+            All other keyword arguments are passed to the `BaseDataModule` constructor.
+            Refer to `BaseDataModule` for supported options such as `data_dir`, `batch_size`,
+            `num_workers`, and preprocessing transforms.
+        """
         super().__init__(**base_module_kwargs)
         self.masks_dir = resolve_path(masks_dir) if masks_dir is not None else None
         
@@ -599,17 +608,6 @@ class ClassificationDataModule(BaseDataModule):
 
     The `labels_dir` should be either a directory with the same structure as `data_dir`
     or `data_dir` itself. The label is retrieved from `labels_filename`.
-
-    Args:
-        labels_dir: Directory containing labels with naming pattern 
-            sub_x_ses_y_labels.txt
-        labels_filename: Name of the label file
-        expected_labels: Expected labels in the label file
-        strict: Whether to raise an error when label does not match expected labels. 
-            If False, it skips the session; can be used for label filtering.
-        modalities: List of modalities to include. If None, all modalities are included.
-
-    See `BaseDataModule` for all initialization parameters.
     """
     def __init__(
         self,
@@ -621,6 +619,18 @@ class ClassificationDataModule(BaseDataModule):
         modalities: list[str] | None = None,
         **base_module_kwargs,
     ):
+        """
+        Args:
+        - labels_dir: Directory containing labels with naming pattern 
+            sub_x_ses_y_labels.txt
+        - labels_filename: Name of the label file
+        - expected_labels: Expected labels in the label file
+        - strict: Whether to raise an error when label does not match expected labels. 
+            If False, it skips the session; can be used for label filtering.
+        - modalities: List of modalities to include. If None, all modalities are included.
+
+        See `BaseDataModule` for all initialization parameters.
+        """
         super().__init__(**base_module_kwargs)
 
         self.labels_dir = (resolve_path(labels_dir) 

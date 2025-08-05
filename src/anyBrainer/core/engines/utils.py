@@ -95,6 +95,8 @@ def unpack_settings_for_train_workflow(
         "batch_size": pl_datamodule_settings.get("batch_size", 8),
         "extra_dataloader_kwargs": pl_datamodule_settings.get("extra_dataloader_kwargs", {}),
         "train_val_test_split": pl_datamodule_settings.get("train_val_test_split", (0.7, 0.15, 0.15)),
+        "val_mode": pl_datamodule_settings.get("val_mode", "single"),
+        "val_n": pl_datamodule_settings.get("val_n"),
         "train_transforms": pl_datamodule_settings.get("train_transforms"),
         "val_transforms": pl_datamodule_settings.get("val_transforms"),
         "test_transforms": pl_datamodule_settings.get("test_transforms"),

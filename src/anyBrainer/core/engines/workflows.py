@@ -10,8 +10,9 @@ import logging
 import time
 from pathlib import Path
 import resource
-from typing import Any, cast
+from typing import Any, cast, Literal
 from dataclasses import dataclass
+from copy import deepcopy
 
 import torch
 import lightning.pytorch as pl
@@ -55,6 +56,9 @@ class TrainingSettings:
     num_workers: int
     batch_size: int
     train_val_test_split: tuple[float, float, float] | list[float]
+    val_mode: Literal["single", "repeated"]
+    n_splits: int | None
+    current_split: int
     extra_dataloader_kwargs: dict[str, Any]
     train_transforms: dict[str, Any] | str | None
     val_transforms: dict[str, Any] | str | None
@@ -108,10 +112,15 @@ class TrainWorkflow(Workflow):
         pl_module_settings: dict[str, Any],
         pl_callback_settings: list[dict[str, Any]],
         pl_trainer_settings: dict[str, Any],
-        logging_settings: dict[str, Any] = {},
-        ckpt_settings: dict[str, Any] = {},
+        logging_settings: dict[str, Any] | None = None,
+        ckpt_settings: dict[str, Any] | None = None,
+        validation_settings: dict[str, Any] | None = None,
         **extra,
     ):  
+        logging_settings = logging_settings or {}
+        ckpt_settings = ckpt_settings or {}
+        validation_settings = validation_settings or {}
+
         self.settings = TrainingSettings(
             **unpack_settings_for_train_workflow(
                 global_settings, 
@@ -122,8 +131,6 @@ class TrainWorkflow(Workflow):
                 pl_trainer_settings,
                 ckpt_settings,
         ))
-
-        self.__setup()
     
     def __setup(self):
         """
@@ -224,6 +231,9 @@ class TrainWorkflow(Workflow):
             "num_workers": self.settings.num_workers,
             "extra_dataloader_kwargs": self.settings.extra_dataloader_kwargs,
             "train_val_test_split": self.settings.train_val_test_split,
+            "val_mode": self.settings.val_mode,
+            "n_splits": self.settings.n_splits,
+            "current_split": self.settings.current_split,
             "train_transforms": self.settings.train_transforms,
             "val_transforms": self.settings.val_transforms,
             "test_transforms": self.settings.test_transforms,
@@ -322,6 +332,8 @@ class TrainWorkflow(Workflow):
         """
         Runs the training workflow.
         """
+        self.__setup()
+
         self.main_logger.info("\n[TRAINING STARTED]")
         self.main_logger.info(self.train_start_summary())
 
@@ -401,6 +413,71 @@ class TrainWorkflow(Workflow):
 
         Override for custom workflow closing.
         """
+        torch.cuda.empty_cache()
         self.logging_manager.close()
 
     fit = __call__
+
+
+@register(RK.WORKFLOW)
+class CVWorkflow(Workflow):
+    """
+    Workflow for running cross-validation.
+
+    Composes multiple `TrainWorkflow` instances, each running on a single split.
+    Aggregates metrics from all splits.
+    """
+    def __init__(
+        self,
+        *,
+        val_settings: dict[str, Any] | None = None,
+        **train_workflow_kwargs
+    ):  
+        """
+        Args:
+            val_settings: Validation settings, optionally containing:
+                - `val_mode`: "single" or "repeated"
+                - `n_splits`: Number of splits
+                - `aggregate_metrics`: List of metric prefixes to aggregate
+                - `run_test`: Whether to run trainer.test() on each split
+            **train_workflow_kwargs: Keyword arguments for `TrainWorkflow`.
+        """
+        val_settings = val_settings or {}
+        self.val_mode = val_settings.get("val_mode", "single")
+        self.n_splits = val_settings.get("n_splits", 1)
+        self.aggregate_metrics = val_settings.get("aggregate_metrics", "")
+        self.run_test = val_settings.get("run_test", False)
+        self.train_workflow_kwargs = train_workflow_kwargs
+
+        self.aggregate_cb = UnitFactory.get_pl_callback_instances_from_kwargs(
+            callback_kwargs=[{"name": "MetricAggregator", "prefix": self.aggregate_metrics}]
+        )[0]
+
+        logging.info(f"[CVWorkflow] Initialized with the following settings: "
+                     f"val_mode: {self.val_mode}, n_splits: {self.n_splits}, "
+                     f"aggregate_metrics: {self.aggregate_metrics}, run_test: {self.run_test}")
+    
+    def __call__(self):
+        """Runs the cross-validation workflow."""
+        for split_idx in range(self.n_splits):
+            logging.info(f"[CVWorkflow] Starting split {split_idx+1}/{self.n_splits}")
+            self.run_split(split_idx)
+        self.aggregate_cb.final_summary() # type: ignore[attr-defined]
+
+    def run_split(self, split_idx: int) -> None:
+        """Runs the training workflow for a single split."""
+        workflow = TrainWorkflow(**deepcopy(self.train_workflow_kwargs))
+
+        # Split-specific settings
+        workflow.settings.experiment = f"{workflow.settings.experiment}_split_{split_idx}"
+        workflow.settings.exp_dir = workflow.settings.exp_dir / f"split_{split_idx}"
+        workflow.settings.val_mode = self.val_mode
+        workflow.settings.n_splits = self.n_splits
+        workflow.settings.current_split = split_idx
+        workflow.callbacks.append(self.aggregate_cb)
+
+        # Run, test (optionally), and close
+        workflow.fit()
+        if self.run_test:
+            workflow.trainer.test(workflow.model, datamodule=workflow.datamodule)
+        workflow.close() 

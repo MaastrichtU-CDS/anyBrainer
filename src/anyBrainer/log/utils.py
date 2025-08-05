@@ -81,10 +81,15 @@ def init_wandb_logger(
         dir: str | Path,
 ) -> WandbLogger:
     """Initialize W&B and return logger."""
+    if wandb.run is not None:
+        wandb.finish()
+
     wandb.init(
         project=project,
         name=name,
         dir=dir,
+        resume="allow",
+        reinit=True,
     )
     return WandbLogger(
         project=project,

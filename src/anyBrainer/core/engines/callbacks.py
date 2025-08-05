@@ -243,9 +243,9 @@ class MetricAggregator(pl.Callback):
         (e.g. 'val_' or 'test_').  Set to '' to catch everything.
     """
 
-    def __init__(self, prefix: str = ''):
+    def __init__(self, prefix: str | list[str] = ''):
         super().__init__()
-        self.prefix = prefix
+        self.prefix = [prefix] if isinstance(prefix, str) else prefix
         self._current_run: dict[str, float] = defaultdict(float)
         self._all_runs: dict[str, list[float]] = defaultdict(list)
         self._run_idx = 0
@@ -255,7 +255,7 @@ class MetricAggregator(pl.Callback):
         if trainer.sanity_checking:
             return
         for k, v in trainer.callback_metrics.items():
-            if not k.startswith(self.prefix):
+            if not any(k.startswith(p) for p in self.prefix):
                 continue
             if isinstance(v, torch.Tensor):
                 if v.ndim != 0:
