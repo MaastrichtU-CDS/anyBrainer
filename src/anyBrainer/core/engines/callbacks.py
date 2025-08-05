@@ -11,10 +11,14 @@ __all__ = [
 
 import logging
 from typing import Any, TYPE_CHECKING
+from collections import defaultdict
 
+import torch
 import lightning.pytorch as pl
+from lightning.pytorch.utilities import rank_zero_only
 import torch.optim as optim
 from torch.nn.modules.batchnorm import _BatchNorm
+
 
 from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.core.utils import (
@@ -24,6 +28,7 @@ from anyBrainer.core.utils import (
 )
 from anyBrainer.core.engines.utils import (
     sync_dist_safe,
+    get_ckpt_callback,
 )
 
 if TYPE_CHECKING:
@@ -37,6 +42,7 @@ class UpdateDatamoduleEpoch(pl.Callback):
     """
     Callback to update the datamodule's _current_epoch attribute.
     """        
+    @rank_zero_only
     def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Sync the current epoch between the trainer and the datamodule."""
         if (trainer.datamodule is None or not hasattr(trainer.datamodule, "_current_epoch")): # pyright: ignore
@@ -54,6 +60,7 @@ class LogLR(pl.Callback):
     """
     Callback to log the learning rate for all optimizers in the trainer.
     """
+    @rank_zero_only
     def on_before_optimizer_step(
         self,
         trainer: pl.Trainer,
@@ -79,6 +86,7 @@ class LogGradNorm(pl.Callback):
     """
     Callback to log the gradient norm for all parameters in the model.
     """
+    @rank_zero_only
     def on_train_batch_end(
         self,
         trainer: pl.Trainer,
@@ -223,3 +231,96 @@ class FreezeParamGroups(pl.Callback):
                 train_mode = self.train_bn or not any(self._are_frozen)
                 m.train(train_mode)
         return train_mode
+
+
+class MetricAggregator(pl.Callback):
+    """
+    Accumulates metrics you `self.log()` during *any* evaluation loop
+    (validation, test, validate-only) and prints mean ± std after each run.
+
+    Args:
+    - prefix: Only metrics whose names start with this prefix are aggregated
+        (e.g. 'val_' or 'test_').  Set to '' to catch everything.
+    """
+
+    def __init__(self, prefix: str = ''):
+        super().__init__()
+        self.prefix = prefix
+        self._current_run: dict[str, float] = defaultdict(float)
+        self._all_runs: dict[str, list[float]] = defaultdict(list)
+        self._run_idx = 0
+
+    def _collect(self, trainer: pl.Trainer) -> None:
+        """Collect filtered metrics from trainer.callback_metrics."""
+        if trainer.sanity_checking:
+            return
+        for k, v in trainer.callback_metrics.items():
+            if not k.startswith(self.prefix):
+                continue
+            if isinstance(v, torch.Tensor):
+                if v.ndim != 0:
+                    logger.warning(f"[MetricAggregator] Skipping non-scalar tensor metric '{k}'.")
+                    continue
+                v = v.item()
+            self._current_run[k] = v
+
+    def _summarise_run(self, tag: str) -> None:
+        """Summarise and reset the collected metrics at the end of a run."""
+        if not self._current_run:
+            rank_zero_only(logger.warning)(f"[MetricAggregator] No '{tag}' metrics "
+                                           f"collected for run {self._run_idx}.")
+        else:
+            lines = []
+            for k, v in self._current_run.items():
+                self._all_runs[k].append(v)
+                lines.append(f"{k}: {v:.4f}")
+            rank_zero_only(logger.info)(f"[MetricAggregator] {tag}-run {self._run_idx} "
+                                        f"summary\n  " + "\n  ".join(lines))
+        self._current_run.clear()
+        self._run_idx += 1
+    
+    def on_validation_epoch_end(
+        self, 
+        trainer: pl.Trainer, 
+        pl_module: pl.LightningModule,
+    ) -> None:
+        self._collect(trainer)
+
+    def on_test_epoch_end(
+        self, 
+        trainer: pl.Trainer, 
+        pl_module: pl.LightningModule,
+    ) -> None:
+        self._collect(trainer)
+
+    def on_fit_end(
+        self, 
+        trainer: pl.Trainer, 
+        pl_module: pl.LightningModule,
+    ) -> None:
+        # Add best checkpoint metric--if any--to current run.
+        ckpt_cb = get_ckpt_callback(trainer)
+        if ckpt_cb is not None and ckpt_cb.best_model_path:
+            best_score = ckpt_cb.best_model_score.item() # pyright: ignore
+            best_metric = ckpt_cb.monitor
+            self._current_run[f"best_{best_metric}"] = best_score
+        self._summarise_run("fit")
+
+    def on_test_end(
+        self, 
+        trainer: pl.Trainer, 
+        pl_module: pl.LightningModule,
+    ) -> None:
+        self._summarise_run("test")
+
+    @rank_zero_only
+    def final_summary(self) -> None:
+        """Call manually at the end of all runs to get global mean ± std."""
+        if not self._all_runs:
+            logger.warning("[MetricAggregator] No metrics to summarise across runs.")
+            return
+
+        logger.info("[MetricAggregator] === FINAL SUMMARY across all runs ===")
+        for k, means in self._all_runs.items():
+            t = torch.tensor(means)
+            logger.info(f"{k}: {t.mean().item():.4f} ± {t.std().item():.4f}")

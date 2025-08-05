@@ -35,13 +35,8 @@ def compute_cl_stats(
         # Contrastive accuracy
         contrastive_acc = (logits.argmax(dim=1) == 0).float().mean()
 
-        # Negative entropy
-        neg_probs = F.softmax(logits[:, 1:], dim=1)
-        neg_entropy = -torch.sum(neg_probs * neg_probs.clamp_min(1e-12).log(), dim=1)
-
     return {
         "pos_mean": logits[:, 0].mean().detach(),
         "neg_mean": neg_mean.detach(),
         "contrastive_acc": contrastive_acc.detach(),
-        "neg_entropy": neg_entropy.mean().detach(),
     }

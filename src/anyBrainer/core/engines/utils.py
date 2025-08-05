@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any, Callable, cast, TYPE_CHECKING
 
 import torch
-if TYPE_CHECKING:
-    import lightning.pytorch as pl
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from anyBrainer.registry import flush, get  
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.interfaces import PLModuleMixin
+
+if TYPE_CHECKING:
+    import lightning.pytorch as pl
 
 logger = logging.getLogger(__name__)
 
@@ -139,3 +141,13 @@ def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
                 cls.setup_mixin(cast(PLModuleMixin, module), **cfg)
             except TypeError:
                 pass
+
+def get_ckpt_callback(trainer: pl.Trainer) -> ModelCheckpoint | None:
+    """Get the checkpoint callback from the trainer."""
+    if not hasattr(trainer, "callbacks"):
+        return None
+
+    for cb in trainer.callbacks: # type: ignore[attr-defined]
+        if isinstance(cb, ModelCheckpoint):
+            return cast(ModelCheckpoint, cb)
+    return None

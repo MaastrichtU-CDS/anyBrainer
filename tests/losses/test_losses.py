@@ -38,7 +38,6 @@ class TestInfoNCELoss:
         assert cl_stats["pos_mean"].shape == ()
         assert cl_stats["neg_mean"].shape == ()
         assert cl_stats["contrastive_acc"].shape == ()
-        assert cl_stats["neg_entropy"].shape == ()
     
     def test_forward_top_k_negatives(self, query_tensor, key_tensor, queue_tensor):
         """Test loss with top_k_negatives parameter."""
@@ -90,9 +89,6 @@ class TestInfoNCELoss:
         pos_logits = (query_tensor * key_tensor).sum(dim=1, keepdim=True) / 0.07
         neg_logits = (query_tensor @ queue_tensor.T) / 0.07
         contrastive_acc = (torch.cat([pos_logits, neg_logits], dim=1).argmax(dim=1) == 0).float().mean()
-
-        neg_probs = F.softmax(neg_logits, dim=1)
-        neg_entropy = -torch.sum(neg_probs * neg_probs.clamp_min(1e-12).log(), dim=1)
         
         loss = InfoNCELoss(temperature=0.07)
         _, cl_stats = loss(query_tensor, key_tensor, queue_tensor)
@@ -100,7 +96,6 @@ class TestInfoNCELoss:
         assert torch.allclose(cl_stats["pos_mean"], pos_logits.mean())
         assert torch.allclose(cl_stats["neg_mean"], neg_logits.mean())
         assert torch.allclose(cl_stats["contrastive_acc"], contrastive_acc)
-        assert torch.allclose(cl_stats["neg_entropy"], neg_entropy.mean())
     
     def test_forward_small_queue(self, query_tensor, key_tensor, queue_tensor):
         """Test loss with small queue."""

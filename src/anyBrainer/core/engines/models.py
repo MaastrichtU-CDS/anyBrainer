@@ -35,6 +35,8 @@ from anyBrainer.core.utils import (
     summarize_model_params,
     modality_to_idx,
     top1_accuracy,  
+    effective_rank,
+    feature_variance,
 )
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.core.engines.mixins import (
@@ -338,18 +340,21 @@ class CLwAuxModel(BaseModel):
         )
         
         self.log_dict({
-            "train/loss": loss,
+            "train/loss": loss.item(),
         }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
+        print(feature_variance(negatives))
+        print(negatives.shape)
         
         self.log_dict({
-            "train/loss_info_nce": loss_dict["loss_info_nce"],
-            "train/loss_aux": loss_dict["loss_aux"],
+            "train/loss_info_nce": loss_dict["loss_info_nce"].item(),
+            "train/loss_aux": loss_dict["loss_aux"].item(),
             "train/loss_weight": loss_dict["loss_weight"],
-            "train/pos_mean": loss_dict.get("pos_mean", torch.tensor(0.0)),
-            "train/neg_mean": loss_dict.get("neg_mean", torch.tensor(0.0)),
-            "train/neg_entropy": loss_dict.get("neg_entropy", torch.tensor(0.0)),
-            "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0.0)),
-            "train/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]),
+            "train/pos_mean": loss_dict.get("pos_mean", torch.tensor(0)).item(),
+            "train/neg_mean": loss_dict.get("neg_mean", torch.tensor(0)).item(),
+            "train/contrastive_acc": loss_dict.get("contrastive_acc", torch.tensor(0)).item(),
+            "train/eff_rank": effective_rank(negatives)[0].item(),
+            "train/feature_variance": feature_variance(negatives).item(),
+            "train/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]).item(),
         }, on_step=True, on_epoch=True, prog_bar=False, sync_dist=sync_dist_safe(self))
 
         self._update_queue(k_proj, batch_ids)
@@ -370,11 +375,11 @@ class CLwAuxModel(BaseModel):
         )
         
         self.log_dict({
-            "val/loss": loss,
-            "val/loss_info_nce": loss_dict["loss_info_nce"],
-            "val/loss_aux": loss_dict["loss_aux"],
+            "val/loss": loss.item(),
+            "val/loss_info_nce": loss_dict["loss_info_nce"].item(),
+            "val/loss_aux": loss_dict["loss_aux"].item(),
             "val/loss_weight": loss_dict["loss_weight"],
-            "val/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]),
+            "val/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]).item(),
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
     
     def test_step(self, batch: dict, batch_idx: int):
@@ -391,11 +396,11 @@ class CLwAuxModel(BaseModel):
         )
                 
         self.log_dict({
-            "test/loss": loss,
-            "test/loss_info_nce": loss_dict["loss_info_nce"],
-            "test/loss_aux": loss_dict["loss_aux"],
+            "test/loss": loss.item(),
+            "test/loss_info_nce": loss_dict["loss_info_nce"].item(),
+            "test/loss_aux": loss_dict["loss_aux"].item(),
             "test/loss_weight": loss_dict["loss_weight"],
-            "test/aux_acc": top1_accuracy(q_proj, batch["aux_labels"]),
+            "test/aux_acc": top1_accuracy(q_proj, batch["aux_labels"]).item(),
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
 
 

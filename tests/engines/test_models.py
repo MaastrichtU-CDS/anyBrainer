@@ -425,17 +425,34 @@ class TestTrainingStep:
         )
         assert loss.shape == ()
         assert loss_dict.keys() == {"loss_info_nce", "loss_aux", "loss_weight", "pos_mean", 
-                                    "neg_mean", "neg_entropy", "contrastive_acc"}
+                                    "neg_mean", "contrastive_acc"}
         assert loss_dict["loss_info_nce"].shape == ()
         assert loss_dict["loss_aux"].shape == ()
         assert loss_dict["pos_mean"].shape == ()
         assert loss_dict["neg_mean"].shape == ()
-        assert loss_dict["neg_entropy"].shape == ()
         assert loss_dict["contrastive_acc"].shape == ()
     
     def test_complete_training_step(self, model, input_batch):
         """Test that the complete training step works."""
-        for _ in range(3):
+        input_batch_1 = {
+            "query": torch.randn(8, 1, 128, 128, 128),
+            "key": torch.randn(8, 1, 128, 128, 128),
+            "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
+            "sub_id": ["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"],
+            "ses_id": ["ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01"],
+        }
+        input_batch_2 = {
+            "query": torch.randn(8, 1, 128, 128, 128),
+            "key": torch.randn(8, 1, 128, 128, 128),
+            "mod": ["t1", "t2", "flair", "dwi", "adc", "swi", "other", "t1"],
+            "sub_id": ["sub_09", "sub_10", "sub_11", "sub_12", "sub_13", "sub_14", "sub_15", "sub_16"],
+            "ses_id": ["ses_09", "ses_10", "ses_11", "ses_12", "ses_13", "ses_14", "ses_15", "ses_16"],
+        }
+        for i in range(3):
+            if i == 0:
+                input_batch = input_batch_1
+            else:
+                input_batch = input_batch_2
             model.on_after_batch_transfer(input_batch, 0) # type: ignore
             loss = model.training_step(input_batch, 0) # type: ignore
             assert loss.shape == ()
