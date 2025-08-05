@@ -25,6 +25,7 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         warmup_iters: int | list[int],
         total_iters: int | list[int],
         eta_min: float | list[float] = 0.0,
+        start_iter: int | list[int] = 0,
         last_epoch: int = -1,
         **kwargs,
     ):
@@ -40,6 +41,7 @@ class CosineAnnealingWithWarmup(_LRScheduler):
             warmup_iters: Number of warmup iterations.
             total_iters: Total number of iterations (warmup + cosine decay).
             eta_min: Minimum LR after cosine decay.
+            start_iter: The iteration to start the scheduler.
             last_epoch: The index of last epoch (or -1 if starting).
         """
         n_groups = len(optimizer.param_groups)
@@ -52,6 +54,9 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         )
         self.eta_min = resolve_num_list_arg(
             eta_min, n_groups, f"[CosineAnnealingWithWarmup] `eta_min`"
+        )
+        self.start_iter = resolve_num_list_arg(
+            start_iter, n_groups, f"[CosineAnnealingWithWarmup] `start_iter`"
         )
 
         super().__init__(optimizer, last_epoch)
@@ -67,8 +72,12 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         for i, base_lr in enumerate(self.base_lrs):
             warmup = self.warmup_iters[i]
             eta_min = self.eta_min[i]
+            start_iter = self.start_iter[i]
 
-            if self.last_epoch < warmup:
+            if self.last_epoch < start_iter:
+                # Inactive
+                lr = 0.0
+            elif self.last_epoch < warmup:
                 # Linear warmup
                 lr = base_lr * (self.last_epoch + 1) / float(warmup)
             else:
