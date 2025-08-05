@@ -107,6 +107,8 @@ class BaseDataModule(pl.LightningDataModule):
         num_workers: int = 4,
         extra_dataloader_kwargs: dict[str, Any] | None = None,
         train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        val_mode: Literal["single", "repeated"] = "single",
+        val_n: int | None = None,
         worker_logging_fn: Callable | str | None = None,
         worker_seeding_fn: Callable | str | None = set_rnd,
         collate_fn: Callable | str | None = list_data_collate,
@@ -120,20 +122,21 @@ class BaseDataModule(pl.LightningDataModule):
     ):
         super().__init__()
         self.data_dir = resolve_path(data_dir)
-
-        if data_handler_kwargs is None:
-            data_handler_kwargs = {}
+        data_handler_kwargs = data_handler_kwargs or {}
         self.data_handler_kwargs = data_handler_kwargs
-
-        if extra_dataloader_kwargs is None:
-            extra_dataloader_kwargs = {}
+        extra_dataloader_kwargs = extra_dataloader_kwargs or {}
         self.extra_dataloader_kwargs = extra_dataloader_kwargs
-
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_val_test_split = train_val_test_split
+        if val_mode != "single" and val_n is None:
+            msg = "val_n must be provided when val_mode is not 'single'."
+            logger.error(msg)
+            raise ValueError(msg)
+        self.val_mode = val_mode
+        self.val_n = val_n
+        self.predict_on_test = predict_on_test
         self.seed = seed
-
         self.set_random_state(seed, random_state)
 
         self.worker_logging_fn = resolve_fn(worker_logging_fn)
@@ -145,7 +148,6 @@ class BaseDataModule(pl.LightningDataModule):
         self.test_transforms = resolve_transform(test_transforms)
         self.predict_transforms = resolve_transform(predict_transforms)
 
-        self.predict_on_test = predict_on_test
 
         # Will be populated in setup()
         self.train_data: list[Any] | None = None
@@ -155,14 +157,17 @@ class BaseDataModule(pl.LightningDataModule):
 
         # Will get updated by trainer.fit()
         self._current_epoch = 0
-
+        self._current_run = 0
+        
         logger.info(f"[{self.__class__.__name__}] Datamodule initialized with following settings: "
                     f"data_dir: {self.data_dir}, batch_size: {self.batch_size}, "
                     f"num_workers: {self.num_workers}, train_val_test_split: {self.train_val_test_split}, "
                     f"seed: {self.seed}, random_state: {self.R}, "
                     f"worker_logging_fn: {self.worker_logging_fn}, "
                     f"worker_seeding_fn: {self.worker_seeding_fn}, "
-                    f"collate_fn: {self.collate_fn}")
+                    f"collate_fn: {self.collate_fn}, "
+                    f"val_mode: {self.val_mode}, val_n: {self.val_n}, "
+                    f"predict_on_test: {self.predict_on_test}")
     
     def set_random_state(
         self, 
@@ -265,11 +270,32 @@ class BaseDataModule(pl.LightningDataModule):
 
         Override for custom split logic.
         """
-        return split_data_by_subjects(
-            all_data, 
-            train_val_test_split=self.train_val_test_split,
-            seed=self.seed,
-        )
+        if self.val_mode == "single":
+            return split_data_by_subjects(
+                all_data, 
+                train_val_test_split=self.train_val_test_split,
+                seed=self.seed,
+            )
+        elif self.val_mode == "repeated":
+            logger.info(f"Splitting data into train/val/test sets for "
+                        f"{self._current_run}th repeated split")
+            if self.seed is None:
+                _seed = None
+                _rng = self.R
+            else:
+                _seed = self.seed + self._current_run
+                _rng = None
+
+            return split_data_by_subjects(
+                all_data, 
+                train_val_test_split=self.train_val_test_split,
+                seed=_seed,
+                random_state=_rng,
+            )
+        else:
+            msg = f"Invalid val_mode: {self.val_mode}"
+            logger.error(msg)
+            raise ValueError(msg)
     
     def setup(self, stage: str) -> None:
         """
@@ -278,7 +304,7 @@ class BaseDataModule(pl.LightningDataModule):
         Responsibilities:
         - Split data into train/val/test sets.
         - Assign to self.train_data, self.val_data, self.test_data, self.predict_data.
-        """
+        """ 
         raw_data = self.create_data_list()
         all_data = self.process_data_list(raw_data)
 
@@ -294,6 +320,8 @@ class BaseDataModule(pl.LightningDataModule):
             self.test_data = test_data
         elif stage == "predict":
             self.predict_data = test_data if self.predict_on_test else all_data
+        
+        self._current_run += 1 # update for next run
     
     def train_dataloader(self) -> DataLoader:
         """
@@ -428,6 +456,7 @@ class BaseDataModule(pl.LightningDataModule):
         state = {
             "train_val_test_split": self.train_val_test_split,
             "datamodule_base_seed": self.seed,
+            "current_run": self._current_run,
         }
         return state
 
@@ -442,12 +471,14 @@ class BaseDataModule(pl.LightningDataModule):
             "train_val_test_split", self.train_val_test_split
         )
         self.seed = state_dict.get("datamodule_base_seed")
+        self._current_run = state_dict.get("current_run", 0)
         self._current_epoch = state_dict.get("epoch", 0)
 
         logger.info(f"Loaded from checkpoint: "
                     f"train_val_test_split: {self.train_val_test_split}, "
                     f"base_seed: {self.seed}, "
-                    f"current_epoch: {self._current_epoch}")
+                    f"current_epoch: {self._current_epoch}, "
+                    f"current_run: {self._current_run}")
 
 
 @register(RK.DATAMODULE)
