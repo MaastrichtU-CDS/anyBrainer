@@ -42,7 +42,6 @@ from anyBrainer.core.engines.mixins import (
     LossMixin,
     ParamSchedulerMixin,
     OptimConfigMixin,
-    FreezeMixin,
     WeightInitMixin,
     HParamsMixin,
 )
@@ -67,7 +66,6 @@ class BaseModel(
     WeightInitMixin,
     LossMixin,
     OptimConfigMixin,
-    FreezeMixin,
     ParamSchedulerMixin,
     HParamsMixin,
     CoreLM,
@@ -96,7 +94,6 @@ class BaseModel(
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         param_scheduler_kwargs: list[dict[str, Any]] | None = None,
         weights_init_kwargs: dict[str, Any] | None = None,
-        freeze_kwargs: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
         **extra,
     ):
@@ -120,7 +117,6 @@ class BaseModel(
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             param_scheduler_kwargs=param_scheduler_kwargs,
             weights_init_kwargs=weights_init_kwargs,
-            freeze_kwargs=freeze_kwargs,
             ignore_hparams=ignore_hparams,
             **extra,
         )
@@ -136,10 +132,6 @@ class BaseModel(
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
         return self.model(x)
-    
-    def on_train_epoch_start(self) -> None:
-        """Freeze/unfreeze param groups"""
-        self.handle_param_freeze()
     
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
@@ -175,7 +167,6 @@ class CLwAuxModel(BaseModel):
         loss_scheduler_kwargs: dict[str, Any] | None = None,
         momentum_scheduler_kwargs: dict[str, Any] | None = None,
         weights_init_kwargs: dict[str, Any] | None = None,
-        freeze_kwargs: dict[str, Any] | None = None,
         logits_postprocess_fn: Callable | str | None = None,
     ):  
         if loss_kwargs is None:
@@ -229,7 +220,6 @@ class CLwAuxModel(BaseModel):
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             param_scheduler_kwargs=other_schedulers,
             weights_init_kwargs=weights_init_kwargs,
-            freeze_kwargs=freeze_kwargs,
             ignore_hparams=ignore_hparams,
         )
        
