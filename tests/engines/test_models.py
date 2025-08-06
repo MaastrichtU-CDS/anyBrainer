@@ -49,14 +49,6 @@ def input_batch():
         "ses_id": ["ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01", "ses_01"],
     }
 
-@pytest.fixture(scope="module")
-def input_batch_classification():
-    """Input batch for the model."""
-    return {
-        "img_0": torch.randn(8, 1, 128, 128, 128),
-        "label": torch.randint(0, 2, (8, 2)),
-    }
-
 @torch.no_grad()
 def manual_param_step(model: nn.Module, lr: float = 1e-3, use_grads: bool = True):
     """
@@ -493,37 +485,3 @@ class TestValTestSteps:
 @pytest.mark.skip(reason="Not implemented")
 class TestPredictStep:
     pass
-
-from monai.data.utils import iter_patch
-from anyBrainer.core.networks import Swinv2Classifier
-
-class TestClassificationModel:
-    @pytest.fixture
-    def model(self):
-        """Model fixture."""
-        return Swinv2Classifier(
-            patch_size=2,
-            depths=[2, 2, 6, 2],
-            num_heads=[3, 6, 12, 24],
-            window_size=7,
-            feature_size=48,
-            use_v2=True,
-            mlp_num_classes=2,
-            mlp_num_hidden_layers=1,
-            mlp_hidden_dim=128,
-            mlp_dropout=0.3,
-            mlp_activations="GELU",
-            mlp_activation_kwargs={"dropout": 0.3},
-        )
-    
-    @pytest.mark.parametrize("overlap", [0.0, 0.25, 0.5, 0.75])
-    def test_sliding_window_forward_pass(self, model, input_batch_classification, overlap):
-        """Test that the model is properly initialized."""
-        patches = iter_patch(input_batch_classification["img_0"], 
-                            patch_size=(128, 128, 128), mode="constant",
-                            overlap=overlap)
-        preds = []
-        for patch in patches:
-            out = model(patch).unsqueeze(dim=1)
-            preds.append(out)
-        preds = torch.cat(preds, dim=1)

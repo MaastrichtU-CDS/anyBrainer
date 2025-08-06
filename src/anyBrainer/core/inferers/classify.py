@@ -37,6 +37,7 @@ class SlidingWindowClassificationInferer(Inferer):
         overlap: float | Sequence[float],
         padding_mode: str = "constant",
         aggregation_mode: Literal["weighted", "mean", "majority", "none"] = "weighted",
+        apply_softmax: bool = True,
     ):
         """
         Args:
@@ -44,6 +45,7 @@ class SlidingWindowClassificationInferer(Inferer):
         - overlap: The overlap between patches.
         - padding_mode: The mode to use for padding the image.
         - aggregation_mode: The mode to use for aggregating the predictions.
+        - apply_softmax: Whether to apply softmax to the predictions.
         """
         self.patch_size = patch_size
         self.overlap = overlap
@@ -52,11 +54,13 @@ class SlidingWindowClassificationInferer(Inferer):
             msg = f"Invalid aggregation mode: {aggregation_mode}"
             raise ValueError(msg)
         self.aggregation_mode = aggregation_mode
+        self.apply_softmax = apply_softmax
 
         logger.info(f"[{self.__class__.__name__}] Initialised with "
                     f"patch_size={patch_size}, overlap={overlap}, "
                     f"padding_mode={padding_mode}, "
-                    f"aggregation_mode={aggregation_mode}")
+                    f"aggregation_mode={aggregation_mode}, "
+                    f"apply_softmax={apply_softmax}")
     
     def __call__(self, 
         inputs: torch.Tensor, 
@@ -79,6 +83,10 @@ class SlidingWindowClassificationInferer(Inferer):
         patch_size = ensure_tuple_of_length(self.patch_size, n_dim)
         overlap = ensure_tuple_of_length(self.overlap, n_dim)
 
+        # Convert relative overlap to absolute overlap for dense_patch_slices()
+        scan_interval = tuple(max(1, int(round(ps * (1.0 - ov))))
+                              for ps, ov in zip(patch_size, overlap))
+
         # Pad input if necessary
         pad_needed = [(max(p - s, 0), 0) for p, s in zip(reversed(patch_size), reversed(spatial))]
         if any(pad_left > 0 for pad_left, _ in pad_needed):
@@ -87,7 +95,7 @@ class SlidingWindowClassificationInferer(Inferer):
             spatial = inputs.shape[2:]
         
         # Get patch slices and weights
-        slices = dense_patch_slices(spatial, patch_size, overlap)
+        slices = dense_patch_slices(spatial, patch_size, scan_interval)
         img_center = [(s - 1) / 2.0 for s in spatial]
         sigma = [ps / 2.0 for ps in patch_size]
         weights: list[float] = []
@@ -108,7 +116,10 @@ class SlidingWindowClassificationInferer(Inferer):
         for slc in slices:
             patch = inputs[(slice(None), slice(None)) + slc] # (B, C, *patch_size)
             logits = network(patch) # (B, num_classes)
-            probs = torch.softmax(logits, dim=1) # (B, num_classes)
+            if self.apply_softmax:
+                probs = torch.softmax(logits, dim=1) # (B, num_classes)
+            else:
+                probs = logits # (B, num_classes)
             prob_lists.append(probs)
         
         probs_all = torch.stack(prob_lists, dim=0).permute(1, 0, 2) # (B, N_patches, num_classes)
@@ -119,6 +130,7 @@ class SlidingWindowClassificationInferer(Inferer):
 
         if self.aggregation_mode == "majority":
             patch_preds = probs_all.argmax(dim=2)  # (B, N_patches)
-            return torch.mode(patch_preds, dim=1).values # (B,)
+            majority_vote =  torch.mode(patch_preds, dim=1).values # (B,)
+            return F.one_hot(majority_vote, probs_all.shape[-1]).float() # (B, n_classes)
 
-        return probs_all * weight_tensor.unsqueeze(0).unsqueeze(-1).sum(dim=1) # (B,)
+        return (probs_all * weight_tensor.unsqueeze(0).unsqueeze(-1)).sum(dim=1) # (B, n_classes)
