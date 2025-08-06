@@ -1,1 +1,1 @@
-from .classify import SlidingWindowClassificationInferer
+from .classification import SlidingWindowClassificationInferer

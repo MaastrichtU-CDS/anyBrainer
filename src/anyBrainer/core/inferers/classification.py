@@ -5,7 +5,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Literal, Sequence
+from typing import Literal, Sequence
 
 import torch
 import torch.nn.functional as F
