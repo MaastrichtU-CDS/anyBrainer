@@ -411,6 +411,7 @@ class CLwAuxModel(BaseModel):
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
 
 
+@register(RK.PL_MODULE)
 class ClassificationModel(BaseModel):
     """Classification model."""
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
