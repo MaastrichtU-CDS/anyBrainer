@@ -233,6 +233,7 @@ class FreezeParamGroups(pl.Callback):
         return train_mode
 
 
+@register(RK.CALLBACK)
 class MetricAggregator(pl.Callback):
     """
     Accumulates metrics you `self.log()` during *any* evaluation loop
