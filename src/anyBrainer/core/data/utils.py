@@ -135,7 +135,7 @@ def group_data(
     for file_path in data_list:
         metadata = parse_filename_nested_nifti(file_path)
         subject = metadata['sub_id']
-        session = f"{subject}_ses_{metadata['ses_id']}"
+        session = f"{metadata['sub_id']}_{metadata['ses_id']}"
         modality = metadata['modality']
         
         subjects.add(subject)
