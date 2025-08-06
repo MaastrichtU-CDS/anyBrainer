@@ -409,13 +409,14 @@ class ClassificationModel(BaseModel):
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get modality one-hot labels to device."""
         if dataloader_idx != 3: # not for prediction
-            # TODO: change util for classification
-            batch["label"] = modality_to_idx(batch, "mod", batch["query"].device)
+            batch["label"] = torch.tensor(
+                batch["label"], dtype=torch.long, device=batch["img_0"].device
+            )
         return batch
     
     def _shared_step(self, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
         """Shared step."""
-        out = self.model(batch["img"])
+        out = self.model(batch["img_0"])
         loss = self.loss_fn(out, batch["label"]) # type: ignore
         return loss, {"loss": loss, "acc": top1_accuracy(out, batch["label"])}
     
