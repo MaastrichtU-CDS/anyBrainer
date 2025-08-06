@@ -154,7 +154,7 @@ class Swinv2Classifier(nn.Module):
             use_v2=use_v2,
             **extra_swin_kwargs,
         )
-        logger.info(f"[Swinv2CL] Encoder initialized with in_channels={in_channels}, "
+        logger.info(f"[Swinv2Classifier] Encoder initialized with in_channels={in_channels}, "
                     f"depths={depths}, num_heads={num_heads}, window_size={window_size}, "
                     f"patch_size={patch_size}, feature_size={feature_size}, use_v2={use_v2}, "
                     f"extra_swin_kwargs={extra_swin_kwargs}")
