@@ -319,14 +319,27 @@ class TrainWorkflow(Workflow):
             {"name": "LogLR"},
             {"name": "LogGradNorm"},
         ]
-        callbacks_config.extend(self.settings.pl_callback_kwargs)
+
+        # Allow passing already instantiated callbacks; e.g. for CVWorkflow
+        cb_instantiated = []
+        for cb in self.settings.pl_callback_kwargs:
+            if isinstance(cb, dict):
+                callbacks_config.append(cb)
+            elif isinstance(cb, pl.Callback):
+                cb_instantiated.append(cb)
+            else:
+                msg = f"[TrainWorkflow] Invalid callback type: {type(cb)}"
+                logging.error(msg)
+                raise ValueError(msg)
         
-        return cast(
+        callbacks = cast(
             list[pl.Callback],
             UnitFactory.get_pl_callback_instances_from_kwargs(
                 callback_kwargs=callbacks_config
             )
         )
+        callbacks.extend(cb_instantiated)
+        return callbacks
     
     def setup_trainer(self) -> pl.Trainer:
         """
@@ -497,7 +510,7 @@ class CVWorkflow(Workflow):
         workflow.settings.val_mode = self.val_mode
         workflow.settings.n_splits = self.n_splits
         workflow.settings.current_split = split_idx
-        workflow.callbacks.append(self.aggregate_cb)
+        workflow.settings.pl_callback_kwargs.append(self.aggregate_cb) # type: ignore
 
         # Run, test (optionally), and close
         workflow.fit()
