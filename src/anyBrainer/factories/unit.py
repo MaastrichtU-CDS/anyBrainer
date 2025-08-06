@@ -14,9 +14,12 @@ import torch.nn as nn
 import torch.optim as optim
 import lightning.pytorch as pl
 import lightning.pytorch.callbacks as pl_callbacks
+import monai.inferers as monai_inferers
 
 from anyBrainer.registry import get, RegistryKind as RK
+
 if TYPE_CHECKING:
+    from monai.inferers.inferer import Inferer
     from anyBrainer.interfaces import ParameterScheduler
 
 logger = logging.getLogger(__name__)
@@ -48,13 +51,12 @@ class UnitFactory:
             raise ValueError(msg)
         
         model_kwargs = model_kwargs.copy()
+        model_name = model_kwargs.pop("name")
 
         # Extract requested model class
         try:
-            model_name = model_kwargs.pop("name")
             model_cls = get(RK.NETWORK, model_name)
-
-        except AttributeError:
+        except ValueError:
             msg = f"Model '{model_name}' not found in anyBrainer.registry-NETWORK."
             logger.error(msg)
             raise ValueError(msg)
@@ -211,7 +213,7 @@ class UnitFactory:
         except AttributeError:
             try:
                 lr_scheduler_cls = get(RK.LR_SCHEDULER, lr_scheduler_dict["name"])
-            except AttributeError:  
+            except ValueError:  
                 msg = (f"LR scheduler '{lr_scheduler_dict['name']}' not found in "
                         f"torch.optim.lr_scheduler or anyBrainer.registry-LR_SCHEDULER.")
                 logger.error(msg)
@@ -268,7 +270,7 @@ class UnitFactory:
             
             try:
                 scheduler_cls = get(RK.PARAM_SCHEDULER, scheduler_name)
-            except AttributeError:
+            except ValueError:
                 msg = f"Scheduler '{scheduler_name}' not found in anyBrainer.registry-PARAM_SCHEDULER."
                 logger.error(msg)
                 raise ValueError(msg)   
@@ -334,7 +336,7 @@ class UnitFactory:
         except AttributeError:
             try:
                 loss_fn_cls = get(RK.LOSS, loss_fn_name)
-            except AttributeError:  
+            except ValueError:  
                 msg = (f"Loss fn '{loss_fn_name}' not found in torch.nn or "
                         f"anyBrainer.registry-LOSS.")
                 logger.error(msg)
@@ -383,7 +385,7 @@ class UnitFactory:
             except AttributeError:
                 try:
                     callback_cls = get(RK.CALLBACK, callback_name)
-                except AttributeError:
+                except ValueError:
                     msg = (f"Callback '{callback_name}' not found in anyBrainer.registry-CALLBACK "
                         "or pl.callbacks.")
                     logger.error(msg)
@@ -397,7 +399,54 @@ class UnitFactory:
                 raise
                 
         return callbacks_list
+    
+    @classmethod
+    def get_inferer_instance_from_kwargs(
+        cls,
+        inferer_kwargs: dict[str, Any],
+    ) -> Inferer:
+        """
+        Get inferer instance from anyBrainer.registry-INFERER.
 
+        Args:
+            inferer_kwargs: inferer kwargs, containing "name" key.
+
+        Raises:
+        - ValueError: If inferer name is not provided in inferer_kwargs.
+        - ValueError: If requested inferer is not found in anyBrainer.registry-INFERER or monai.inferers.
+        - Exception: If error occurs during inferer initialization.
+        """
+        # Ensure required keys are provided
+        if "name" not in inferer_kwargs:
+            msg = "Inferer name not provided in inferer_kwargs."
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        inferer_kwargs = inferer_kwargs.copy()
+        inferer_name = inferer_kwargs.pop("name")
+
+        # Extract requested inferer class
+        try:
+            inferer_cls = getattr(monai_inferers, inferer_name)
+        except AttributeError:
+            try:
+                inferer_cls = get(RK.INFERER, inferer_name)
+            except ValueError:
+                msg = (f"Inferer '{inferer_name}' not found in anyBrainer.registry-INFERER "
+                       "or monai.inferers.")
+                logger.error(msg)
+                raise ValueError(msg)
+        
+        # Handle improper initialization args
+        try:
+            inferer = inferer_cls(**inferer_kwargs) # type: ignore
+        except Exception as e:
+            msg = f"Error initializing inferer '{inferer_name}': {e}"
+            logger.exception(msg)
+            raise
+
+        return inferer
+    
     @classmethod
     def get_transformslist_from_kwargs(
         cls,
@@ -425,7 +474,7 @@ class UnitFactory:
 
         try:
             get_transforms_fn = get(RK.TRANSFORM, transforms_name)
-        except AttributeError:
+        except ValueError:
             msg = f"Transform builder name '{transforms_name}' not found in anyBrainer.transforms."
             logger.error(msg)
             raise ValueError(msg)

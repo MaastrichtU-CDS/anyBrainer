@@ -10,7 +10,7 @@ import logging
 import time
 from pathlib import Path
 import resource
-from typing import Any, cast, Literal
+from typing import Any, cast, Literal, Sequence
 from dataclasses import dataclass
 from copy import deepcopy
 
@@ -40,6 +40,17 @@ from anyBrainer.interfaces import (
 
 @dataclass
 class TrainingSettings:
+    """
+    Training settings.
+    
+    Contains args that are primarily useful for orchestrating the components
+    of the workflow and remove duplication. 
+    
+    Note:
+    Avoids storing args that are too specific for particular applications; 
+    e.g. input volume patch_size -> inevitable duplication in transforms and
+    inferer kwargs. 
+    """
     project: str
     experiment: str
     root_dir: Path
@@ -55,7 +66,7 @@ class TrainingSettings:
     data_handler_kwargs: dict[str, Any]
     num_workers: int
     batch_size: int
-    train_val_test_split: tuple[float, float, float] | list[float]
+    train_val_test_split: Sequence[float]
     val_mode: Literal["single", "repeated"]
     n_splits: int | None
     current_split: int
@@ -69,11 +80,13 @@ class TrainingSettings:
     save_every_n_epochs: int
     save_last: bool
     save_top_k: int
-    extra_ckpt_kwargs: dict[str, Any]
     pl_module_name: str
     pl_module_kwargs: dict[str, Any]
     pl_callback_kwargs: list[dict[str, Any]]
     pl_trainer_kwargs: dict[str, Any]
+    extra_logging_kwargs: dict[str, Any]
+    extra_pl_module_kwargs: dict[str, Any]
+    extra_ckpt_kwargs: dict[str, Any]
 
     def __post_init__(self):
         self.root_dir = resolve_path(self.root_dir)
@@ -82,7 +95,6 @@ class TrainingSettings:
             resolve_path(self.model_checkpoint) 
             if self.model_checkpoint is not None else None
         )
-        self.train_val_test_split = tuple(self.train_val_test_split) # type: ignore
         self.exp_dir: Path = self.root_dir / self.project / self.experiment
 
     def __repr__(self):
@@ -143,32 +155,32 @@ class TrainWorkflow(Workflow):
         try:
             self.logging_manager, self.main_logger, self.wandb_logger = self.setup_logging()
         except ValueError:
-            self.main_logger.exception("Error in setup_logging(); ensure returns match the docstring.")
+            logging.exception("[TrainWorkflow] Error in setup_logging(); ensure returns match the docstring.")
             raise
         try:
             self.datamodule = self.setup_datamodule()
         except ValueError:
-            self.main_logger.exception("Error in setup_datamodule(); ensure returns match the docstring.")
+            self.main_logger.exception("[TrainWorkflow] Error in setup_datamodule(); ensure returns match the docstring.")
             raise
         try:
             self.model, self.ckpt_path = self.setup_model()
         except ValueError:
-            self.main_logger.exception("Error in setup_model(); ensure returns match the docstring.")
+            self.main_logger.exception("[TrainWorkflow] Error in setup_model(); ensure returns match the docstring.")
             raise
         try:
             self.callbacks = self.setup_callbacks()
         except ValueError:
-            self.main_logger.exception("Error in setup_callbacks(); ensure returns match the docstring.")
+            self.main_logger.exception("[TrainWorkflow] Error in setup_callbacks(); ensure returns match the docstring.")
             raise
         try:
             self.trainer = self.setup_trainer()
         except ValueError:
-            self.main_logger.exception("Error in setup_trainer(); ensure returns match the docstring.")
+            self.main_logger.exception("[TrainWorkflow] Error in setup_trainer(); ensure returns match the docstring.")
             raise
         self.finalize_setup()
 
         if self.wandb_logger is not None and self.settings.wandb_watch_enable:
-            self.wandb_logger.watch(self.model, **self.settings.wandb_watch_kwargs)
+            self.wandb_logger.watch(self.model, **(self.settings.wandb_watch_kwargs or {}))
 
         create_save_dirs(
             exp_dir=self.settings.exp_dir,
@@ -195,6 +207,11 @@ class TrainWorkflow(Workflow):
 
         Override for custom logging configuration.
         """
+        if self.settings.extra_logging_kwargs:
+            logging.warning("[TrainWorkflow] Identified extra_logging_kwargs; out-of-the-box "
+                            "TrainWorkflow cannot ensure they don't override explicitly "
+                            "set kwargs; unless custom logging manager is used.")
+
         logging_config = {
             "name": "DefaultLoggingManager", 
             "logs_root": self.settings.exp_dir / "logs",
@@ -205,6 +222,7 @@ class TrainWorkflow(Workflow):
             "wandb_project": self.settings.project,
             "experiment": self.settings.experiment,
             "num_workers": self.settings.num_workers,
+            **(self.settings.extra_logging_kwargs or {}),
         }
         logging_manager = ModuleFactory.get_logging_manager_instance_from_kwargs(
                 logging_manager_kwargs=logging_config
@@ -223,6 +241,11 @@ class TrainWorkflow(Workflow):
 
         Override for custom datamodule configuration.
         """
+        if self.settings.extra_pl_module_kwargs:
+            logging.warning("[TrainWorkflow] Identified extra_pl_module_kwargs; out-of-the-box "
+                            "TrainWorkflow cannot ensure they don't override explicitly "
+                            "set kwargs; unless custom pl.LightningDataModule is used.")
+
         datamodule_config = {
             "name": self.settings.pl_datamodule_name,
             "data_dir": self.settings.data_dir,
@@ -241,6 +264,7 @@ class TrainWorkflow(Workflow):
             "worker_logging_fn": self.logging_manager.get_setup_worker_logging_fn(),
             "worker_seeding_fn": set_rnd,
             "seed": self.settings.seed,
+            **(self.settings.extra_pl_module_kwargs or {}),
         }
         return ModuleFactory.get_pl_datamodule_instance_from_kwargs(
             pl_datamodule_kwargs=datamodule_config
@@ -268,7 +292,7 @@ class TrainWorkflow(Workflow):
                      self.settings.exp_dir / "checkpoints" / "last.ckpt")
         
         if not ckpt_path.exists():
-            self.main_logger.warning(f"Checkpoint file {ckpt_path} does not exist; "
+            self.main_logger.warning(f"[TrainWorkflow] Checkpoint file {ckpt_path} does not exist; "
                                      "will create new model.")
             return model, None
 
@@ -289,7 +313,7 @@ class TrainWorkflow(Workflow):
                 "every_n_epochs": self.settings.save_every_n_epochs,
                 "save_top_k": self.settings.save_top_k,
                 "save_last": self.settings.save_last,
-                **self.settings.extra_ckpt_kwargs,
+                **(self.settings.extra_ckpt_kwargs or {}),
             },
             {"name": "UpdateDatamoduleEpoch"},
             {"name": "LogLR"},
@@ -316,7 +340,7 @@ class TrainWorkflow(Workflow):
             "logger": self.wandb_logger,
             "callbacks": self.callbacks,
             "reload_dataloaders_every_n_epochs": 1,
-            **self.settings.pl_trainer_kwargs,
+            **(self.settings.pl_trainer_kwargs or {}),
         }
         return pl.Trainer(**trainer_config)
     
@@ -334,7 +358,7 @@ class TrainWorkflow(Workflow):
         """
         self.__setup()
 
-        self.main_logger.info("\n[TRAINING STARTED]")
+        self.main_logger.info("\n[TrainWorkflow] TRAINING STARTED")
         self.main_logger.info(self.train_start_summary())
 
         start_time = time.time()
@@ -344,7 +368,7 @@ class TrainWorkflow(Workflow):
         if self.wandb_logger is not None:
             self.wandb_logger.experiment.unwatch(self.model)
 
-        self.main_logger.info(f"\n[TRAINING COMPLETED] in {duration/60:.1f} min")
+        self.main_logger.info(f"\n[TrainWorkflow] TRAINING COMPLETED in {duration/60:.1f} min")
         self.main_logger.info(self.train_end_summary(train_stats))
 
     def train_run(self) -> dict[str, Any]:
@@ -372,7 +396,7 @@ class TrainWorkflow(Workflow):
         """
         return (
             f"{'-'*60}"
-            f"\n[EXPERIMENT DETAILS]\n"
+            f"\n[TrainWorkflow] EXPERIMENT DETAILS\n"
             f"Experiment:       {self.settings.experiment}\n"
             f"Model:            {self.settings.pl_module_name}\n"
             f"Trainable Params: {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}\n"
@@ -400,7 +424,7 @@ class TrainWorkflow(Workflow):
 
         return (
             f"{'-'*60}"
-            f"\n[TRAINING SUMMARY]\n"
+            f"\n[TrainWorkflow] TRAINING SUMMARY\n"
             f"Peak Memory:      {peak_mem_mb:.02f} MB\n"
             f"Peak GPU Memory:  {peak_gpu_mem:.02f} MB\n" if peak_gpu_mem is not None else "Peak GPU Memory:  N/A\n"
             f"Best Val Loss:    {best_val_loss:.04f}\n" if best_val_loss is not None else "Best Val Loss:    N/A\n"

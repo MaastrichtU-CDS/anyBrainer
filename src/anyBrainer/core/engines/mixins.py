@@ -16,7 +16,7 @@ from typing import Any, Callable, TYPE_CHECKING, cast
 from copy import deepcopy
 
 from lightning.pytorch import LightningModule as plModule
-from torch.nn.modules.batchnorm import _BatchNorm
+from monai.inferers.inferer import Inferer
 
 from anyBrainer.core.utils import (
     get_parameter_groups_from_prefixes,
@@ -25,6 +25,7 @@ from anyBrainer.core.utils import (
 )
 from anyBrainer.core.engines.utils import (
     resolve_fn,
+    format_optimizer_log,
 )
 from anyBrainer.factories import UnitFactory
 from anyBrainer.interfaces import PLModuleMixin
@@ -62,6 +63,8 @@ class ModelInitMixin(PLModuleMixin):
                            "and will be overwritten.")
         
         self.model = UnitFactory.get_model_instance_from_kwargs(model_kwargs)
+
+        logger.info(f"[{self.__class__.__name__}] Instantiated model: {model_kwargs['name']}.")
 
 
 @register(RK.PL_MODULE_MIXIN)
@@ -183,6 +186,12 @@ class LossMixin(PLModuleMixin):
         
         self.loss_fn = UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
 
+        if isinstance(self.loss_fn, list):
+            loss_fn_names = [loss_fn.__class__.__name__ for loss_fn in self.loss_fn]
+            logger.info(f"[{self.__class__.__name__}] Instantiated loss function(s): {loss_fn_names}.")
+        else:
+            logger.info(f"[{self.__class__.__name__}] Instantiated loss function: {self.loss_fn.__class__.__name__}.")
+
 
 @register(RK.PL_MODULE_MIXIN)
 class ParamSchedulerMixin(PLModuleMixin):
@@ -211,6 +220,14 @@ class ParamSchedulerMixin(PLModuleMixin):
         if param_scheduler_kwargs is not None:
             self.other_schedulers_step, self.other_schedulers_epoch = (
                 UnitFactory.get_param_scheduler_instances_from_kwargs(param_scheduler_kwargs)
+            )
+            step_scheduler_names = [scheduler.__class__.__name__ for scheduler in self.other_schedulers_step]
+            epoch_scheduler_names = [scheduler.__class__.__name__ for scheduler in self.other_schedulers_epoch]
+            
+            logger.info(
+                f"[{self.__class__.__name__}] Instantiated {len(step_scheduler_names)} "
+                f"step-wise parameter scheduler(s): {step_scheduler_names} and "
+                f"{len(epoch_scheduler_names)} epoch-wise parameter scheduler(s): {epoch_scheduler_names}."
             )
 
     def get_step_scheduler_values(self) -> list[Any]:
@@ -280,45 +297,43 @@ class OptimConfigMixin(PLModuleMixin):
             logger.error(msg)
             raise ValueError(msg)
 
-        if isinstance(optimizer_kwargs, list):
-            # Multiple optimizers
-            for cfg in optimizer_kwargs:
-                param_prefix = cfg.pop("param_group_prefix", None)
-                cfg["params"] = get_parameter_groups_from_prefixes(
-                    self.model, param_prefix # type: ignore
-                )
-        else:
-            # Single optimizer
-            param_group_cfgs = optimizer_kwargs.pop("param_groups", None)
-            param_prefix = optimizer_kwargs.pop("param_group_prefix", None)
+        if not isinstance(optimizer_kwargs, list):
+            optimizer_kwargs = [optimizer_kwargs]
 
-            # User provides separate param groups
-            if param_group_cfgs is not None:
-                if not isinstance(param_group_cfgs, list):
-                    msg = (f"[{self.__class__.__name__}] `param_groups` must be a list, "
-                           f"got {type(param_group_cfgs).__name__}.")
+        for cfg in optimizer_kwargs:
+            if "param_groups" in cfg and "param_group_prefix" in cfg:
+                logger.warning(f"[{self.__class__.__name__}] `param_groups` and `param_group_prefix` "
+                               "used together, `param_group_prefix` will be ignored.")
+            
+            if "param_groups" in cfg:
+                # Multiple parameter groups inside this optimizer
+                if not isinstance(cfg["param_groups"], list):
+                    msg = (f"[{self.__class__.__name__}] `param_groups` must be a list of dicts, "
+                           f"got {type(cfg['param_groups']).__name__}.")
                     logger.error(msg)
                     raise TypeError(msg)
-                
+
                 resolved_groups = []
-                for group_cfg in param_group_cfgs:
+                for group_cfg in cfg.pop("param_groups"):
                     resolved = group_cfg.copy()
-                    resolved["params"] = (
-                        get_parameter_groups_from_prefixes(
-                            self.model, group_cfg.pop("param_group_prefix", None) # type: ignore
-                        )
+                    resolved["params"] = get_parameter_groups_from_prefixes(
+                        self.model, group_cfg.pop("param_group_prefix", None) # type: ignore[attr-defined]
                     )
                     resolved_groups.append(resolved)
-                optimizer_kwargs["params"] = resolved_groups
+                cfg["params"] = resolved_groups
             else:
-                # One param group from a single prefix
-                optimizer_kwargs["params"] = (
-                    get_parameter_groups_from_prefixes(self.model, param_prefix) # type: ignore
-                )
+                # Single parameter group
+                prefix = cfg.pop("param_group_prefix", None)
+                cfg["params"] = get_parameter_groups_from_prefixes(self.model, prefix) # type: ignore[attr-defined]
 
-        self.optimizer_kwargs = optimizer_kwargs
+        # Return to original format if only one optimizer
+        self.optimizer_kwargs = (optimizer_kwargs if len(optimizer_kwargs) > 1 
+                                 else optimizer_kwargs[0])
         self.lr_scheduler_kwargs = lr_scheduler_kwargs
-  
+
+        logger.info(f"[{self.__class__.__name__}] Optimizer configuration:\n"
+                    f"{format_optimizer_log(self.optimizer_kwargs)}")
+
     def get_optimizers_and_schedulers(
         self,
     ) -> (optim.Optimizer | dict[str, Any] | list[optim.Optimizer] | 
@@ -375,6 +390,39 @@ class OptimConfigMixin(PLModuleMixin):
             }
 
         return optimizer
+
+
+@register(RK.PL_MODULE_MIXIN)
+class InfererMixin(PLModuleMixin):
+    """
+    Adds support for model inference.
+    """
+    inferer: Inferer
+
+    def setup_mixin(
+        self,
+        inferer_kwargs: dict[str, Any] | None,
+        **kwargs,
+    ) -> None:
+        """Create inferer instance using the dedicated factory."""
+        if not isinstance(inferer_kwargs, (dict, type(None))):
+            msg = (f"[{self.__class__.__name__}] `inferer_kwargs` must be a dict, "
+                   f"got {type(inferer_kwargs).__name__}.")
+            logger.error(msg)
+            raise TypeError(msg)
+        
+        if hasattr(self, "inferer"):
+            logger.warning(f"[{self.__class__.__name__}] Attribute `inferer' already exists "
+                           "and will be overwritten.")
+        
+        if inferer_kwargs is not None:
+            self.inferer = UnitFactory.get_inferer_instance_from_kwargs(inferer_kwargs)
+            logger.info(f"[InfererMixin] Instantiated inferer: {inferer_kwargs['name']}.")
+        else: # default to MONAI's SimpleInferer for uniform API
+            self.inferer = UnitFactory.get_inferer_instance_from_kwargs(
+                {"name": "SimpleInferer"}
+            )
+            logger.info(f"[{self.__class__.__name__}] Inferer initialized with MONAI's SimpleInferer.")
 
 
 @register(RK.PL_MODULE_MIXIN)

@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 import lightning.pytorch as pl
 from torch.optim.lr_scheduler import _LRScheduler
+from monai.inferers.inferer import Inferer
 
 from anyBrainer.registry.utils import check_allowed_types
 from anyBrainer.interfaces import (
@@ -45,6 +46,7 @@ class RegistryKind(str, Enum):
     OPTIMIZER       = "optimizer"
     LR_SCHEDULER    = "lr_scheduler"
     PARAM_SCHEDULER = "param_scheduler"
+    INFERER         = "inferer"
     TRANSFORM       = "transform"
     CALLBACK        = "callback"
     METRIC          = "metric"
@@ -70,6 +72,7 @@ ALLOWED_TYPES: dict[RegistryKind, tuple[object, ...]] = {
     RegistryKind.OPTIMIZER:       (optim.Optimizer,),
     RegistryKind.LR_SCHEDULER:    (_LRScheduler,),
     RegistryKind.CALLBACK:        (pl.Callback,),
+    RegistryKind.INFERER:         (Inferer,),
     RegistryKind.TRANSFORM:       (ABCCallable,),
     RegistryKind.UTIL:            (ABCCallable,),
 }

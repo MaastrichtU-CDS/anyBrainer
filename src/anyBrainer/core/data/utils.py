@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 import re
 from collections import Counter, defaultdict
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, cast, Sequence
 
 from anyBrainer.registry import get, RegistryKind as RK
 from anyBrainer.factories import UnitFactory

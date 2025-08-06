@@ -77,7 +77,6 @@ class TestSlidingWindowClassificationInferer:
     def test_sliding_window_shape(self, model, input_batch_classification, overlap):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
-            model=model,
             patch_size=(128, 128, 128),
             overlap=overlap,
             aggregation_mode="none",
@@ -94,7 +93,6 @@ class TestSlidingWindowClassificationInferer:
     def test_sliding_window_weighted(self, model, input_batch_classification, overlap):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
-            model=model,
             patch_size=(128, 128, 128),
             overlap=overlap,
             aggregation_mode="weighted",
@@ -105,7 +103,6 @@ class TestSlidingWindowClassificationInferer:
     def test_sliding_window_mean(self, model, input_batch_classification):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
-            model=model,
             patch_size=(128, 128, 128),
             overlap=0.5,
             aggregation_mode="mean",
@@ -116,7 +113,6 @@ class TestSlidingWindowClassificationInferer:
     def test_sliding_window_majority(self, model, input_batch_classification):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
-            model=model,
             patch_size=(128, 128, 128),
             overlap=0.5,
             aggregation_mode="majority",

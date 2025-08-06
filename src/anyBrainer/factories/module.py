@@ -46,7 +46,7 @@ class ModuleFactory:
 
         try:
             pl_module_cls = get(RK.PL_MODULE, pl_module_name)
-        except AttributeError:
+        except ValueError:
             msg = f"PL module '{pl_module_name}' not found in anyBrainer.registry-PL_MODULE."
             logger.error(msg)
             raise ValueError(msg)
@@ -86,7 +86,7 @@ class ModuleFactory:
 
         try:
             pl_datamodule_cls = get(RK.DATAMODULE, pl_datamodule_name)
-        except AttributeError:
+        except ValueError:
             msg = f"PL datamodule '{pl_datamodule_name}' not found in anyBrainer.registry-DATAMODULE."
             logger.error(msg)
             raise ValueError(msg)
@@ -126,7 +126,7 @@ class ModuleFactory:
 
         try:
             logging_manager_cls = get(RK.LOGGING_MANAGER, logging_manager_name)
-        except AttributeError:
+        except ValueError:
             msg = f"Logging manager '{logging_manager_name}' not found in anyBrainer.registry-LOGGING_MANAGER."
             logger.error(msg)
             raise ValueError(msg)

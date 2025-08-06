@@ -25,7 +25,7 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import Callable, Literal, Any, TYPE_CHECKING, cast
+from typing import Callable, Literal, Any, TYPE_CHECKING, cast, Sequence
 from collections import Counter
 
 import lightning.pytorch as pl
@@ -89,7 +89,7 @@ class BaseDataModule(pl.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 4,
         extra_dataloader_kwargs: dict[str, Any] | None = None,
-        train_val_test_split: tuple = (0.7, 0.15, 0.15),
+        train_val_test_split: Sequence[float] = (0.7, 0.15, 0.15),
         val_mode: Literal["single", "repeated"] = "single",
         n_splits: int | None = None,
         current_split: int = 0,
@@ -121,6 +121,7 @@ class BaseDataModule(pl.LightningDataModule):
         - collate_fn: function to collate data
         - seed: random seed for reproducibility
         - random_state: random state for reproducibility
+        - input_patch_size: target size for input tensors
         - train_transforms: transforms for train
         - val_transforms: transforms for val
         - test_transforms: transforms for test
@@ -136,7 +137,11 @@ class BaseDataModule(pl.LightningDataModule):
         self.extra_dataloader_kwargs = extra_dataloader_kwargs
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.train_val_test_split = train_val_test_split
+        if len(train_val_test_split) != 3:
+            msg = "train_val_test_split must be a tuple of 3 floats."
+            logger.error(msg)
+            raise ValueError(msg)
+        self.train_val_test_split = tuple(train_val_test_split)
         if val_mode != "single" and n_splits is None:
             msg = "n_splits must be provided when val_mode is not 'single'."
             logger.error(msg)

@@ -46,6 +46,10 @@ from anyBrainer.core.engines.mixins import (
     OptimConfigMixin,
     WeightInitMixin,
     HParamsMixin,
+    InfererMixin,
+)
+from anyBrainer.core.inferers import (
+    SlidingWindowClassificationInferer,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,6 +73,7 @@ class BaseModel(
     LossMixin,
     OptimConfigMixin,
     ParamSchedulerMixin,
+    InfererMixin,
     HParamsMixin,
     CoreLM,
 ):
@@ -96,6 +101,7 @@ class BaseModel(
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         param_scheduler_kwargs: list[dict[str, Any]] | None = None,
         weights_init_kwargs: dict[str, Any] | None = None,
+        inferer_kwargs: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
         **extra,
     ):
@@ -119,6 +125,7 @@ class BaseModel(
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             param_scheduler_kwargs=param_scheduler_kwargs,
             weights_init_kwargs=weights_init_kwargs,
+            inferer_kwargs=inferer_kwargs,
             ignore_hparams=ignore_hparams,
             **extra,
         )
@@ -169,6 +176,7 @@ class CLwAuxModel(BaseModel):
         loss_scheduler_kwargs: dict[str, Any] | None = None,
         momentum_scheduler_kwargs: dict[str, Any] | None = None,
         weights_init_kwargs: dict[str, Any] | None = None,
+        inferer_kwargs: dict[str, Any] | None = None,
         logits_postprocess_fn: Callable | str | None = None,
     ):  
         if loss_kwargs is None:
@@ -222,6 +230,7 @@ class CLwAuxModel(BaseModel):
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             param_scheduler_kwargs=other_schedulers,
             weights_init_kwargs=weights_init_kwargs,
+            inferer_kwargs=inferer_kwargs,
             ignore_hparams=ignore_hparams,
         )
        
@@ -342,8 +351,6 @@ class CLwAuxModel(BaseModel):
         self.log_dict({
             "train/loss": loss.item(),
         }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
-        print(feature_variance(negatives))
-        print(negatives.shape)
         
         self.log_dict({
             "train/loss_info_nce": loss_dict["loss_info_nce"].item(),
@@ -418,7 +425,7 @@ class ClassificationModel(BaseModel):
         """Shared step."""
         out = self.model(batch["img_0"])
         loss = self.loss_fn(out, batch["label"]) # type: ignore
-        return loss, {"loss": loss, "acc": top1_accuracy(out, batch["label"])}
+        return loss, {"loss": loss.item(), "acc": top1_accuracy(out, batch["label"]).item()}
     
     def _log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
         """Log step statistics"""
@@ -438,16 +445,14 @@ class ClassificationModel(BaseModel):
         self._log_step("val", stats)
         return loss
     
-    def test_step(self, batch: dict, batch_idx: int):
+    def test_step(self, batch: dict, batch_idx: int) -> None:
         """
-        Test step.
-        
-        TODO: sliding window test
+        Test step; performs sliding window inference and computes top-1 accuracy.
         """
+        out = self.inferer(batch["img_0"], self.model)
+        self._log_step("test", {"acc": top1_accuracy(out, batch["label"]).item()})
     
     def predict_step(self, batch: dict, batch_idx: int):
-        """
-        Predict step.
-        
-        TODO: sliding window prediction
-        """
+        """Predict step; performs sliding window inference."""
+        out = self.inferer(batch["img_0"], self.model)
+        return out

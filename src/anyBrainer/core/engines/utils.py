@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, cast, TYPE_CHECKING
 
+from sympy.core.evalf import List
 import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 
@@ -87,13 +88,13 @@ def unpack_settings_for_train_workflow(
         "dev_mode": logging_settings.get("dev_mode", False),
         "enable_wandb": logging_settings.get("wandb_enable", True),
         "wandb_watch_enable": logging_settings.get("wandb_watch_enable", False),
-        "wandb_watch_kwargs": logging_settings.get("wandb_watch_kwargs", {}),
+        "wandb_watch_kwargs": logging_settings.get("wandb_watch_kwargs"),
         "pl_datamodule_name": pl_datamodule_settings.get("name", "ContrastiveDataModule"),
         "data_dir": pl_datamodule_settings.get("data_dir", Path.cwd()),
-        "data_handler_kwargs": pl_datamodule_settings.get("data_handler_kwargs", {}),
+        "data_handler_kwargs": pl_datamodule_settings.get("data_handler_kwargs"),
         "num_workers": pl_datamodule_settings.get("num_workers", 32),
         "batch_size": pl_datamodule_settings.get("batch_size", 8),
-        "extra_dataloader_kwargs": pl_datamodule_settings.get("extra_dataloader_kwargs", {}),
+        "extra_dataloader_kwargs": pl_datamodule_settings.get("extra_dataloader_kwargs"),
         "train_val_test_split": pl_datamodule_settings.get("train_val_test_split", (0.7, 0.15, 0.15)),
         "val_mode": pl_datamodule_settings.get("val_mode", "single"),
         "val_n": pl_datamodule_settings.get("val_n"),
@@ -106,11 +107,13 @@ def unpack_settings_for_train_workflow(
         "save_every_n_epochs": ckpt_settings.get("save_every_n_epochs", 1),
         "save_last": ckpt_settings.get("save_last", True),
         "save_top_k": ckpt_settings.get("save_top_k", -1),
-        "extra_ckpt_kwargs": ckpt_settings.get("extra_kwargs", {}),
         "pl_module_name": pl_module_settings.get("name", "CLwAuxModel"),
         "pl_module_kwargs": pl_module_settings,
         "pl_callback_kwargs": pl_callback_settings,
         "pl_trainer_kwargs": pl_trainer_settings,
+        "extra_pl_module_kwargs": pl_module_settings.get("extra_kwargs"),
+        "extra_logging_kwargs": logging_settings.get("extra_kwargs"),
+        "extra_ckpt_kwargs": ckpt_settings.get("extra_kwargs"),
     }
 
 def dict_get_as_tensor(value: Any) -> torch.Tensor | None:
@@ -153,3 +156,50 @@ def get_ckpt_callback(trainer: pl.Trainer) -> ModelCheckpoint | None:
         if isinstance(cb, ModelCheckpoint):
             return cast(ModelCheckpoint, cb)
     return None
+
+def format_optimizer_log(optim_cfg: dict[str, Any] | list[dict[str, Any]]) -> str:
+    """
+    Build a human-friendly, multi-line string that summarises the optimisers
+    about to be instantiated.
+
+    Handles both single and multiple optimisers, and distinguishes between
+    parameter groups (dicts with keys) and flat param lists.
+    """
+    if not isinstance(optim_cfg, list):
+        optim_cfg = [optim_cfg]
+
+    lines: list[str] = [f"Configuring {len(optim_cfg)} optimiser(s):"]
+
+    for opt_idx, cfg in enumerate(optim_cfg):
+        header = f"  - {cfg.get('name', cfg.get('_target_', 'Unnamed'))}: id={opt_idx}"
+        top_lr = cfg.get("lr", "<per-group>")
+        params = cfg.get("params", [])
+        
+        is_group_list = (
+            isinstance(params, list)
+            and params
+            and isinstance(params[0], dict)
+            and "params" in params[0]
+        )
+
+        if is_group_list:
+            header += f": lr={top_lr}, #groups={len(params)}"
+        else:
+            header += f": lr={top_lr}, #params={len(params)}, single-group"
+
+        lines.append(header)
+
+        if is_group_list:
+            for group_idx, group in enumerate(params):
+                group_params = len(group.get("params", []))
+                group_lr = group.get("lr", "N/A")
+                lines.append(f"      - group {group_idx}: lr={group_lr}, #params={group_params}")
+                group_extras = {k: v for k, v in group.items() if k not in {"params", "lr"}}
+                if group_extras:
+                    lines.append(f"        - group-kwargs: {group_extras}")
+        else:
+            extra_params = {k: v for k, v in cfg.items() if k not in {"params", "lr"}}
+            if extra_params:
+                lines.append(f"    - optimiser-kwargs: {extra_params}")
+
+    return "\n".join(lines)

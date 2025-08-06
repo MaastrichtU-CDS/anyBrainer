@@ -18,10 +18,13 @@ from anyBrainer.core.inferers.utils import (
     ensure_tuple_of_length,
     get_patch_gaussian_weight,
 )
+from anyBrainer.registry import register
+from anyBrainer.registry import RegistryKind as RK
 
 logger = logging.getLogger(__name__)
 
 
+@register(RK.INFERER)
 class SlidingWindowClassificationInferer(Inferer):
     """
     Collects classification predictions from a sliding window and 
@@ -32,7 +35,6 @@ class SlidingWindowClassificationInferer(Inferer):
     """
     def __init__(
         self, 
-        model: torch.nn.Module,
         patch_size: int | Sequence[int],
         overlap: float | Sequence[float],
         padding_mode: str = "constant",
