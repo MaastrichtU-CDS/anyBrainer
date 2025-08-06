@@ -462,7 +462,6 @@ class CVWorkflow(Workflow):
         for split_idx in range(self.n_splits):
             logging.info(f"[CVWorkflow] Starting split {split_idx+1}/{self.n_splits}")
             self.run_split(split_idx)
-        self.aggregate_cb.final_summary() # type: ignore[attr-defined]
 
     def run_split(self, split_idx: int) -> None:
         """Runs the training workflow for a single split."""
@@ -480,4 +479,8 @@ class CVWorkflow(Workflow):
         workflow.fit()
         if self.run_test:
             workflow.trainer.test(workflow.model, datamodule=workflow.datamodule)
+            
+        if split_idx == self.n_splits - 1:
+            self.aggregate_cb.final_summary() # type: ignore[attr-defined]
+        
         workflow.close() 
