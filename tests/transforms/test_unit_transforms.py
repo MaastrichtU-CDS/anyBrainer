@@ -1,6 +1,8 @@
 """Unit tests for masking transforms."""
 
 from copy import deepcopy
+from typing import Sequence
+import math
 
 import pytest
 import torch
@@ -11,6 +13,7 @@ from anyBrainer.core.transforms.unit_transforms import (
     SaveReconstructionTargetd,
     CreateEmptyMaskd,
     GetKeyQueryd,
+    SlidingWindowPatch,
 )
 
 @pytest.mark.parametrize("mask_ratio,mask_patch_size", [
@@ -124,3 +127,65 @@ class TestGetKeyQueryd:
                            extra_keys=["mod_0", "sub_id", "ses_id"])(contrastive_sample_data)
         assert (out["query"] == contrastive_sample_data["img_0"]).all()
         assert (out["key"] == contrastive_sample_data["img_0"]).all()
+
+
+def _compute_num_patches(
+    image_size: Sequence[int],
+    patch_size: Sequence[int],
+    overlap: Sequence[float] | Sequence[int],
+) -> int:
+    """Compute the number of patches in an image; assumes relative overlap."""
+    assert len(image_size) == len(patch_size) == len(overlap), "Length mismatch."
+
+    scan_intervals = []
+    for ps, ov in zip(patch_size, overlap):
+        stride = max(1, int(ps * (1.0 - ov)))
+        scan_intervals.append(stride)
+
+    n_patches_per_dim = [
+        math.ceil((dim - ps) / stride) + 1
+        for dim, ps, stride in zip(image_size, patch_size, scan_intervals)
+    ]
+    total_patches = math.prod(n_patches_per_dim)
+    return total_patches
+
+
+class TestSlidingWindowPatch:
+    @pytest.fixture
+    def op(self):
+        return SlidingWindowPatch(
+            patch_size=128,
+            overlap=0.5,
+            spatial_dims=3,
+        )
+    @pytest.mark.parametrize("tensor_shape", [
+        (1, 160, 190, 160),
+        (4, 1, 160, 190, 160),
+        (2, 3, 1, 130, 130, 130),
+        (2, 1, 1, 100, 100, 100),
+    ])
+    def test_output_shapes(self, op, tensor_shape):
+        """
+        Test that the output shape is correct.
+        Indirectly tests that the padding is correct.
+        """
+        out = op(torch.randn(tensor_shape))
+        n_patches = _compute_num_patches(
+            image_size=tensor_shape[-3:],
+            patch_size=(128, 128, 128),
+            overlap=(0.5, 0.5, 0.5),
+        )
+        assert out.ndim == 1 + len(tensor_shape)
+        assert out.shape[-5:] == (n_patches, 1, 128, 128, 128)
+    
+    @pytest.mark.parametrize("tensor_shape", [
+        (120, 120, 120),
+        (1, 120, 120),
+        (1, 120),
+    ])
+    def test_error_shapes(self, op, tensor_shape):
+        """
+        Test that the error is raised when the input shape is invalid.
+        """
+        with pytest.raises(ValueError):
+            op(torch.randn(tensor_shape))

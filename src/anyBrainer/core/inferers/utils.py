@@ -9,20 +9,6 @@ import math
 
 import torch
 
-def ensure_tuple_of_length(
-    value: Any | Sequence[Any],
-    length: int,
-) -> tuple[Any, ...]:
-    """Ensure that a value is a tuple of length `length`."""
-    if isinstance(value, (list, tuple)):
-        if len(value) == length:
-            return tuple(value)
-        else:
-            msg = f"Expected tuple of length {length}, got {len(value)}"
-            raise ValueError(msg)
-    else:
-        return tuple([value] * length)
-
 def get_patch_gaussian_weight(
     patch_center: Sequence[int | float],
     image_center: Sequence[int | float],

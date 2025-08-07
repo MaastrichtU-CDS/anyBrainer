@@ -15,8 +15,13 @@ from monai.inferers.inferer import (
 from monai.data.utils import dense_patch_slices
 
 from anyBrainer.core.inferers.utils import (
-    ensure_tuple_of_length,
     get_patch_gaussian_weight,
+)
+from anyBrainer.core.utils import (
+    ensure_tuple_dim,
+)
+from anyBrainer.core.transforms.unit_transforms import (
+    SlidingWindowPatch,
 )
 from anyBrainer.registry import register
 from anyBrainer.registry import RegistryKind as RK
@@ -83,22 +88,19 @@ class SlidingWindowClassificationInferer(Inferer):
         
         device = inputs.device
         n_dim = len(spatial)
-        patch_size = ensure_tuple_of_length(self.patch_size, n_dim)
-        overlap = ensure_tuple_of_length(self.overlap, n_dim)
+        patch_size = ensure_tuple_dim(self.patch_size, n_dim)
+        overlap = ensure_tuple_dim(self.overlap, n_dim)
 
-        # Convert relative overlap to absolute overlap for dense_patch_slices()
-        scan_interval = tuple(max(1, int(round(ps * (1.0 - ov))))
-                              for ps, ov in zip(patch_size, overlap))
+        # Get slices for patches
+        slice_extractor = SlidingWindowPatch(
+            patch_size=patch_size,
+            overlap=overlap,
+            padding_mode=self.padding_mode,
+            spatial_dims=len(spatial),
+        )
+        slice_extractor(inputs)
+        slices = slice_extractor.slices
 
-        # Pad input if necessary
-        pad_needed = [(max(p - s, 0), 0) for p, s in zip(reversed(patch_size), reversed(spatial))]
-        if any(pad_left > 0 for pad_left, _ in pad_needed):
-            flat_pad = [item for pair in pad_needed for item in pair]
-            inputs = F.pad(inputs, flat_pad, mode=self.padding_mode)
-            spatial = inputs.shape[2:]
-        
-        # Get patch slices and weights
-        slices = dense_patch_slices(spatial, patch_size, scan_interval)
         img_center = [(s - 1) / 2.0 for s in spatial]
         sigma = [ps / 2.0 for ps in patch_size]
         weights: list[float] = []

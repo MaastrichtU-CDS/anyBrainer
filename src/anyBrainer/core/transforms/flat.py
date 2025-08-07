@@ -14,6 +14,8 @@ from typing import Sequence, Callable
 
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
+    DeleteItemsd,
+    ConcatItemsd,
     LoadImaged,
     SpatialPadd,
     RandFlipd, 
@@ -33,6 +35,7 @@ from .unit_transforms import (
     CreateRandomMaskd,
     CreateEmptyMaskd,
     GetKeyQueryd,
+    SlidingWindowPatchd,
 )
 
 from anyBrainer.registry import register, RegistryKind as RK
@@ -146,33 +149,40 @@ def get_predict_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128), 
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
+    concat_img: bool = False,
 ) -> list[Callable]:
-    return [
+    transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True,
                    allow_missing_keys=allow_missing_keys),
         SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant',
                     allow_missing_keys=allow_missing_keys),
     ]
+    if concat_img:
+        transforms.extend([
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=0.5,
+                                allow_missing_keys=allow_missing_keys),
+            ConcatItemsd(keys=keys, name='img', dim=1,
+                        allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys)
+        ])
+    return transforms
 
 @register(RK.TRANSFORM)
 def get_classification_train_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
+    concat_img: bool = False,
 ) -> list[Callable]:
-    return [
+    transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
-        SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
-                    allow_missing_keys=allow_missing_keys),
         RandFlipd(keys=keys, spatial_axis=(0, 1), prob=0.3, 
                   allow_missing_keys=allow_missing_keys),
         RandAffined(keys=keys, rotate_range=(0.3, 0.3, 0.3),
                     scale_range=(0.1, 0.1, 0.1), shear_range=(0.3, 0.3, 0.3),
                     mode='bilinear', padding_mode='zeros', prob=1.0,
                     allow_missing_keys=allow_missing_keys),
-        RandSpatialCropd(keys=keys, roi_size=patch_size, 
-                         allow_missing_keys=allow_missing_keys),
         RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.3, 
                                      allow_missing_keys=True),
         RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
@@ -188,18 +198,48 @@ def get_classification_train_transforms(
         RandSimulateLowResolutiond(keys=keys, prob=0.1, zoom_range=(0.5, 1.0),
                                    allow_missing_keys=allow_missing_keys),
     ]
+    if not concat_img:
+        transforms.extend([
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+                        allow_missing_keys=allow_missing_keys),
+            RandSpatialCropd(keys=keys, roi_size=patch_size, 
+                             allow_missing_keys=allow_missing_keys),
+        ])
+    else:
+        transforms.extend([
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=0.5,
+                                allow_missing_keys=allow_missing_keys),
+            ConcatItemsd(keys=keys, name='img', dim=1,
+                        allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys)
+        ])
+    return transforms
+
 
 @register(RK.TRANSFORM)
 def get_classification_val_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
+    concat_img: bool = False,
 ) -> list[Callable]:
-    return [
+    transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
-        SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
-                    allow_missing_keys=allow_missing_keys),
-        RandSpatialCropd(keys=keys, roi_size=patch_size, 
-                         allow_missing_keys=allow_missing_keys),
     ]
+    if not concat_img:
+        transforms.extend([
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+                        allow_missing_keys=allow_missing_keys),
+            RandSpatialCropd(keys=keys, roi_size=patch_size, 
+                             allow_missing_keys=allow_missing_keys),
+        ])
+    else:
+        transforms.extend([
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=0.5,
+                                allow_missing_keys=allow_missing_keys),
+            ConcatItemsd(keys=keys, name='img', dim=1,
+                        allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys)
+        ])
+    return transforms

@@ -1,5 +1,6 @@
 """Tests for transform managers"""
 
+from typing import cast
 import pytest
 import torch
 # pyright: reportPrivateImportUsage=false
@@ -15,6 +16,7 @@ from anyBrainer.core.transforms import (
     get_mae_val_transforms,
     get_contrastive_train_transforms,
     get_contrastive_val_transforms,
+    get_classification_train_transforms,
 )
 
 set_determinism(seed=12345)
@@ -96,7 +98,6 @@ class TestMAEValTransforms:
         assert torch.equal(out['recon'], out_expected['recon']) # type: ignore
 
 
-
 @pytest.mark.slow
 class TestContrastiveTrainTransforms:
     def test_output_keys(self, contrastive_sample_data):
@@ -122,6 +123,7 @@ class TestContrastiveTrainTransforms:
         assert torch.equal(out['query'], out_expected['query']) # type: ignore
         assert torch.equal(out['key'], out_expected['key']) # type: ignore
     
+
 @pytest.mark.slow
 class TestContrastiveValTransforms:
     def test_output_keys(self, contrastive_sample_data):
@@ -146,3 +148,70 @@ class TestContrastiveValTransforms:
         
         assert torch.equal(out['query'], out_expected['query']) # type: ignore
         assert torch.equal(out['key'], out_expected['key']) # type: ignore
+
+
+@pytest.mark.slow
+class TestClassificationTrainTransforms:
+    def test_output_keys_default(self, contrastive_sample_data):
+        """Tests default output keys"""
+        op = Compose(get_classification_train_transforms())
+        out = cast(dict, op(contrastive_sample_data))
+        assert set(out.keys()) == {
+            'img_0', 'img_1', 'img_2', 'sub_id', 'ses_id', 'mod_0', 'mod_1', 'mod_2', 'count'
+        }
+
+    def test_output_shapes_default(self, contrastive_sample_data):
+        """Tests patch_size arg"""
+        op = Compose(get_classification_train_transforms(patch_size=120))
+        out = cast(dict, op(contrastive_sample_data))
+        assert out['img_0'].shape == (1, 120, 120, 120)
+        assert out['img_1'].shape == (1, 120, 120, 120)
+        assert out['img_2'].shape == (1, 120, 120, 120)
+
+    def test_output_types_default(self, contrastive_sample_data):
+        """Tests default output types"""
+        op = Compose(get_classification_train_transforms())
+        out = cast(dict, op(contrastive_sample_data))
+        assert isinstance(out['img_0'], MetaTensor)
+        assert isinstance(out['img_1'], MetaTensor)
+        assert isinstance(out['img_2'], MetaTensor)
+
+    def test_output_keys_concat(self, contrastive_sample_data):
+        """Tests if concat_img=True replaces img_* with img"""
+        op = Compose(get_classification_train_transforms(concat_img=True))
+        out = cast(dict, op(contrastive_sample_data))
+        assert set(out.keys()) == {
+            'img', 'sub_id', 'ses_id', 'mod_0', 'mod_1', 'mod_2', 'count'
+        }
+    
+    def test_output_shapes_concat(self, contrastive_sample_data):
+        """Tests if concat_img=True gives 5D tensor (n_patches, n_mod, *patch_size)"""
+        op = Compose(get_classification_train_transforms(concat_img=True, patch_size=120))
+        out = cast(dict, op(contrastive_sample_data))
+        assert out['img'].ndim == 5
+        assert out['img'].shape == (1, 3, 120, 120, 120)
+    
+    def test_output_types_concat(self, contrastive_sample_data):
+        """Tests if concat_img=True preserves MetaTensor"""
+        op = Compose(get_classification_train_transforms(concat_img=True))
+        out = cast(dict, op(contrastive_sample_data))
+        assert isinstance(out['img'], MetaTensor)
+    
+    @pytest.mark.parametrize("patch_size_int,patch_size_tuple", [
+        (32, (32, 32, 32)),
+        (64, (64, 64, 64)),
+        (144, (144, 144, 144)),
+    ])
+    def test_ensure_tuple_dim(self, contrastive_sample_data, patch_size_int, patch_size_tuple):
+        """Tests if ensure_tuple_dim() works"""
+        op_int = Compose(get_classification_train_transforms(patch_size=patch_size_int, concat_img=True))
+        op_tuple = Compose(get_classification_train_transforms(patch_size=patch_size_tuple, concat_img=True))
+        out_int = cast(dict, op_int(contrastive_sample_data))
+        out_tuple = cast(dict, op_tuple(contrastive_sample_data))
+        assert out_int['img'].shape == out_tuple['img'].shape
+
+    def test_missing_keys_error(self, contrastive_sample_data):
+        """Tests allow_missing_keys=False arg"""
+        op = Compose(get_classification_train_transforms(allow_missing_keys=False))
+        with pytest.raises(RuntimeError):
+            op(contrastive_sample_data)

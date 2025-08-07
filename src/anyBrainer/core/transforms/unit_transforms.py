@@ -7,13 +7,17 @@ __all__ = [
     "SaveReconstructionTargetd",
     "CreateEmptyMaskd",
     "GetKeyQueryd",
+    "SlidingWindowPatch",
+    "SlidingWindowPatchd",
 ]
 
 from typing import Sequence
 import logging
 
+import torch.nn.functional as F
 import numpy as np
 import torch
+from monai.data.utils import dense_patch_slices
 
 # pyright: reportPrivateImportUsage=false
 from monai.transforms.utils import TransformBackends
@@ -24,7 +28,12 @@ from monai.transforms import (
 )
 from monai.data import MetaTensor
 
-from .utils import assign_key
+from anyBrainer.core.transforms.utils import (
+    assign_key
+)
+from anyBrainer.core.utils.misc import (
+    ensure_tuple_dim,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -266,3 +275,87 @@ class GetKeyQueryd(MapTransform, Randomizable):
             }
         
         return new_d
+
+
+class SlidingWindowPatch(Transform):
+    """
+    Extracts sliding window patches from a tensor of shape (C, *spatial_dims),
+    returning a tensor of shape (N_patches, C, *patch_size).
+    """
+
+    backend = [TransformBackends.TORCH]
+
+    def __init__(
+        self,
+        patch_size: int | Sequence[int],
+        overlap: float | Sequence[float] = 0.5,
+        padding_mode: str = "constant",
+        spatial_dims: int = 3,
+    ):
+        super().__init__()
+        self.patch_size = ensure_tuple_dim(patch_size, dim=spatial_dims)
+        self.overlap = ensure_tuple_dim(overlap, dim=spatial_dims)
+        self.padding_mode = padding_mode
+        self.spatial_dims = spatial_dims
+
+        self.slices: list[tuple[slice, ...]] = [] # will be populated by __call__()
+
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+        if img.dim() < 1 + self.spatial_dims:
+            msg = (f"Expected at least {self.spatial_dims + 1}D tensor "
+                   f"(C, *spatial), got shape {img.shape}")
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        C, *spatial = img.shape[-self.spatial_dims - 1:]
+
+        # Convert relative overlap to stride
+        scan_interval = tuple(max(1, int(round(p * (1.0 - o))))
+                              for p, o in zip(self.patch_size, self.overlap))
+
+        # Pad if necessary
+        pad_needed = [
+            (max(p - s, 0), 0) for p, s in zip(reversed(self.patch_size), reversed(spatial))
+        ]
+        if any(p[0] > 0 for p in pad_needed):
+            pad_flat = [i for pair in pad_needed for i in pair]
+            img = F.pad(img, pad=pad_flat, mode=self.padding_mode)
+            spatial = img.shape[-self.spatial_dims:]
+
+        # Get slices for patches
+        self.slices = dense_patch_slices(spatial, self.patch_size, scan_interval)
+
+        prefix = (slice(None),) * (img.ndim - self.spatial_dims - 1)  # leading dims before C
+        patches = [img[prefix + (slice(None),) + slc] for slc in self.slices]
+
+        return torch.stack(patches, dim=len(prefix))  # shape: (..., N_patches, C, *patch_size)
+
+
+class SlidingWindowPatchd(MapTransform):
+    """
+    Dictionary-based version of `SlidingWindowPatch`.
+
+    See `SlidingWindowPatch` for more details.
+    """
+    def __init__(
+        self,
+        keys: Sequence[str] | str = "img",
+        patch_size: int | Sequence[int] = 128,
+        overlap: float | Sequence[float] = 0.5,
+        padding_mode: str = "constant",
+        spatial_dims: int = 3,
+        allow_missing_keys: bool = False,
+    ):
+        super().__init__(keys, allow_missing_keys)
+        self.transform = SlidingWindowPatch(
+            patch_size=patch_size,
+            overlap=overlap,
+            padding_mode=padding_mode,
+            spatial_dims=spatial_dims,
+        )
+
+    def __call__(self, data):
+        d = dict(data)
+        for key in self.key_iterator(d):
+            d[key] = self.transform(d[key])
+        return d
