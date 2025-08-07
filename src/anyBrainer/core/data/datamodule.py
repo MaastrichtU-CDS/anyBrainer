@@ -36,7 +36,7 @@ from tqdm import tqdm
 # pyright: reportPrivateImportUsage=false
 from monai.data import Dataset as MONAIDataset
 from monai.data import DataLoader as MONAIDataLoader
-from monai.data.utils import set_rnd, list_data_collate
+from monai.data.utils import set_rnd, pad_list_data_collate
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
@@ -95,7 +95,7 @@ class BaseDataModule(pl.LightningDataModule):
         current_split: int = 0,
         worker_logging_fn: Callable | str | None = None,
         worker_seeding_fn: Callable | str | None = set_rnd,
-        collate_fn: Callable | str | None = list_data_collate,
+        collate_fn: Callable | str | None = pad_list_data_collate,
         seed: int | None = None,
         random_state: np.random.RandomState | None = None,
         train_transforms: dict[str, Any] | str | list[Callable] | None = None,
@@ -289,8 +289,8 @@ class BaseDataModule(pl.LightningDataModule):
                 seed=self.seed,
             )
         elif self.val_mode == "repeated":
-            logger.info(f"Splitting data into train/val/test sets for "
-                        f"{self._current_split}th repeated split")
+            logger.info(f"[{self.__class__.__name__}] Splitting data into train/val/test sets "
+                        f"for {self._current_split}th time.")
             if self.seed is None:
                 _seed = None
                 _rng = self.R
@@ -305,7 +305,7 @@ class BaseDataModule(pl.LightningDataModule):
                 random_state=_rng,
             )
         else:
-            msg = f"Invalid val_mode: {self.val_mode}"
+            msg = f"[{self.__class__.__name__}] Invalid val_mode: {self.val_mode}"
             logger.error(msg)
             raise ValueError(msg)
     
@@ -395,7 +395,7 @@ class BaseDataModule(pl.LightningDataModule):
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.extra_dataloader_kwargs,
+            shuffle=False,
         )
     
     def test_dataloader(self) -> DataLoader:
@@ -421,11 +421,11 @@ class BaseDataModule(pl.LightningDataModule):
         return MONAIDataLoader(
             dataset,
             batch_size=1,
-            num_workers=1,
+            num_workers=4,
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.extra_dataloader_kwargs,
+            shuffle=False,
         )
     
     def predict_dataloader(self) -> DataLoader:
@@ -451,11 +451,11 @@ class BaseDataModule(pl.LightningDataModule):
         return MONAIDataLoader(
             dataset,
             batch_size=1,
-            num_workers=1,
+            num_workers=4,
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
-            **self.extra_dataloader_kwargs,
+            shuffle=False,
         )
     
     def state_dict(self) -> dict[str, Any]:
