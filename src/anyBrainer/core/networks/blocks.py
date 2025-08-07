@@ -107,8 +107,8 @@ class ClassificationHead(nn.Module):
         # Log hyperparameters
         summary = (
             f"in_dim={in_dim}, num_classes={num_classes}, "
-            f"num_hidden_layers={num_hidden_layers}, dropout={dropout}, "
-            f"hidden_dim={hidden_dim}, activation={activation}"
+            f"num_hidden_layers={num_hidden_layers}, dropout(s)={dropouts}, "
+            f"hidden_dim(s)={hidden_dims}, activation(s)={activations}"
         )
         logger.info(f"[{model_name}] ClassificationHead initialized with {summary}"
                     if model_name else f"ClassificationHead initialized with {summary}")
