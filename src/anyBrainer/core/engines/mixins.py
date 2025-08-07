@@ -99,26 +99,26 @@ class WeightInitMixin(PLModuleMixin):
         load_param_group_prefix = weights_init_kwargs.get("load_param_group_prefix")
         extra_load_kwargs = weights_init_kwargs.get("extra_load_kwargs", {})
 
-        if load_pretrain_weights is not None:
-            if weights_init_fn is not None:
-                logger.warning(f"[{self.__class__.__name__}] Provided both "
-                                f"load_pretrain_weights and weights_init_fn. "
-                                f"weights_init_fn will be ignored.")
-            self._load_pretrain_weights(
-                load_pretrain_weights=load_pretrain_weights,
-                load_param_group_prefix=load_param_group_prefix,
-                extra_load_kwargs=extra_load_kwargs,
-            )
+        if weights_init_fn is None and load_pretrain_weights is None:
+            logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
             return
 
         if weights_init_fn is not None:
             self._apply_weights_init_fn(
                 weights_init_fn=weights_init_fn,
             )
-            return
+        if load_pretrain_weights is not None:
+            if weights_init_fn is not None:
+                logger.warning(f"[{self.__class__.__name__}] Provided both "
+                                f"`weights_init_fn` and `load_pretrain_weights`; "
+                                f"the latter can override weights initialized by "
+                                f"`weights_init_fn`.")
+            self._load_pretrain_weights(
+                load_pretrain_weights=load_pretrain_weights,
+                load_param_group_prefix=load_param_group_prefix,
+                extra_load_kwargs=extra_load_kwargs,
+            )
 
-        logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
-    
     def _load_pretrain_weights(
         self,
         load_pretrain_weights: str,
