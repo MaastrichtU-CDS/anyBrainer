@@ -290,7 +290,7 @@ class BaseDataModule(pl.LightningDataModule):
             )
         elif self.val_mode == "repeated":
             logger.info(f"[{self.__class__.__name__}] Splitting data into train/val/test sets "
-                        f"for {self._current_split}th time.")
+                        f"for the {self._current_split + 1}th time.")
             if self.seed is None:
                 _seed = None
                 _rng = self.R
