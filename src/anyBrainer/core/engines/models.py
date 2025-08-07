@@ -418,7 +418,7 @@ class ClassificationModel(BaseModel):
         """Get modality one-hot labels to device."""
         if dataloader_idx != 3: # not for prediction
             batch["label"] = torch.tensor(
-                batch["label"], dtype=torch.long, device=batch["img_0"].device
+                batch["label"], dtype=torch.long, device=batch["img"].device
             )
         return batch
     
@@ -435,14 +435,14 @@ class ClassificationModel(BaseModel):
 
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
-        out = self.model(batch["img_0"])
+        out = self.model(batch["img"])
         loss, stats = self._shared_eval_step(out, batch)
         self._log_step("train", stats)
         return loss
     
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step."""
-        out = self.inferer(batch["img_0"], self.model)
+        out = self.inferer(batch["img"], self.model)
         loss, stats = self._shared_eval_step(out, batch)
         self._log_step("val", stats)
         return loss
@@ -451,10 +451,10 @@ class ClassificationModel(BaseModel):
         """
         Test step; performs sliding window inference and computes top-1 accuracy.
         """
-        out = self.inferer(batch["img_0"], self.model)
+        out = self.inferer(batch["img"], self.model)
         self._log_step("test", {"acc": top1_accuracy(out, batch["label"]).item()})
     
     def predict_step(self, batch: dict, batch_idx: int):
         """Predict step; performs sliding window inference."""
-        out = self.inferer(batch["img_0"], self.model)
+        out = self.inferer(batch["img"], self.model)
         return out
