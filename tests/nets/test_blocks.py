@@ -6,6 +6,7 @@ import torch
 from anyBrainer.core.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
+    UnifyRepresentation,
 )
 
 @pytest.fixture(scope="module")
@@ -107,3 +108,26 @@ class TestClassificationHead:
             ClassificationHead(in_dim=768, num_classes=7, activation=activation, dropout=0.5,
                                hidden_dim=1024, num_hidden_layers=1,
                                activation_kwargs=activation_kwargs)
+
+class TestUnifyRepresentation:
+    """Test UnifyRepresentation in terms of shape, and error handling."""
+    @pytest.mark.parametrize(
+        "input_shape, num_modalities", [
+            ((4, 4, 8, 768, 4, 4, 4), 4),
+            ((4, 8, 768, 4, 4, 4), 1),
+            ((4, 768, 4, 4, 4), 1),
+        ])
+    def test_forward(self, input_shape, num_modalities):
+        unifier = UnifyRepresentation(num_modalities)
+        output = unifier(torch.randn(input_shape)) # type: ignore
+        assert output.shape == (4, 768)
+
+    def test_wrong_shape(self):
+        with pytest.raises(ValueError):
+            unifier = UnifyRepresentation(num_modalities=2)
+            unifier(torch.randn(768, 4, 4, 4)) # type: ignore
+    
+    def test_mismatch_num_modalities(self):
+        with pytest.raises(ValueError):
+            unifier = UnifyRepresentation(num_modalities=2)
+            unifier(torch.randn(4, 3, 8, 768, 4, 4, 4)) # type: ignore
