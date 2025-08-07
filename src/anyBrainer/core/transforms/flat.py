@@ -37,7 +37,7 @@ from .unit_transforms import (
 
 from anyBrainer.registry import register, RegistryKind as RK
 
-OPEN_KEYS = [f"img_{i}" for i in range(1, 20)]
+OPEN_KEYS = [f"img_{i}" for i in range(0, 20)]
 
 @register(RK.TRANSFORM)
 def get_mae_train_transforms(
