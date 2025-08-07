@@ -15,17 +15,25 @@ logger = logging.getLogger(__name__)
 
 @register(RK.UTIL)
 def top1_accuracy(
-    logits: torch.Tensor, 
-    targets: torch.Tensor, 
+    logits: torch.Tensor,
+    targets: torch.Tensor,
     is_one_hot: bool = False,
 ) -> torch.Tensor:
-    """Compute top-1 accuracy."""
-    if is_one_hot:
-        targets_idx = targets.argmax(dim=1)
+    """Compute top-1 accuracy for both binary and multiclass logits."""
+    # Binary classification case (logits are shape [B] or [B, 1])
+    if logits.ndim == 1 or logits.size(1) == 1:
+        # Apply sigmoid and threshold at 0.5
+        preds = (logits.view(-1).sigmoid() >= 0.5).long()
+        targets = targets.view(-1).long()
     else:
-        targets_idx = targets
-    preds = logits.argmax(dim=1)
-    return (preds == targets_idx).float().mean()
+        # Multiclass classification (logits shape [B, C])
+        preds = logits.argmax(dim=1)
+        if is_one_hot:
+            targets = targets.argmax(dim=1)
+        else:
+            targets = targets.view(-1).long()
+    
+    return (preds == targets).float().mean()
 
 @register(RK.UTIL)
 def effective_rank(
