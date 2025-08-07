@@ -458,3 +458,21 @@ class ClassificationModel(BaseModel):
         """Predict step; performs sliding window inference."""
         out = self.inferer(batch["img"], self.model)
         return out
+    
+    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
+        """Log modality weights."""
+        for name, param in self.model.named_parameters():
+            if name == "fusion_head.modality_weights":
+                weights = torch.softmax(param, dim=0).detach().cpu().numpy()
+                self.log_dict({f"modality_{i}": w for i, w in enumerate(weights)}, 
+                              on_step=True, on_epoch=True, prog_bar=False, 
+                              sync_dist=sync_dist_safe(self))
+                break
+    
+    def on_train_end(self) -> None:
+        """Log final modality weights."""
+        for name, param in self.model.named_parameters():
+            if name == "fusion_head.modality_weights":
+                weights = torch.softmax(param, dim=0).detach().cpu().numpy()
+                logger.info(f"Learnable modality weights: {weights}")
+                break
