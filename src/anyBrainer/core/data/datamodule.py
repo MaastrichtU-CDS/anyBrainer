@@ -121,7 +121,6 @@ class BaseDataModule(pl.LightningDataModule):
         - collate_fn: function to collate data
         - seed: random seed for reproducibility
         - random_state: random state for reproducibility
-        - input_patch_size: target size for input tensors
         - train_transforms: transforms for train
         - val_transforms: transforms for val
         - test_transforms: transforms for test
@@ -421,8 +420,8 @@ class BaseDataModule(pl.LightningDataModule):
 
         return MONAIDataLoader(
             dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
+            batch_size=1,
+            num_workers=1,
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,
@@ -451,8 +450,8 @@ class BaseDataModule(pl.LightningDataModule):
 
         return MONAIDataLoader(
             dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
+            batch_size=1,
+            num_workers=1,
             generator=generator,
             worker_init_fn=worker_init_fn,
             collate_fn=self.collate_fn,

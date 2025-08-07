@@ -422,9 +422,8 @@ class ClassificationModel(BaseModel):
             )
         return batch
     
-    def _shared_step(self, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Shared step."""
-        out = self.model(batch["img_0"])
+    def _shared_eval_step(self, out: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Shared evaluation step."""
         loss = self.loss_fn(out, batch["label"]) # type: ignore
         return loss, {"loss": loss.item(), "acc": top1_accuracy(out, batch["label"]).item()}
     
@@ -436,13 +435,15 @@ class ClassificationModel(BaseModel):
 
     def training_step(self, batch: dict, batch_idx: int):
         """Training step."""
-        loss, stats = self._shared_step(batch)
+        out = self.model(batch["img_0"])
+        loss, stats = self._shared_eval_step(out, batch)
         self._log_step("train", stats)
         return loss
     
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step."""
-        loss, stats = self._shared_step(batch)
+        out = self.inferer(batch["img_0"], self.model)
+        loss, stats = self._shared_eval_step(out, batch)
         self._log_step("val", stats)
         return loss
     
