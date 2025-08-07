@@ -41,7 +41,7 @@ OPEN_KEYS = [f"img_{i}" for i in range(0, 20)]
 
 @register(RK.TRANSFORM)
 def get_mae_train_transforms(
-    patch_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (128, 128, 128),
 ) -> list[Callable]:
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
@@ -68,7 +68,7 @@ def get_mae_train_transforms(
 
 @register(RK.TRANSFORM)
 def get_mae_val_transforms(
-    patch_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (128, 128, 128),
 ) -> list[Callable]:
     return [
         LoadImaged(keys=['img', 'brain_mask'], reader='NumpyReader', 
@@ -84,7 +84,7 @@ def get_mae_val_transforms(
 
 @register(RK.TRANSFORM)
 def get_contrastive_train_transforms(
-    patch_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (128, 128, 128),
 ) -> list[Callable]:
     return [
         GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
@@ -119,7 +119,7 @@ def get_contrastive_train_transforms(
 
 @register(RK.TRANSFORM)
 def get_contrastive_val_transforms(
-    patch_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (128, 128, 128),
 ) -> list[Callable]:
     return [
         GetKeyQueryd(keys_prefix='img', count_key='count', extra_iters=['mod'],
@@ -143,7 +143,7 @@ def get_contrastive_val_transforms(
 
 @register(RK.TRANSFORM)
 def get_predict_transforms(
-    patch_size: int | Sequence[int] = 128, 
+    patch_size: int | Sequence[int] = (128, 128, 128), 
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
 ) -> list[Callable]:
@@ -156,7 +156,7 @@ def get_predict_transforms(
 
 @register(RK.TRANSFORM)
 def get_classification_train_transforms(
-    patch_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
 ) -> list[Callable]:
@@ -191,7 +191,7 @@ def get_classification_train_transforms(
 
 @register(RK.TRANSFORM)
 def get_classification_val_transforms(
-    patch_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
 ) -> list[Callable]:
