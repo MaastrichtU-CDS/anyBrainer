@@ -70,19 +70,19 @@ class CosineAnnealingWithWarmup(_LRScheduler):
     def get_lr(self):
         lrs = []
         for i, base_lr in enumerate(self.base_lrs):
+            start_iter = self.start_iter[i]
             warmup = self.warmup_iters[i]
             eta_min = self.eta_min[i]
-            start_iter = self.start_iter[i]
 
             if self.last_epoch < start_iter:
                 # Inactive
                 lr = 0.0
-            elif self.last_epoch < warmup:
+            elif self.last_epoch < start_iter + warmup:
                 # Linear warmup
-                lr = base_lr * (self.last_epoch + 1) / float(warmup)
+                lr = base_lr * (self.last_epoch - start_iter + 1) / float(warmup)
             else:
                 # Cosine decay
-                progress = (self.last_epoch - warmup) / float(self.total_iters[i] - warmup)
+                progress = (self.last_epoch - start_iter - warmup) / float(self.total_iters[i] - warmup)
                 progress = min(max(progress, 0.0), 1.0)  # clamp to [0, 1]
                 lr = eta_min + (base_lr - eta_min) * 0.5 * (1.0 + math.cos(math.pi * progress))
 
