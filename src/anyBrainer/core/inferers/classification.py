@@ -39,7 +39,7 @@ class SlidingWindowClassificationInferer(Inferer):
         overlap: float | Sequence[float],
         padding_mode: str = "constant",
         aggregation_mode: Literal["weighted", "mean", "majority", "none"] = "weighted",
-        apply_softmax: bool = True,
+        apply_activation: bool = True,
     ):
         """
         Args:
@@ -47,7 +47,8 @@ class SlidingWindowClassificationInferer(Inferer):
         - overlap: The overlap between patches.
         - padding_mode: The mode to use for padding the image.
         - aggregation_mode: The mode to use for aggregating the predictions.
-        - apply_softmax: Whether to apply softmax to the predictions.
+        - apply_activation: Whether to apply activation to the predictions;
+            softmax for multiclass, sigmoid for binary.
         """
         self.patch_size = patch_size
         self.overlap = overlap
@@ -56,13 +57,13 @@ class SlidingWindowClassificationInferer(Inferer):
             msg = f"Invalid aggregation mode: {aggregation_mode}"
             raise ValueError(msg)
         self.aggregation_mode = aggregation_mode
-        self.apply_softmax = apply_softmax
+        self.apply_activation = apply_activation
 
         logger.info(f"[{self.__class__.__name__}] Initialised with "
                     f"patch_size={patch_size}, overlap={overlap}, "
                     f"padding_mode={padding_mode}, "
                     f"aggregation_mode={aggregation_mode}, "
-                    f"apply_softmax={apply_softmax}")
+                    f"apply_activation={apply_activation}")
     
     def __call__(self, 
         inputs: torch.Tensor, 
@@ -118,21 +119,33 @@ class SlidingWindowClassificationInferer(Inferer):
         for slc in slices:
             patch = inputs[(slice(None), slice(None)) + slc] # (B, C, *patch_size)
             logits = network(patch) # (B, num_classes)
-            if self.apply_softmax:
-                probs = torch.softmax(logits, dim=1) # (B, num_classes)
+            if self.apply_activation:
+                if logits.shape[1] == 1:
+                    probs = torch.sigmoid(logits) # (B, 1)
+                else:
+                    probs = torch.softmax(logits, dim=1) # (B, num_classes)
             else:
-                probs = logits # (B, num_classes)
+                probs = logits # raw logits
             prob_lists.append(probs)
         
         probs_all = torch.stack(prob_lists, dim=0).permute(1, 0, 2) # (B, N_patches, num_classes)
 
         # Aggregate predictions
+        num_classes = probs_all.shape[-1]
+
         if self.aggregation_mode == "none":
             return probs_all
 
         if self.aggregation_mode == "majority":
-            patch_preds = probs_all.argmax(dim=2)  # (B, N_patches)
-            majority_vote =  torch.mode(patch_preds, dim=1).values # (B,)
-            return F.one_hot(majority_vote, probs_all.shape[-1]).float() # (B, n_classes)
+            if num_classes == 1:
+                # Binary: vote on sigmoid output ≥ 0.5
+                patch_preds = (probs_all >= 0.5).long().squeeze(-1)  # (B, N_patches)
+                majority_vote = torch.mode(patch_preds, dim=1).values  # (B,)
+                return majority_vote.unsqueeze(1).float()  # (B, 1)
+            else:
+                # Multi-class: vote on argmax
+                patch_preds = probs_all.argmax(dim=2)  # (B, N_patches)
+                majority_vote = torch.mode(patch_preds, dim=1).values  # (B,)
+                return F.one_hot(majority_vote, num_classes).float()  # (B, num_classes)
 
-        return (probs_all * weight_tensor.unsqueeze(0).unsqueeze(-1)).sum(dim=1) # (B, n_classes)
+        return (probs_all * weight_tensor.view(1, -1, 1)).sum(dim=1) # (B, n_classes)
