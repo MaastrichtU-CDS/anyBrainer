@@ -15,10 +15,12 @@ import torch.nn as nn
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
+from anyBrainer.core.utils import ensure_tuple_dim
 from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.core.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
+    FusionHead,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ class Swinv2CL(nn.Module):
         feature_size: int = 48,
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
+        spatial_dims: int = 3,
         proj_dim: int = 128,
         proj_hidden_dim: int = 2048,
         proj_hidden_act: str = "GELU",
@@ -51,12 +54,6 @@ class Swinv2CL(nn.Module):
         super().__init__()
 
         # SwinViT encoder
-        if isinstance(window_size, int):
-            window_size = (window_size, window_size, window_size)
-        
-        if isinstance(patch_size, int):
-            patch_size = (patch_size, patch_size, patch_size)
-
         if extra_swin_kwargs is None:
             extra_swin_kwargs = {}
         
@@ -65,8 +62,8 @@ class Swinv2CL(nn.Module):
             embed_dim=feature_size,
             depths=depths, 
             num_heads=num_heads,
-            window_size=window_size,
-            patch_size=patch_size,
+            window_size=ensure_tuple_dim(window_size, spatial_dims),
+            patch_size=ensure_tuple_dim(patch_size, spatial_dims),
             use_v2=use_v2,
             **extra_swin_kwargs,
         )
@@ -113,10 +110,29 @@ class Swinv2CL(nn.Module):
 
 @register(RK.NETWORK)
 class Swinv2Classifier(nn.Module):
-    """Swin ViT V2 for Classification."""
+    """
+    Swin ViT V2 for Classification.
+    
+    Supports late-multimodal fusion. 
+    
+    - If late_fusion is True, the input should be a 6D tensor (B, n_patches, n_mod, *spatial_dims).
+        The input is then permuted into (B*n_mod*n_patches, 1, *spatial_dims) and 
+        fed into the encoder.
+        
+        The output is then unpacked to (B, n_mod, n_patches, *spatial_feats)
+        and fed into the fusion head -> produces a flat 2D tensor (B, in_dim) for subsequent 
+        processing by the classification head.
+
+    - If late_fusion is False, the input should be a 4D tensor (B, C, *patch_size) and
+        passed through the encoder only once.
+
+    The return value is a 2D tensor with the raw logits (B, num_classes).
+
+    """
     def __init__(
         self,
         *,
+        # SwinViT encoder args
         in_channels: int = 1,
         patch_size: int | Sequence[int] = 2,
         depths: Sequence[int] = (2, 2, 6, 2),
@@ -125,22 +141,28 @@ class Swinv2Classifier(nn.Module):
         feature_size: int = 48,
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
+        spatial_dims: int = 3,
+
+        # MLP classification head args
         mlp_num_classes: int = 2,
         mlp_num_hidden_layers: int = 1,
         mlp_hidden_dim: int | Sequence[int] = 384,
         mlp_dropout: float | Sequence[float] = 0.3,
         mlp_activations: str | Sequence[str] = "GELU",
         mlp_activation_kwargs: dict[str, Any] | Sequence[dict[str, Any]] | None = None,
+
+        # Aggregate inputs
+        late_fusion: bool = False,
+        num_modalities: int = 1,
     ):
         super().__init__()
 
-        # SwinViT encoder
-        if isinstance(window_size, int):
-            window_size = (window_size, window_size, window_size)
-        
-        if isinstance(patch_size, int):
-            patch_size = (patch_size, patch_size, patch_size)
+        self.in_channels = in_channels
+        self.spatial_dims = spatial_dims
+        self.late_fusion = late_fusion
+        self.num_modalities = num_modalities
 
+        # SwinViT encoder
         if extra_swin_kwargs is None:
             extra_swin_kwargs = {}
         
@@ -149,8 +171,8 @@ class Swinv2Classifier(nn.Module):
             embed_dim=feature_size,
             depths=depths, 
             num_heads=num_heads,
-            window_size=window_size,
-            patch_size=patch_size,
+            window_size=ensure_tuple_dim(window_size, spatial_dims),
+            patch_size=ensure_tuple_dim(patch_size, spatial_dims),
             use_v2=use_v2,
             **extra_swin_kwargs,
         )
@@ -169,6 +191,44 @@ class Swinv2Classifier(nn.Module):
             model_name="Swinv2Classifier",
         )
 
+        if self.late_fusion:
+            self.fusion_head = FusionHead(
+                num_modalities=num_modalities,
+            )
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.encoder(x)
-        return self.classification_head(x[-1])
+        """
+        Returns raw logits of shape (B, num_classes).
+        """
+        if self.late_fusion:
+            if x.ndim != 3 + self.spatial_dims:
+                msg = (f"[Swinv2Classifier] late_fusion=True expects input with "
+                       f"{3 + self.spatial_dims} dims (B, n_patches, n_mod, *spatial_dims); "
+                       f"got {tuple(x.shape)}")
+                logger.error(msg)
+                raise ValueError(msg)
+            
+            B, n_patches, n_mod, *spatial = x.shape
+
+            if n_mod != self.num_modalities:
+                msg = (f"[Swinv2Classifier] num_modalities={self.num_modalities} but "
+                       f"input has n_mod={n_mod}.")
+                logger.error(msg)
+                raise ValueError(msg)
+            
+            if len(spatial) != self.spatial_dims:
+                msg = (f"[Swinv2Classifier] spatial_dims={self.spatial_dims} but "
+                       f"input has {len(spatial)} spatial dimensions.")
+                logger.error(msg)
+                raise ValueError(msg)
+            
+            feats = self.encoder(
+                x.reshape(B * n_patches * n_mod, self.in_channels, *spatial)
+            )[-1]
+            feats = feats.view(B, n_patches, n_mod, *feats.shape[1:])
+            feats = feats.permute(0, 2, 1, *range(3, feats.ndim))
+            feats = self.fusion_head(feats)
+        else:
+            feats = self.encoder(x)[-1]
+
+        return self.classification_head(feats)

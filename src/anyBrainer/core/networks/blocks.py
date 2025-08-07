@@ -5,7 +5,7 @@ Pytorch blocks of layers to be used in the construction of networks.
 __all__ = [
     'ProjectionHead',
     'ClassificationHead',
-    'UnifyRepresentation',
+    'FusionHead',
 ]
 
 import logging
@@ -126,7 +126,7 @@ class ClassificationHead(nn.Module):
         return self.classifier(x)
 
 
-class UnifyRepresentation(nn.Module):
+class FusionHead(nn.Module):
     """
     Unify representation across brain patches and modalities.
 

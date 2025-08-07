@@ -66,6 +66,26 @@ class TestSwinv2CL:
 
 
 class TestSwinv2Classifier:
+    @pytest.fixture
+    def model_w_fusion(self):
+        return Swinv2Classifier(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            feature_size=48,
+            mlp_num_classes=2,
+            mlp_num_hidden_layers=2,
+            mlp_hidden_dim=[128, 64],
+            mlp_dropout=0.3,
+            mlp_activations="LeakyReLU",
+            mlp_activation_kwargs={"negative_slope": 0.1},
+            late_fusion=True,
+            num_modalities=4,
+        )
+
     @pytest.mark.parametrize("mlp_num_classes", [2, 4, 8, 100])
     def test_forward(self, input_tensor, mlp_num_classes):
         """Test that the model can forward pass."""
@@ -86,3 +106,24 @@ class TestSwinv2Classifier:
         )
         output = model(input_tensor)
         assert output.shape == (8, mlp_num_classes)
+
+    @pytest.mark.slow
+    def test_late_fusion(self, model_w_fusion):
+        """Test model output shape with late fusion."""
+        output = model_w_fusion(torch.randn(1, 2, 4, 128, 128, 128))
+        assert output.shape == (1, 2)
+
+    def test_late_fusion_wrong_input_shape(self, model_w_fusion):
+        """Test that the model raises an error if the input shape is wrong."""
+        with pytest.raises(ValueError):
+            model_w_fusion(torch.randn(1, 4, 128, 128, 128))
+
+    def test_late_fusion_wrong_num_modalities(self, model_w_fusion):
+        """Test that the model raises an error if the number of modalities is wrong."""
+        with pytest.raises(ValueError):
+            model_w_fusion(torch.randn(1, 4, 2, 128, 128, 128))
+
+    def test_late_fusion_wrong_spatial_dims(self, model_w_fusion):
+        """Test that the model raises an error if the spatial dimensions are wrong."""
+        with pytest.raises(ValueError):
+            model_w_fusion(torch.randn(1, 2, 4, 128, 128))
