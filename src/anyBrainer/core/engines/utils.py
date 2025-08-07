@@ -112,7 +112,7 @@ def unpack_settings_for_train_workflow(
         "pl_module_kwargs": pl_module_settings,
         "pl_callback_kwargs": pl_callback_settings,
         "pl_trainer_kwargs": pl_trainer_settings,
-        "extra_pl_module_kwargs": pl_module_settings.get("extra_kwargs"),
+        "extra_pl_datamodule_kwargs": pl_datamodule_settings.get("extra_kwargs"),
         "extra_logging_kwargs": logging_settings.get("extra_kwargs"),
         "extra_ckpt_kwargs": ckpt_settings.get("extra_kwargs"),
     }

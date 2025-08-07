@@ -85,7 +85,7 @@ class TrainingSettings:
     pl_callback_kwargs: list[dict[str, Any]]
     pl_trainer_kwargs: dict[str, Any]
     extra_logging_kwargs: dict[str, Any]
-    extra_pl_module_kwargs: dict[str, Any]
+    extra_pl_datamodule_kwargs: dict[str, Any]
     extra_ckpt_kwargs: dict[str, Any]
 
     def __post_init__(self):
@@ -241,8 +241,8 @@ class TrainWorkflow(Workflow):
 
         Override for custom datamodule configuration.
         """
-        if self.settings.extra_pl_module_kwargs:
-            logging.warning("[TrainWorkflow] Identified extra_pl_module_kwargs; out-of-the-box "
+        if self.settings.extra_pl_datamodule_kwargs:
+            logging.warning("[TrainWorkflow] Identified extra_pl_datamodule_kwargs; out-of-the-box "
                             "TrainWorkflow cannot ensure they don't override explicitly "
                             "set kwargs; unless custom pl.LightningDataModule is used.")
 
@@ -264,7 +264,7 @@ class TrainWorkflow(Workflow):
             "worker_logging_fn": self.logging_manager.get_setup_worker_logging_fn(),
             "worker_seeding_fn": set_rnd,
             "seed": self.settings.seed,
-            **(self.settings.extra_pl_module_kwargs or {}),
+            **(self.settings.extra_pl_datamodule_kwargs or {}),
         }
         return ModuleFactory.get_pl_datamodule_instance_from_kwargs(
             pl_datamodule_kwargs=datamodule_config
