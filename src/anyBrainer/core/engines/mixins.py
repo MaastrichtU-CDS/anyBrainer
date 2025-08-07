@@ -315,11 +315,10 @@ class OptimConfigMixin(PLModuleMixin):
 
                 resolved_groups = []
                 for group_cfg in cfg.pop("param_groups"):
-                    resolved = group_cfg.copy()
-                    resolved["params"] = get_parameter_groups_from_prefixes(
+                    group_cfg["params"] = get_parameter_groups_from_prefixes(
                         self.model, group_cfg.pop("param_group_prefix", None) # type: ignore[attr-defined]
                     )
-                    resolved_groups.append(resolved)
+                    resolved_groups.append(group_cfg)
                 cfg["params"] = resolved_groups
             else:
                 # Single parameter group
