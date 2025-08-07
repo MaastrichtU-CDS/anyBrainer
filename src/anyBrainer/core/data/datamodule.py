@@ -618,7 +618,7 @@ class ClassificationDataModule(BaseDataModule):
         self,
         *,
         labels_dir: Path | str | None = None,
-        labels_filename: str = "labels.txt",
+        labels_filename: str = "label.txt",
         expected_labels: list[str] = ['0', '1'],
         strict: bool = False,
         modalities: list[str] | None = None,
