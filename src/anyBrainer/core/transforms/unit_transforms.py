@@ -358,4 +358,5 @@ class SlidingWindowPatchd(MapTransform):
         d = dict(data)
         for key in self.key_iterator(d):
             d[key] = self.transform(d[key])
+            logger.info(f"[{self.__class__.__name__}] {key} shape: {d[key].shape}")
         return d
