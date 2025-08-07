@@ -168,10 +168,6 @@ class Swinv2Classifier(nn.Module):
             dropout=mlp_dropout,
             model_name="Swinv2Classifier",
         )
-        logger.info(f"[Swinv2Classifier] ClassificationHead initialized with in_dim={feature_size * 16}, "
-                    f"num_hidden_layers={mlp_num_hidden_layers}, num_classes={mlp_num_classes}, "
-                    f"hidden_dim={mlp_hidden_dim}, activation={mlp_activations}, "
-                    f"dropout={mlp_dropout}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.encoder(x)
