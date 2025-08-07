@@ -424,7 +424,7 @@ class ClassificationModel(BaseModel):
     
     def _shared_eval_step(self, out: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
         """Shared evaluation step."""
-        loss = self.loss_fn(out, batch["label"].unsqueeze(1)) # type: ignore
+        loss = self.loss_fn(out, batch["label"].unsqueeze(1).float()) # type: ignore
         return loss, {"loss": loss.item(), "acc": top1_accuracy(out, batch["label"]).item()}
     
     def _log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
