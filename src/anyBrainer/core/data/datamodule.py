@@ -701,7 +701,6 @@ class ClassificationDataModule(BaseDataModule):
                 session_entry[f"img_{i}"] = f['file_name']
                 session_entry[f"mod_{i}"] = f['modality']
                 used_modality_counts[f['modality']] += 1
-                logger.info(f"{session_entry}")
 
             used_subjects.add(file_metadata['sub_id'])
             used_sessions.add(f"{file_metadata['sub_id']}_{file_metadata['ses_id']}")
