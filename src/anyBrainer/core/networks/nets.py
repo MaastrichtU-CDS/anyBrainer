@@ -115,14 +115,16 @@ class Swinv2Classifier(nn.Module):
     
     Supports late-multimodal fusion. 
     
-    - If late_fusion is True, the input should be a 6D tensor (B, n_patches, n_mod, *spatial_dims).
-        The input is then permuted into (B*n_mod*n_patches, 1, *spatial_dims) and 
-        fed into the encoder.
+    - If late_fusion is True, the input should be a tensor with shape
+        (B, n_late_fusion, n_patches, C, *spatial_dims).
         
-        The output is then unpacked to (B, n_mod, n_patches, *spatial_feats)
-        and fed into the fusion head -> produces a flat 2D tensor (B, in_dim) for subsequent 
+        The input is then permuted into (n_late_fusion, n_patches, B, C, *spatial_dims)
+        and fed into the encoder in chunks of size B for n_late_fusion * n_patches times.
+        
+        Combined encoder outputs are permuted to (B, n_late_fusion, n_patches, *feats)
+        and fed into the fusion head, which produces a flat 2D tensor (B, in_dim) for subsequent 
         processing by the classification head.
-
+        
     - If late_fusion is False, the input should be a 4D tensor (B, C, *patch_size) and
         passed through the encoder only once.
 
@@ -153,14 +155,14 @@ class Swinv2Classifier(nn.Module):
 
         # Aggregate inputs
         late_fusion: bool = False,
-        num_modalities: int = 1,
+        n_late_fusion: int = 1,
     ):
         super().__init__()
 
         self.in_channels = in_channels
         self.spatial_dims = spatial_dims
         self.late_fusion = late_fusion
-        self.num_modalities = num_modalities
+        self.n_late_fusion = n_late_fusion
 
         # SwinViT encoder
         if extra_swin_kwargs is None:
@@ -193,26 +195,37 @@ class Swinv2Classifier(nn.Module):
 
         if self.late_fusion:
             self.fusion_head = FusionHead(
-                num_modalities=num_modalities,
+                n_fusion=self.n_late_fusion,
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Returns raw logits of shape (B, num_classes).
+        Args:
+            x: Input tensor of shape (B, n_late_fusion, n_patches, C, *spatial_dims).
+        
+        Returns:
+            torch.Tensor: Raw logits of shape (B, num_classes).
         """
         if self.late_fusion:
-            if x.ndim != 3 + self.spatial_dims:
+            if x.ndim != 4 + self.spatial_dims:
                 msg = (f"[Swinv2Classifier] late_fusion=True expects input with "
-                       f"{3 + self.spatial_dims} dims (B, n_patches, n_mod, *spatial_dims); "
+                       f"{4 + self.spatial_dims} dims "
+                       f"(B, n_late_fusion, n_patches, C, *spatial_dims); "
                        f"got {tuple(x.shape)}")
                 logger.error(msg)
                 raise ValueError(msg)
             
-            B, n_patches, n_mod, *spatial = x.shape
+            B, n_late_fusion, n_patches, C, *spatial = x.shape
 
-            if n_mod != self.num_modalities:
-                msg = (f"[Swinv2Classifier] num_modalities={self.num_modalities} but "
-                       f"input has n_mod={n_mod}.")
+            if n_late_fusion != self.n_late_fusion:
+                msg = (f"[Swinv2Classifier] Expected n_late_fusion={self.n_late_fusion}, "
+                       f"got {n_late_fusion}.")
+                logger.error(msg)
+                raise ValueError(msg)
+            
+            if C != self.in_channels:
+                msg = (f"[Swinv2Classifier] in_channels={self.in_channels} but "
+                       f"input has {C} channels.")
                 logger.error(msg)
                 raise ValueError(msg)
             
@@ -222,12 +235,15 @@ class Swinv2Classifier(nn.Module):
                 logger.error(msg)
                 raise ValueError(msg)
             
-            feats = self.encoder(
-                x.reshape(B * n_patches * n_mod, self.in_channels, *spatial)
-            )[-1]
-            feats = feats.view(B, n_patches, n_mod, *feats.shape[1:])
-            feats = feats.permute(0, 2, 1, *range(3, feats.ndim))
-            feats = self.fusion_head(feats)
+            # Split input into chunks of size B and pass to encoder
+            x_chunks = x.permute(1, 2, 0, 3, *range(4, x.ndim)) # (n_late_fusion, n_patches, B, C, *spatial)
+            x_chunks = x_chunks.reshape(n_late_fusion * n_patches, B, C, *spatial)
+            feats = torch.stack([self.encoder(xk)[-1] for xk in x_chunks.unbind(0)], dim=0)
+            
+            # Rearrange and fuse
+            feats = feats.reshape(n_late_fusion, n_patches, B, *feats.shape[2:])
+            feats = feats.permute(2, 0, 1, 3, *range(4, feats.ndim)) # (B, n_late_fusion, n_patches, *feats)
+            feats = self.fusion_head(feats) # (B, in_dim)
         else:
             feats = self.encoder(x)[-1]
 

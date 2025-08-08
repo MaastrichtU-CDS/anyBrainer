@@ -112,22 +112,22 @@ class TestClassificationHead:
 class TestFusionHead:
     """Test FusionHead in terms of shape, and error handling."""
     @pytest.mark.parametrize(
-        "input_shape, num_modalities", [
+        "input_shape, n_fusion", [
             ((4, 4, 8, 768, 4, 4, 4), 4),
             ((4, 8, 768, 4, 4, 4), 1),
             ((4, 768, 4, 4, 4), 1),
         ])
-    def test_forward(self, input_shape, num_modalities):
-        fusion_head = FusionHead(num_modalities)
+    def test_forward(self, input_shape, n_fusion):
+        fusion_head = FusionHead(n_fusion=n_fusion)
         output = fusion_head(torch.randn(input_shape)) # type: ignore
         assert output.shape == (4, 768)
 
     def test_wrong_shape(self):
         with pytest.raises(ValueError):
-            fusion_head = FusionHead(num_modalities=2)
+            fusion_head = FusionHead(n_fusion=2)
             fusion_head(torch.randn(768, 4, 4, 4)) # type: ignore
     
-    def test_mismatch_num_modalities(self):
+    def test_mismatch_n_fusion(self):
         with pytest.raises(ValueError):
-            fusion_head = FusionHead(num_modalities=2)
+            fusion_head = FusionHead(n_fusion=2)
             fusion_head(torch.randn(4, 3, 8, 768, 4, 4, 4)) # type: ignore

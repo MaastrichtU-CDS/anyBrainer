@@ -103,7 +103,6 @@ class BaseModel(
         weights_init_kwargs: dict[str, Any] | None = None,
         inferer_kwargs: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
-        **extra,
     ):
         if not model_kwargs:
             msg = "`model_kwargs` must be supplied and non-empty."
@@ -127,7 +126,6 @@ class BaseModel(
             weights_init_kwargs=weights_init_kwargs,
             inferer_kwargs=inferer_kwargs,
             ignore_hparams=ignore_hparams,
-            **extra,
         )
 
     def configure_optimizers(self):
@@ -413,13 +411,50 @@ class CLwAuxModel(BaseModel):
 
 @register(RK.PL_MODULE)
 class ClassificationModel(BaseModel):
-    """Classification model."""
+    """
+    Classification model that supports late multimodal fusion
+    for session-level classification.
+
+    Assumes binary classification (`BCEWithLogits` loss). For multiclass
+    remove `.unsqueeze(1).float()` in `_shared_eval_step`.
+    """
+    def __init__(self, **base_model_kwargs):
+        super().__init__(**base_model_kwargs)
+        self.late_fusion = (
+            base_model_kwargs.get("model_kwargs", {}).get("late_fusion", False)
+        )
+        self.in_channels = (
+            base_model_kwargs.get("model_kwargs", {}).get("in_channels", 1)
+        )
+        self.spatial_dims = (
+            base_model_kwargs.get("model_kwargs", {}).get("spatial_dims", 3)
+        )
+
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
-        """Get modality one-hot labels to device."""
-        if dataloader_idx != 3: # not for prediction
-            batch["label"] = torch.tensor(
-                batch["label"], dtype=torch.long, device=batch["img"].device
-            )
+        """Get input tensor to appropriate shape and labels to device."""
+        # (B, P, N, *spatial_dims) -> (B, N, P, C, *spatial_dims)
+        if self.late_fusion:
+            x = batch['img']
+            if x.ndim == self.spatial_dims + 3: # n_late_fusion in channel_dim
+                x = x.unsqueeze(3)
+                x = x.permute(0, 2, 1, 3, *range(4,x.ndim))
+            elif x.ndim == self.spatial_dims + 4: # channel_dim already in place
+                pass
+            else:
+                msg = (f"[ClassificationModel] Expected input shape to be "
+                       f"(B, P, N, *spatial_dims) or (B, N, P, C, *spatial_dims), "
+                       f"but got {x.shape}.")
+                logger.error(msg)
+                raise ValueError(msg)
+            batch['img'] = x
+        
+        # list[type(label)] -> (B,) tensor[long]; move to device
+        if dataloader_idx != 3:  # not for prediction
+            lbl = batch["label"]
+            if torch.is_tensor(lbl):
+                batch["label"] = lbl.to(dtype=torch.long, device=batch["img"].device)
+            else:
+                batch["label"] = torch.as_tensor(lbl, dtype=torch.long, device=batch["img"].device)
         return batch
     
     def _shared_eval_step(self, out: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
@@ -461,18 +496,20 @@ class ClassificationModel(BaseModel):
     
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         """Log modality weights."""
-        for name, param in self.model.named_parameters():
-            if name == "fusion_head.modality_weights":
-                weights = torch.softmax(param, dim=0).detach().cpu().numpy()
-                self.log_dict({f"modality_{i}": w for i, w in enumerate(weights)}, 
-                              on_step=True, on_epoch=True, prog_bar=False, 
-                              sync_dist=sync_dist_safe(self))
-                break
+        if self.late_fusion:
+            for name, param in self.model.named_parameters():
+                if name == "fusion_head.modality_weights":
+                    weights = torch.softmax(param, dim=0).detach().cpu().numpy()
+                    self.log_dict({f"modality_{i}": w for i, w in enumerate(weights)}, 
+                                on_step=True, on_epoch=True, prog_bar=False, 
+                                sync_dist=sync_dist_safe(self))
+                    break
     
     def on_train_end(self) -> None:
         """Log final modality weights."""
-        for name, param in self.model.named_parameters():
-            if name == "fusion_head.modality_weights":
-                weights = torch.softmax(param, dim=0).detach().cpu().numpy()
-                logger.info(f"Learnable modality weights: {weights}")
-                break
+        if self.late_fusion:
+            for name, param in self.model.named_parameters():
+                if name == "fusion_head.modality_weights":
+                    weights = torch.softmax(param, dim=0).detach().cpu().numpy()
+                    logger.info(f"Learnable modality weights: {weights}")
+                    break

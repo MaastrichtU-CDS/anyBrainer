@@ -128,25 +128,25 @@ class ClassificationHead(nn.Module):
 
 class FusionHead(nn.Module):
     """
-    Unify representation across brain patches and modalities.
+    Unify representation across brain patches and different modalities.
 
     Designed for low-data regimes; the only learnable parameters
-    are the modality fusion weights.
+    are the modality fusion weights; rest is global average pooling.
 
-    Input shape: (B, n_mod, n_patches, n_features, D, H, W);
+    Input shape: (B, n_fusion, n_patches, n_features, D, H, W);
         typically output by an encoder.
     Output shape: (B, n_features)
     """
-    def __init__(self, num_modalities: int):
+    def __init__(self, n_fusion: int):
         super().__init__()
-        self.num_modalities = num_modalities
-        self.modality_weights = nn.Parameter(torch.ones(num_modalities))
+        self.n_fusion = n_fusion 
+        self.fusion_weights = nn.Parameter(torch.ones(n_fusion))
 
-        logger.info(f"[{self.__class__.__name__}] UnifyRepresentation initialized with "
-                    f"num_modalities={num_modalities}")
+        logger.info(f"[{self.__class__.__name__}] FusionHead initialized with "
+                    f"n_fusion={n_fusion}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.dim() == 7: # (B, n_mod, n_patches, n_features, D, H, W)
+        if x.dim() == 7: # (B, n_fusion, n_patches, n_features, D, H, W)
             pass
         elif x.dim() == 6: # (B, n_patches, n_features, D, H, W)
             x = x.unsqueeze(1)
@@ -157,14 +157,14 @@ class FusionHead(nn.Module):
             logger.error(msg)
             raise ValueError(msg)
         
-        if x.size(1) != self.num_modalities:
-            msg = (f"[{self.__class__.__name__}] Unexpected number of modalities; "
-                   f"expected {self.num_modalities}, got {x.size(1)}")
+        if x.size(1) != self.n_fusion:
+            msg = (f"[{self.__class__.__name__}] Unexpected number of fusion channels; "
+                   f"expected {self.n_fusion}, got {x.size(1)}")
             logger.error(msg)
             raise ValueError(msg)
         
-        x = x.mean(dim=[-3, -2, -1]) # (B, n_mod, n_patches, n_features)
-        x = x.mean(dim=2) # (B, n_mod, n_features)
-        weights = torch.softmax(self.modality_weights, dim=0)  # (n_mod,)
+        x = x.mean(dim=[-3, -2, -1]) # (B, n_fusion, n_patches, n_features)
+        x = x.mean(dim=2) # (B, n_fusion, n_features)
+        weights = torch.softmax(self.fusion_weights, dim=0)  # (n_fusion,)
         x = (x * weights.view(1, -1, 1)).sum(dim=1) # (B, n_features)
         return x

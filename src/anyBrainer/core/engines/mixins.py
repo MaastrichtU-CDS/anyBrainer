@@ -112,7 +112,7 @@ class WeightInitMixin(PLModuleMixin):
                 logger.warning(f"[{self.__class__.__name__}] Provided both "
                                 f"`weights_init_fn` and `load_pretrain_weights`; "
                                 f"the latter can override weights initialized by "
-                                f"`weights_init_fn`.")
+                                f"`{weights_init_fn}`.")
             self._load_pretrain_weights(
                 load_pretrain_weights=load_pretrain_weights,
                 load_param_group_prefix=load_param_group_prefix,

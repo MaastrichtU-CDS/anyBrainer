@@ -83,7 +83,7 @@ class TestSwinv2Classifier:
             mlp_activations="LeakyReLU",
             mlp_activation_kwargs={"negative_slope": 0.1},
             late_fusion=True,
-            num_modalities=4,
+            n_late_fusion=4,
         )
 
     @pytest.mark.parametrize("mlp_num_classes", [2, 4, 8, 100])
@@ -108,22 +108,45 @@ class TestSwinv2Classifier:
         assert output.shape == (8, mlp_num_classes)
 
     @pytest.mark.slow
-    def test_late_fusion(self, model_w_fusion):
+    @pytest.mark.parametrize("mlp_num_classes", [2, 4, 8, 100])
+    def test_forward_w_late_fusion(self, mlp_num_classes):
         """Test model output shape with late fusion."""
-        output = model_w_fusion(torch.randn(1, 2, 4, 128, 128, 128))
-        assert output.shape == (1, 2)
+        model_w_fusion = Swinv2Classifier(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            feature_size=48,
+            mlp_num_classes=mlp_num_classes,
+            mlp_num_hidden_layers=2,
+            mlp_hidden_dim=[128, 64],
+            mlp_dropout=0.3,
+            mlp_activations="LeakyReLU",
+            mlp_activation_kwargs={"negative_slope": 0.1},
+            late_fusion=True,
+            n_late_fusion=4,
+        )
+        output = model_w_fusion(torch.randn(8, 4, 8, 1, 128, 128, 128))
+        assert output.shape == (8, mlp_num_classes)
 
-    def test_late_fusion_wrong_input_shape(self, model_w_fusion):
+    def test_late_fusion_missing_n_patches(self, model_w_fusion):
         """Test that the model raises an error if the input shape is wrong."""
         with pytest.raises(ValueError):
-            model_w_fusion(torch.randn(1, 4, 128, 128, 128))
+            model_w_fusion(torch.randn(8, 4, 1, 128, 128, 128))
 
     def test_late_fusion_wrong_num_modalities(self, model_w_fusion):
         """Test that the model raises an error if the number of modalities is wrong."""
         with pytest.raises(ValueError):
-            model_w_fusion(torch.randn(1, 4, 2, 128, 128, 128))
+            model_w_fusion(torch.randn(8, 2, 8, 1, 128, 128, 128))
+    
+    def test_late_fusion_wrong_in_channels(self, model_w_fusion):
+        """Test that the model raises an error if the input shape is wrong."""
+        with pytest.raises(ValueError):
+            model_w_fusion(torch.randn(8, 4, 8, 2, 128, 128, 128))
 
     def test_late_fusion_wrong_spatial_dims(self, model_w_fusion):
         """Test that the model raises an error if the spatial dimensions are wrong."""
         with pytest.raises(ValueError):
-            model_w_fusion(torch.randn(1, 2, 4, 128, 128))
+            model_w_fusion(torch.randn(8, 4, 8, 1, 128, 128))
