@@ -344,11 +344,9 @@ class CLwAuxModel(BaseModel):
             q_aux=q_aux,
             aux_spr=batch["aux_labels"],
         )
-        
         self.log_dict({
             "train/loss": loss.item(),
         }, on_step=True, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
-        
         self.log_dict({
             "train/loss_info_nce": loss_dict["loss_info_nce"].item(),
             "train/loss_aux": loss_dict["loss_aux"].item(),
@@ -377,7 +375,6 @@ class CLwAuxModel(BaseModel):
             q_aux=q_aux,
             aux_spr=batch["aux_labels"],
         )
-        
         self.log_dict({
             "val/loss": loss.item(),
             "val/loss_info_nce": loss_dict["loss_info_nce"].item(),
@@ -397,8 +394,7 @@ class CLwAuxModel(BaseModel):
             queue=self.queue,
             q_aux=q_aux,
             aux_spr=batch["aux_labels"],
-        )
-                
+        )   
         self.log_dict({
             "test/loss": loss.item(),
             "test/loss_info_nce": loss_dict["loss_info_nce"].item(),
@@ -428,7 +424,6 @@ class ClassificationModel(BaseModel):
         self.spatial_dims = (
             base_model_kwargs.get("model_kwargs", {}).get("spatial_dims", 3)
         )
-
         self._fusion_w: torch.Tensor | None = None
         if self.late_fusion:
             if hasattr(self.model, "fusion_head") and hasattr(self.model.fusion_head, "fusion_weights"):
@@ -445,7 +440,7 @@ class ClassificationModel(BaseModel):
             x = batch['img']
             if x.ndim == self.spatial_dims + 3: # n_late_fusion in channel_dim
                 x = x.unsqueeze(3)
-                x = x.permute(0, 2, 1, 3, *range(4,x.ndim))
+                x = x.permute(0, 2, 1, 3, *range(4, x.ndim))
             elif x.ndim == self.spatial_dims + 4: # channel_dim already in place
                 pass
             else:
