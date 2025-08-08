@@ -15,7 +15,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from copy import deepcopy
 
 import torch
@@ -407,14 +407,31 @@ class CLwAuxModel(BaseModel):
 @register(RK.PL_MODULE)
 class ClassificationModel(BaseModel):
     """
-    Classification model that supports late multimodal fusion
-    for session-level classification.
+    Generic model that can be used for any classification task, including
+    regression. 
+    
+    Automatically computes loss and logs specified metrics,
+    as long as loss_fn/metric accept (B, 1) torch.float32 labels.
 
-    Assumes binary classification (`BCEWithLogits` loss). For multiclass
-    remove `.unsqueeze(1).float()` in `_shared_eval_step`.
+    Set `flat_labels=True` to use (B,) torch.long labels; required for 
+    some losses, including nn.CrossEntropyLoss.
+
+    Supports late multimodal fusion for session-level classification, given
+    that the following kwargs are included in `model_kwargs`: `late_fusion`, 
+    `in_channels`, `spatial_dims`. If not present, late fusion will be disabled.
+    This information is crucial for reshaping the input tensor (B, P, N, *spatial_dims) 
+    into (B, N, P, in_channels, *spatial_dims) that is required for late fusion. 
+
     """
-    def __init__(self, **base_model_kwargs):
+    def __init__(
+        self, 
+        *,
+        metrics: list[Callable] | list[str] | None = None,
+        flat_labels: bool = False,
+        **base_model_kwargs,
+    ):
         super().__init__(**base_model_kwargs)
+
         self.late_fusion = (
             base_model_kwargs.get("model_kwargs", {}).get("late_fusion", False)
         )
@@ -429,13 +446,20 @@ class ClassificationModel(BaseModel):
             if hasattr(self.model, "fusion_head") and hasattr(self.model.fusion_head, "fusion_weights"):
                 self._fusion_w = self.model.fusion_head.fusion_weights  # type: ignore[attr-defined]
             else:
-                logger.warning(f"[ClassificationModel] Late fusion is enabled but "
+                logger.warning(f"[{self.__class__.__name__}] Late fusion is enabled but "
                                f"fusion_head.fusion_weights is not found; skipping "
                                f"logging of fusion weights.")
 
+        self.metrics: list[Callable] = []
+        if metrics is not None:
+            for metric in metrics:
+                self.metrics.append(cast(Callable, resolve_fn(metric)))
+        
+        self.flat_labels = flat_labels
+
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get input tensor to appropriate shape and labels to device."""
-        # (B, P, N, *spatial_dims) -> (B, N, P, C, *spatial_dims)
+        # Reshape for late fusion support:(B, P, N, *spatial_dims) -> (B, N, P, C, *spatial_dims)
         if self.late_fusion:
             x = batch['img']
             if x.ndim == self.spatial_dims + 3: # n_late_fusion in channel_dim
@@ -444,176 +468,99 @@ class ClassificationModel(BaseModel):
             elif x.ndim == self.spatial_dims + 4: # channel_dim already in place
                 pass
             else:
-                msg = (f"[ClassificationModel] Expected input shape to be "
+                msg = (f"[{self.__class__.__name__}] Expected input shape to be "
                        f"(B, P, N, *spatial_dims) or (B, N, P, C, *spatial_dims), "
                        f"but got {x.shape}.")
                 logger.error(msg)
                 raise ValueError(msg)
             batch['img'] = x
         
-        # list[type(label)] -> (B,) tensor[long]; move to device
+        # Get labels tensor to appropriate format
         if dataloader_idx != 3:  # not for prediction
             lbl = batch["label"]
             if torch.is_tensor(lbl):
-                batch["label"] = lbl.to(dtype=torch.long, device=batch["img"].device)
+                lbl = lbl.to(device=batch["img"].device)
             else:
-                batch["label"] = torch.as_tensor(lbl, dtype=torch.long, device=batch["img"].device)
+                lbl = torch.as_tensor(lbl, device=batch["img"].device)
+
+            if self.flat_labels: # For nn.CrossEntropyLoss, etc.: (B,) long
+                if lbl.ndim > 1:
+                    lbl = lbl.squeeze(-1)
+                lbl = lbl.to(dtype=torch.long)
+            else: # Default/regression/BCE style: (B,1) float
+                lbl = lbl.to(dtype=torch.float32)
+                if lbl.ndim == 1:
+                    lbl = lbl.unsqueeze(1)
+            batch["label"] = lbl
+            
         return batch
     
-    def _shared_eval_step(self, out: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Shared evaluation step."""
-        loss = self.loss_fn(out, batch["label"].unsqueeze(1).float()) # type: ignore
-        return loss, {"loss": loss.item(), "acc": top1_accuracy(out, batch["label"]).item()}
+    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Computes loss; override for more complex behavior."""
+        return self.loss_fn(out, target) # type: ignore
+
+    @torch.no_grad()
+    def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
+        """Computes metrics; ignores if a metric fails."""
+        stats = {}
+        for m in self.metrics:
+            name = getattr(m, "__name__", m.__class__.__name__)
+            try:
+                val = m(out, target)
+            except Exception:
+                logger.exception(f"[{self.__class__.__name__}] Failed to compute "
+                                 f"metric {name}; skipping.")
+                continue
+            stats[name] = val.item()
+        return stats
     
-    def _log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
-        """Log step statistics"""
+    def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
+        """Logs step statistics."""
         self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
                       on_step=True, on_epoch=True, prog_bar=False, 
                       sync_dist=sync_dist_safe(self))
 
     def training_step(self, batch: dict, batch_idx: int):
-        """Training step."""
+        """Training step; computes loss and metrics."""
         out = self.model(batch["img"])
-        loss, stats = self._shared_eval_step(out, batch)
-        self._log_step("train", stats)
+        loss = self.compute_loss(out, batch["label"])
+        stats = self.compute_metrics(out, batch["label"])
+        stats["loss"] = loss.item()
+        self.log_step("train", stats)
         return loss
     
     def validation_step(self, batch: dict, batch_idx: int):
-        """Validation step."""
+        """Validation step; performs inference and computes metrics."""
         out = self.inferer(batch["img"], self.model)
-        loss, stats = self._shared_eval_step(out, batch)
-        self._log_step("val", stats)
+        loss = self.compute_loss(out, batch["label"])
+        stats = self.compute_metrics(out, batch["label"])
+        stats["loss"] = loss.item()
+        self.log_step("val", stats)
         return loss
     
     def test_step(self, batch: dict, batch_idx: int) -> None:
-        """
-        Test step; performs sliding window inference and computes top-1 accuracy.
-        """
+        """Test step; performs inference and computes metrics."""
         out = self.inferer(batch["img"], self.model)
-        self._log_step("test", {"acc": top1_accuracy(out, batch["label"]).item()})
+        stats = self.compute_metrics(out, batch["label"])
+        self.log_step("test", stats)
     
-    def predict_step(self, batch: dict, batch_idx: int):
+    def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Predict step; performs sliding window inference."""
         out = self.inferer(batch["img"], self.model)
         return out
     
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
-        """Log modality weights."""
+        """Logs modality weights."""
         if self.global_step % 20 == 0 and self.late_fusion and self._fusion_w is not None:
             w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
             vals = {f"train/modality_{i}": v for i, v in enumerate(w.tolist())}
-            self.log_dict(vals, on_step=True, on_epoch=False, prog_bar=False,
+            self.log_dict(vals, on_step=False, on_epoch=True, prog_bar=False,
                         sync_dist=sync_dist_safe(self))
     
+    @rank_zero_only
     def on_train_end(self) -> None:
-        """Log final modality weights."""
+        """Logs final modality weights."""
         if self.late_fusion and self._fusion_w is not None:
             w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
             vals = {f"modality_{i}": float(v) for i, v in enumerate(w)}
-            rank_zero_only(logger.info)(f"Final learnable modality weights: {vals}")
-
-
-@register(RK.PL_MODULE)
-class RegressionModel(BaseModel):
-    """
-    Regression model that supports late multimodal fusion
-    for session-level regression tasks.
-    """
-    def __init__(self, **base_model_kwargs):
-        super().__init__(**base_model_kwargs)
-        self.late_fusion = (
-            base_model_kwargs.get("model_kwargs", {}).get("late_fusion", False)
-        )
-        self.in_channels = (
-            base_model_kwargs.get("model_kwargs", {}).get("in_channels", 1)
-        )
-        self.spatial_dims = (
-            base_model_kwargs.get("model_kwargs", {}).get("spatial_dims", 3)
-        )
-        self._fusion_w: torch.Tensor | None = None
-        if self.late_fusion:
-            if hasattr(self.model, "fusion_head") and hasattr(self.model.fusion_head, "fusion_weights"):
-                self._fusion_w = self.model.fusion_head.fusion_weights  # type: ignore[attr-defined]
-            else:
-                logger.warning(f"[RegressionModel] Late fusion is enabled but "
-                               f"fusion_head.fusion_weights is not found; skipping "
-                               f"logging of fusion weights.")
-
-    def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
-        """Get input tensor to appropriate shape and labels to device."""
-        # (B, P, N, *spatial_dims) -> (B, N, P, C, *spatial_dims)
-        if self.late_fusion:
-            x = batch['img']
-            if x.ndim == self.spatial_dims + 3: # n_late_fusion in channel_dim
-                x = x.unsqueeze(3)
-                x = x.permute(0, 2, 1, 3, *range(4, x.ndim))
-            elif x.ndim == self.spatial_dims + 4: # channel_dim already in place
-                pass
-            else:
-                msg = (f"[RegressionModel] Expected input shape to be "
-                       f"(B, P, N, *spatial_dims) or (B, N, P, C, *spatial_dims), "
-                       f"but got {x.shape}.")
-                logger.error(msg)
-                raise ValueError(msg)
-            batch['img'] = x
-        
-        # list[type(label)] -> (B,) tensor[long]; move to device
-        if dataloader_idx != 3:  # not for prediction
-            lbl = batch["label"]
-            if torch.is_tensor(lbl):
-                batch["label"] = lbl.to(dtype=torch.long, device=batch["img"].device)
-            else:
-                batch["label"] = torch.as_tensor(lbl, dtype=torch.long, device=batch["img"].device)
-        return batch
-    
-    def _shared_eval_step(self, out: torch.Tensor, batch: dict) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Shared evaluation step."""
-        loss = self.loss_fn(out, batch["label"].unsqueeze(1).float()) # type: ignore
-        return loss, {"loss": loss.item(), "acc": top1_accuracy(out, batch["label"]).item()}
-    
-    def _log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
-        """Log step statistics"""
-        self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
-                      on_step=True, on_epoch=True, prog_bar=False, 
-                      sync_dist=sync_dist_safe(self))
-
-    def training_step(self, batch: dict, batch_idx: int):
-        """Training step."""
-        out = self.model(batch["img"])
-        loss, stats = self._shared_eval_step(out, batch)
-        self._log_step("train", stats)
-        return loss
-    
-    def validation_step(self, batch: dict, batch_idx: int):
-        """Validation step."""
-        out = self.inferer(batch["img"], self.model)
-        loss, stats = self._shared_eval_step(out, batch)
-        self._log_step("val", stats)
-        return loss
-    
-    def test_step(self, batch: dict, batch_idx: int) -> None:
-        """
-        Test step; performs sliding window inference and computes top-1 accuracy.
-        """
-        out = self.inferer(batch["img"], self.model)
-        self._log_step("test", {"acc": top1_accuracy(out, batch["label"]).item()})
-    
-    def predict_step(self, batch: dict, batch_idx: int):
-        """Predict step; performs sliding window inference."""
-        out = self.inferer(batch["img"], self.model)
-        return out
-    
-    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
-        """Log modality weights."""
-        if self.global_step % 20 == 0 and self.late_fusion and self._fusion_w is not None:
-            w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
-            vals = {f"train/modality_{i}": v for i, v in enumerate(w.tolist())}
-            self.log_dict(vals, on_step=True, on_epoch=False, prog_bar=False,
-                        sync_dist=sync_dist_safe(self))
-    
-    def on_train_end(self) -> None:
-        """Log final modality weights."""
-        if self.late_fusion and self._fusion_w is not None:
-            w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
-            vals = {f"modality_{i}": float(v) for i, v in enumerate(w)}
-            rank_zero_only(logger.info)(f"Final learnable modality weights: {vals}")
+            logger.info(f"Final learnable modality weights: {vals}")
