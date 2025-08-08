@@ -618,7 +618,7 @@ class ClassificationDataModule(BaseDataModule):
         *,
         labels_dir: Path | str | None = None,
         labels_filename: str = "label.txt",
-        expected_labels: list[str] = ['0', '1'],
+        expected_labels: list[str] | list[int] = ['0', '1'],
         strict: bool = False,
         modalities: list[str] | None = None,
         **base_module_kwargs,
@@ -628,7 +628,8 @@ class ClassificationDataModule(BaseDataModule):
         - labels_dir: Directory containing labels with naming pattern 
             sub_x_ses_y_labels.txt
         - labels_filename: Name of the label file
-        - expected_labels: Expected labels in the label file
+        - expected_labels: Expected labels in the label file. 
+            If list of two ints, it will be interpreted as a range of values.
         - strict: Whether to raise an error when label does not match expected labels. 
             If False, it skips the session; can be used for label filtering.
         - modalities: List of modalities to include. If None, all modalities are included.
@@ -640,7 +641,14 @@ class ClassificationDataModule(BaseDataModule):
         self.labels_dir = (resolve_path(labels_dir) 
                            if labels_dir is not None else self.data_dir)
         self.labels_filename = labels_filename
-        self.expected_labels = expected_labels
+
+        if len(expected_labels) == 2 and all(isinstance(l, int) for l in expected_labels):
+            logger.info(f"Interpreting expected_labels as range: {expected_labels}")
+            start, end = cast(tuple[int, int], expected_labels)
+            self.expected_labels = [str(i) for i in range(start, end + 1)]
+        else:
+            self.expected_labels = [str(i) for i in expected_labels]
+
         self.strict = strict
         self.modalities = modalities
 

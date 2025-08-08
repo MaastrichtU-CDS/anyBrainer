@@ -223,14 +223,14 @@ def resolve_fn(
 
 def read_label_from_txt(
     file_path: Path | str, 
-    expected_labels: list[str] = ['0', '1'],
+    expected_labels: list[str] | None = ['0', '1'],
     strict: bool = True,
 ) -> int | None:
     """Read label from txt file."""
     file_path = Path(file_path)
     content = file_path.read_text().strip()
 
-    if content not in expected_labels:
+    if expected_labels is not None and content not in expected_labels:
         msg = (f"Unexpected label '{content}' in {file_path}. "
                f"Expected one of {expected_labels}.")
         if strict:
