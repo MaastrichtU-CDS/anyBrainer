@@ -4,6 +4,11 @@ __all__ = [
     "top1_accuracy",
     "effective_rank",
     "feature_variance",
+    "mse_score",
+    "rmse_score",
+    "mae_score",
+    "r2_score",
+    "pearsonr",
 ]
 
 import torch
@@ -12,6 +17,13 @@ import logging
 from anyBrainer.registry import register, RegistryKind as RK
 
 logger = logging.getLogger(__name__)
+
+def _check_mismatch(pred: torch.Tensor, target: torch.Tensor) -> None:
+    """Check if the shape of pred and target are the same."""
+    if pred.shape != target.shape:
+        msg = f"Shape mismatch between `pred`: {pred.shape} and `target`: {target.shape}"
+        logger.error(msg)
+        raise ValueError(msg)
 
 @register(RK.UTIL)
 def top1_accuracy(
@@ -96,3 +108,41 @@ def feature_variance(features: torch.Tensor) -> torch.Tensor:
         return torch.tensor(0, device=features.device)
 
     return features.var(dim=0, unbiased=False).mean()
+
+@register(RK.UTIL)
+def mse_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Mean squared error score."""
+    _check_mismatch(pred, target)
+    return torch.mean((pred - target) ** 2)
+
+@register(RK.UTIL)
+def rmse_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Root mean squared error score."""
+    return torch.sqrt(mse_score(pred, target))
+
+@register(RK.UTIL)
+def mae_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Mean absolute error score."""
+    _check_mismatch(pred, target)
+    return torch.mean(torch.abs(pred - target))
+
+@register(RK.UTIL)
+def r2_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """R-squared score."""
+    _check_mismatch(pred, target)
+    var = torch.var(target, unbiased=False)
+    if var == 0:
+        return torch.tensor(0.0, device=pred.device)
+    return 1.0 - torch.mean((pred - target) ** 2) / var
+
+@register(RK.UTIL)
+def pearsonr(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Pearson correlation coefficient."""
+    _check_mismatch(pred, target)
+    pred = pred - pred.mean()
+    target = target - target.mean()
+    num = (pred * target).sum()
+    den = torch.sqrt((pred**2).sum() * (target**2).sum())
+    if den == 0:
+        return torch.tensor(0.0, device=pred.device)
+    return num / den
