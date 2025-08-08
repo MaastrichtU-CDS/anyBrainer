@@ -21,6 +21,8 @@ from copy import deepcopy
 import torch
 import lightning.pytorch as pl
 import torch.nn.functional as F
+from lightning.pytorch.utilities import rank_zero_only
+
 
 from anyBrainer.registry import register
 from anyBrainer.core.engines.utils import (
@@ -47,9 +49,6 @@ from anyBrainer.core.engines.mixins import (
     WeightInitMixin,
     HParamsMixin,
     InfererMixin,
-)
-from anyBrainer.core.inferers import (
-    SlidingWindowClassificationInferer,
 )
 
 logger = logging.getLogger(__name__)
@@ -430,6 +429,15 @@ class ClassificationModel(BaseModel):
             base_model_kwargs.get("model_kwargs", {}).get("spatial_dims", 3)
         )
 
+        self._fusion_w: torch.Tensor | None = None
+        if self.late_fusion:
+            if hasattr(self.model, "fusion_head") and hasattr(self.model.fusion_head, "fusion_weights"):
+                self._fusion_w = self.model.fusion_head.fusion_weights  # type: ignore[attr-defined]
+            else:
+                logger.warning(f"[ClassificationModel] Late fusion is enabled but "
+                               f"fusion_head.fusion_weights is not found; skipping "
+                               f"logging of fusion weights.")
+
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get input tensor to appropriate shape and labels to device."""
         # (B, P, N, *spatial_dims) -> (B, N, P, C, *spatial_dims)
@@ -496,20 +504,15 @@ class ClassificationModel(BaseModel):
     
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
         """Log modality weights."""
-        if self.late_fusion:
-            for name, param in self.model.named_parameters():
-                if name == "fusion_head.modality_weights":
-                    weights = torch.softmax(param, dim=0).detach().cpu().numpy()
-                    self.log_dict({f"modality_{i}": w for i, w in enumerate(weights)}, 
-                                on_step=True, on_epoch=True, prog_bar=False, 
-                                sync_dist=sync_dist_safe(self))
-                    break
+        if self.global_step % 20 == 0 and self.late_fusion and self._fusion_w is not None:
+            w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
+            vals = {f"train/modality_{i}": v for i, v in enumerate(w.tolist())}
+            self.log_dict(vals, on_step=True, on_epoch=True, prog_bar=False,
+                        sync_dist=sync_dist_safe(self))
     
     def on_train_end(self) -> None:
         """Log final modality weights."""
-        if self.late_fusion:
-            for name, param in self.model.named_parameters():
-                if name == "fusion_head.modality_weights":
-                    weights = torch.softmax(param, dim=0).detach().cpu().numpy()
-                    logger.info(f"Learnable modality weights: {weights}")
-                    break
+        if self.late_fusion and self._fusion_w is not None:
+            w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
+            vals = {f"modality_{i}": float(v) for i, v in enumerate(w)}
+            rank_zero_only(logger.info)(f"Final learnable modality weights: {vals}")
