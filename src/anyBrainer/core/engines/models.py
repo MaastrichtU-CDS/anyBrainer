@@ -507,7 +507,7 @@ class ClassificationModel(BaseModel):
         if self.global_step % 20 == 0 and self.late_fusion and self._fusion_w is not None:
             w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
             vals = {f"train/modality_{i}": v for i, v in enumerate(w.tolist())}
-            self.log_dict(vals, on_step=True, on_epoch=True, prog_bar=False,
+            self.log_dict(vals, on_step=True, on_epoch=False, prog_bar=False,
                         sync_dist=sync_dist_safe(self))
     
     def on_train_end(self) -> None:
