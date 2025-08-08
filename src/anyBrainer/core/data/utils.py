@@ -166,7 +166,7 @@ def get_summary_msg(
     """
     Get summary message for list of data creation.
     """
-    msg = f"\n#### Data Collection Completed ####\nSummary:"
+    msg = f"#### Data Collection Completed ####\nSummary:"
     msg += f"\n  - {len(subjects)} subjects"
     msg += f"\n  - {len(sessions)} sessions"
     msg += f"\n  - {sum(modality_counts.values())} scans"

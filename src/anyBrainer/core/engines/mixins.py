@@ -155,7 +155,7 @@ class WeightInitMixin(PLModuleMixin):
         try:
             self.model.apply(cast(Callable, resolve_fn(weights_init_fn)))
             logger.info(f"[{self.__class__.__name__}] Initialized model weights with "
-                        f"{weights_init_fn}.")
+                        f"`{weights_init_fn}`.")
         except Exception as e:
             logger.error(f"[{self.__class__.__name__}] Failed to apply weight initialization function: {e}")
             raise e
@@ -451,4 +451,4 @@ class HParamsMixin(PLModuleMixin):
         )
 
         logger.info(f"[{self.__class__.__name__}] Lightning module initialized with following "
-                    f"hyperparameters:\n{pl_module.hparams}")
+                    f"hyperparameters (`pl_module.hparams`): \n{pl_module.hparams}")

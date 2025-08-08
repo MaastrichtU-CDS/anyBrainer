@@ -151,41 +151,117 @@ def _compute_num_patches(
 
 
 class TestSlidingWindowPatch:
-    @pytest.fixture
-    def op(self):
-        return SlidingWindowPatch(
-            patch_size=128,
-            overlap=0.5,
-            spatial_dims=3,
-        )
     @pytest.mark.parametrize("tensor_shape", [
         (1, 160, 190, 160),
         (4, 1, 160, 190, 160),
         (2, 3, 1, 130, 130, 130),
         (2, 1, 1, 100, 100, 100),
     ])
-    def test_output_shapes(self, op, tensor_shape):
+    def test_different_inputs_same_overlap(self, tensor_shape):
         """
-        Test that the output shape is correct.
+        Test that the output shape (different inputs, same overlap) is correct.
         Indirectly tests that the padding is correct.
         """
+        op = SlidingWindowPatch(
+            patch_size=128,
+            overlap=0.5,
+            spatial_dims=3,
+        )
         out = op(torch.randn(tensor_shape))
-        n_patches = _compute_num_patches(
+        expected_n_patches = _compute_num_patches(
             image_size=tensor_shape[-3:],
             patch_size=(128, 128, 128),
             overlap=(0.5, 0.5, 0.5),
         )
         assert out.ndim == 1 + len(tensor_shape)
-        assert out.shape[-5:] == (n_patches, 1, 128, 128, 128)
+        assert out.shape[-5:] == (expected_n_patches, 1, 128, 128, 128)
+
+    @pytest.mark.parametrize("overlap", [
+        (0.25, 0.25, 0.25),
+        (0.5, 0.5, 0.5),
+        (0.75, 0.75, 0.75),
+    ])
+    def test_same_input_different_overlap(self, overlap):
+        """
+        Test that the output shape (same input, different overlap) is correct.
+        """
+        op = SlidingWindowPatch(
+            patch_size=128,
+            overlap=overlap,
+            spatial_dims=3,
+        )
+        out = op(torch.randn(1, 160, 190, 160))
+        n_patches = _compute_num_patches(
+            image_size=(160, 190, 160),
+            patch_size=(128, 128, 128),
+            overlap=overlap,
+        )
+        assert out.ndim == 5
+        assert out.shape == (n_patches, 1, 128, 128, 128)
+
+    @pytest.mark.parametrize("tensor_shape", [
+        (1, 160, 190, 160),
+        (4, 1, 160, 190, 160),
+        (2, 3, 1, 130, 130, 130),
+        (2, 1, 1, 100, 100, 100),
+    ])
+    def test_different_input_same_n_patches(self, tensor_shape):
+        """
+        Test that the output shape (different input, same n_patches) is correct.
+        """
+        op = SlidingWindowPatch(
+            patch_size=128,
+            overlap=None,
+            n_patches=(2, 3, 4),
+            spatial_dims=3,
+        )
+        out = op(torch.randn(tensor_shape))
+        assert out.ndim == len(tensor_shape) + 1
+        assert out.shape[-5:] == (24, 1, 128, 128, 128)
+
+    @pytest.mark.parametrize("n_patches", [
+        (1, 1, 1),
+        (2, 2, 2),
+        (3, 3, 3),
+    ])
+    def test_same_input_different_n_patches(self, n_patches):
+        """
+        Test that the output shape (same input, different n_patches) is correct.
+        """
+        op = SlidingWindowPatch(
+            patch_size=128,
+            overlap=None,
+            n_patches=n_patches,
+            spatial_dims=3,
+        )
+        expected_n_patches = math.prod(n_patches)
+        out = op(torch.randn(1, 160, 190, 160))
+        assert out.ndim == 5
+        assert out.shape == (expected_n_patches, 1, 128, 128, 128)
     
     @pytest.mark.parametrize("tensor_shape", [
         (120, 120, 120),
         (1, 120, 120),
         (1, 120),
     ])
-    def test_error_shapes(self, op, tensor_shape):
+    def test_error_input_shapes(self, tensor_shape):
         """
         Test that the error is raised when the input shape is invalid.
         """
+        op = SlidingWindowPatch(
+            patch_size=128,
+            spatial_dims=3,
+        )
         with pytest.raises(ValueError):
             op(torch.randn(tensor_shape))
+    
+    def test_error_no_patch_or_overlap(self):
+        """
+        Test that the error is raised when no patch or overlap is provided.
+        """
+        with pytest.raises(ValueError):
+            SlidingWindowPatch(
+                patch_size=128,
+                spatial_dims=3,
+                overlap=None,
+            )
