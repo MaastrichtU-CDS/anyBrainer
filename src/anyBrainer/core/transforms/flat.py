@@ -150,6 +150,7 @@ def get_predict_transforms(
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
     concat_img: bool = False,
+    n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True,
@@ -159,8 +160,8 @@ def get_predict_transforms(
     ]
     if concat_img:
         transforms.extend([
-            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=0.5,
-                                allow_missing_keys=allow_missing_keys),
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
+                                n_patches=n_patches, allow_missing_keys=allow_missing_keys),
             ConcatItemsd(keys=keys, name='img', dim=1,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)
@@ -173,6 +174,7 @@ def get_classification_train_transforms(
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
     concat_img: bool = False,
+    n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
@@ -207,8 +209,8 @@ def get_classification_train_transforms(
         ])
     else:
         transforms.extend([
-            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=0.5,
-                                allow_missing_keys=allow_missing_keys),
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
+                                n_patches=n_patches, allow_missing_keys=allow_missing_keys),
             ConcatItemsd(keys=keys, name='img', dim=1,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)
@@ -222,6 +224,7 @@ def get_classification_val_transforms(
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
     concat_img: bool = False,
+    n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
@@ -236,8 +239,8 @@ def get_classification_val_transforms(
         ])
     else:
         transforms.extend([
-            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=0.5,
-                                allow_missing_keys=allow_missing_keys),
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
+                                n_patches=n_patches, allow_missing_keys=allow_missing_keys),
             ConcatItemsd(keys=keys, name='img', dim=1,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)

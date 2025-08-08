@@ -185,12 +185,25 @@ class TestClassificationTrainTransforms:
         }
     
     def test_output_shapes_concat(self, contrastive_sample_data):
-        """Tests if concat_img=True gives 5D tensor (n_patches, n_mod, *patch_size)"""
+        """
+        Tests if concat_img=True gives 5D tensor (n_patches, n_mod, *patch_size)
+        with n_patches=(2, 2, 2) (default) and patch_size=120.
+        """
         op = Compose(get_classification_train_transforms(concat_img=True, patch_size=120))
         out = cast(dict, op(contrastive_sample_data))
         assert out['img'].ndim == 5
-        assert out['img'].shape == (1, 3, 120, 120, 120)
+        assert out['img'].shape == (8, 3, 120, 120, 120)
     
+    def test_output_shapes_concat_n_patches(self, contrastive_sample_data):
+        """
+        Tests if concat_img=True gives 5D tensor (n_patches, n_mod, *patch_size)
+        with n_patches=(2, 3, 2) and patch_size=128 (default).
+        """
+        op = Compose(get_classification_train_transforms(concat_img=True, n_patches=(2, 3, 2)))
+        out = cast(dict, op(contrastive_sample_data))
+        assert out['img'].ndim == 5
+        assert out['img'].shape == (12, 3, 128, 128, 128)
+        
     def test_output_types_concat(self, contrastive_sample_data):
         """Tests if concat_img=True preserves MetaTensor"""
         op = Compose(get_classification_train_transforms(concat_img=True))

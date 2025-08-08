@@ -11,11 +11,10 @@ __all__ = [
     "SlidingWindowPatchd",
 ]
 
-from typing import Sequence
+from typing import Literal, Sequence
 import logging
 import math
 
-import torch.nn.functional as F
 import numpy as np
 import torch
 from monai.data.utils import dense_patch_slices
@@ -248,7 +247,6 @@ class GetKeyQueryd(MapTransform, Randomizable):
             if self.extra_keys is not None:
                 for key in self.extra_keys:
                     new_d[key] = assign_key(d, key)
-
             return new_d
         
         # Randomly assign query and key
@@ -275,7 +273,6 @@ class GetKeyQueryd(MapTransform, Randomizable):
                 "query_idx": query_idx,
                 "key_idx": key_idx,
             }
-        
         return new_d
 
 
@@ -286,6 +283,8 @@ class SlidingWindowPatch(Transform):
 
     Stride of the sliding window is calculated as either by `overlap` 
     or automatically to match `n_patches`.
+
+    If `n_patches` is provided, `overlap` is ignored.
     """
 
     backend = [TransformBackends.TORCH]
@@ -296,8 +295,18 @@ class SlidingWindowPatch(Transform):
         overlap: float | Sequence[float] | None = 0.5,
         n_patches: int | Sequence[int] | None = None,
         padding_mode: str = "constant",
+        padding_side: Literal["right", "left", "both"] = "both",
         spatial_dims: int = 3,
     ):
+        """
+        Args:
+            patch_size: Target patch size.
+            overlap: Overlap between patches.
+            n_patches: Number of patches to extract.
+            padding_mode: Padding mode; see `torch.nn.functional.pad`.
+            padding_side: Side to pad; can be 'right', 'left', or 'both'.
+            spatial_dims: Number of spatial dimensions.
+        """
         super().__init__()
         if n_patches is None and overlap is None:
             msg = "Either `n_patches` or `overlap` must be provided"
@@ -313,6 +322,7 @@ class SlidingWindowPatch(Transform):
                           if n_patches is not None else None)
 
         self.padding_mode = padding_mode
+        self.padding_side = padding_side
         self.spatial_dims = spatial_dims
         self.slices: list[tuple[slice, ...]] = [] # will be populated by __call__()
 
@@ -346,7 +356,7 @@ class SlidingWindowPatch(Transform):
 
         # Pad to target dims
         img = pad_to_size(img, target=target_dims, spatial_dims=self.spatial_dims, 
-                          mode=self.padding_mode, side="both")
+                          mode=self.padding_mode, side=self.padding_side) # type: ignore[arg-type]
         spatial = img.shape[-self.spatial_dims:] # updated spatial dims after padding
         
         # Get slices for patches
@@ -368,9 +378,10 @@ class SlidingWindowPatchd(MapTransform):
         self,
         keys: Sequence[str] | str = "img",
         patch_size: int | Sequence[int] = 128,
-        overlap: float | Sequence[float] = 0.5,
+        overlap: float | Sequence[float] | None = 0.5,
         n_patches: int | Sequence[int] | None = None,
         padding_mode: str = "constant",
+        padding_side: Literal["right", "left", "both"] = "right",
         spatial_dims: int = 3,
         allow_missing_keys: bool = False,
     ):
@@ -380,6 +391,7 @@ class SlidingWindowPatchd(MapTransform):
             overlap=overlap,
             n_patches=n_patches,
             padding_mode=padding_mode,
+            padding_side=padding_side,
             spatial_dims=spatial_dims,
         )
 
