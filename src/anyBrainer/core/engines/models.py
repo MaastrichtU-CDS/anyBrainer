@@ -207,6 +207,16 @@ class CLwAuxModel(BaseModel):
             {
                 "name": "StepwiseParameterScheduler",
                 "interval": "step",
+                "param_name": "late_ramp",
+                "start_step": loss_scheduler_kwargs.get("late_ramp_step_start", 0),
+                "end_step": loss_scheduler_kwargs.get("late_ramp_step_end", 0),
+                "start_value": 0.0,
+                "end_value": loss_scheduler_kwargs.get("late_ramp_end_value", 0.0),
+                "mode": "linear",
+            },
+            {
+                "name": "StepwiseParameterScheduler",
+                "interval": "step",
                 "param_name": "momentum",
                 "start_step": momentum_scheduler_kwargs.get("momentum_step_start", 0),
                 "end_step": momentum_scheduler_kwargs.get("momentum_step_end", 0),
@@ -276,7 +286,7 @@ class CLwAuxModel(BaseModel):
     @torch.no_grad()
     def _update_key_encoder(self):
         """Update key encoder."""
-        momentum = self.get_step_scheduler_values()[1]["momentum"]
+        momentum = self.get_step_scheduler_values()[2]["momentum"]
 
         params_q = list(self.model.parameters())
         params_k = list(self.key_encoder.parameters())
@@ -308,8 +318,8 @@ class CLwAuxModel(BaseModel):
         
         loss_aux = F.cross_entropy(q_aux, aux_spr, weight=self.ce_weights) # type: ignore
 
-        loss_weight = self.get_step_scheduler_values()[0]["loss_weight"]
-        
+        loss_weight = (self.get_step_scheduler_values()[0]["loss_weight"] +
+                       self.get_step_scheduler_values()[1]["late_ramp"])
         combined_loss = (loss_info_nce * loss_weight + 
                          loss_aux * (1 - loss_weight))
         
