@@ -590,16 +590,16 @@ class RegressionModel(ClassificationModel):
     Extends the ClassificationModel, but with the following features:
     - `flat_labels` is set to False by default.
     - `center_labels` and `scale_labels` are supported; used for centering and 
-       optionally scaling labels to [-1, 1] range.
+       setting the bounds for scaling the labels to [-1, 1] range.
     - `metrics` is set to [mse_score, rmse_score, mae_score, r2_score, pearsonr] by default.
-    - `init_bias` is set to 0.0 by default; used to initialize the bias of the last layer. 
+    - `bias_init` is used to initialize the bias of the last layer.
        Can be set to match the mean of the labels distribution to avoid early-stage loss spikes.
     """
     def __init__(
         self, 
         center_labels: str | None = None,
         scale_labels: list[float] | None = None,
-        init_bias: float | None = 0.0,
+        bias_init: float | None = None,
         metrics: list[Callable] | list[str] | None = [
             'rmse_score', 'mae_score', 'r2_score', 'pearsonr'
         ],
@@ -619,12 +619,12 @@ class RegressionModel(ClassificationModel):
                f"center_labels={self.center_labels}, "
                f"scale_labels={self.scale_labels}. ")
 
-        if init_bias is not None:
+        if bias_init is not None:
             is_found = False
             for name, m in reversed(list(self.model.named_modules())):
                 if isinstance(m, torch.nn.Linear) and m.bias is not None:
-                    m.bias.data.fill_(float(init_bias))
-                    msg += f"Bias of layer `{name}.bias` initialized to {init_bias}."
+                    m.bias.data.fill_(float(bias_init))
+                    msg += f"Bias of layer `{name}.bias` initialized to {bias_init}."
                     is_found = True
                     break
             if not is_found:
