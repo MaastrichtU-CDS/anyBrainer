@@ -204,3 +204,84 @@ def format_optimizer_log(optim_cfg: dict[str, Any] | list[dict[str, Any]]) -> st
                 lines.append(f"    - optimiser-kwargs: {extra_params}")
 
     return "\n".join(lines)
+
+def scale_labels_if_needed(
+    labels: torch.Tensor,
+    center_labels: str | None = None,
+    scale_labels: list[float] | None = None
+) -> tuple[torch.Tensor, dict]:
+    """
+    Optionally center and scale labels.
+
+    Args:
+        labels: Torch tensor of shape (B,) or (B, 1).
+        center_labels: Centering strategy or None.
+            - None: No centering.
+            - "mean": Subtract mean of labels.
+            - "fixed:<value>": Subtract a fixed numeric value.
+        scale_labels: List [min_val, max_val] or None. If given, 
+            scales labels to [-1, 1] based on provided range.
+
+    Returns:
+        scaled_labels: Transformed labels.
+        meta: Dict with parameters needed for unscaling.
+    """
+    meta: dict[str, Any] = {"center": None, "scale_range": None}
+
+    # Center
+    if center_labels:
+        if center_labels == "mean":
+            center_val = labels.mean().item()
+        elif center_labels.startswith("fixed:"):
+            center_val = float(center_labels.split(":", 1)[1])
+        else:
+            msg = f"Unknown center_labels value: {center_labels}"
+            logger.error(msg)
+            raise ValueError(msg)
+        labels = labels - center_val
+        meta["center"] = center_val
+
+    # Scale
+    if scale_labels:
+        if len(scale_labels) != 2:
+            msg = "scale_labels must be [min_val, max_val]"
+            logger.error(msg)
+            raise ValueError(msg)
+        min_val, max_val = map(float, scale_labels)
+        scale = (max_val - min_val) / 2
+        if scale == 0:
+            msg = "Invalid scale_labels range; min == max"
+            logger.error(msg)
+            raise ValueError(msg)
+        labels = labels / scale
+        meta["scale_range"] = (min_val, max_val)
+
+    return labels, meta
+
+
+def unscale_preds_if_needed(
+    preds: torch.Tensor,
+    meta: dict
+) -> torch.Tensor:
+    """
+    Reverse scaling and centering from `scale_labels_if_needed`.
+
+    Args:
+        preds: Torch tensor of predictions in transformed space.
+        meta: Dict returned from `scale_labels_if_needed`.
+
+    Returns:
+        unscaled_preds: Predictions in original space.
+    """
+
+    # Unscale
+    if meta.get("scale_range") is not None:
+        min_val, max_val = meta["scale_range"]
+        scale = (max_val - min_val) / 2
+        preds = preds * scale
+
+    # Uncenter
+    if meta.get("center") is not None:
+        preds = preds + meta["center"]
+
+    return preds

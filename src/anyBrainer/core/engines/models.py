@@ -32,6 +32,8 @@ from anyBrainer.core.engines.utils import (
     dict_get_as_tensor,
     resolve_fn,
     setup_all_mixins,
+    scale_labels_if_needed,
+    unscale_preds_if_needed,
 )
 from anyBrainer.core.utils import (
     summarize_model_params,
@@ -102,6 +104,7 @@ class BaseModel(
         weights_init_kwargs: dict[str, Any] | None = None,
         inferer_kwargs: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
+        **extra
     ):
         if not model_kwargs:
             msg = "`model_kwargs` must be supplied and non-empty."
@@ -125,6 +128,7 @@ class BaseModel(
             weights_init_kwargs=weights_init_kwargs,
             inferer_kwargs=inferer_kwargs,
             ignore_hparams=ignore_hparams,
+            **extra,
         )
 
     def configure_optimizers(self):
@@ -389,7 +393,7 @@ class CLwAuxModel(BaseModel):
             "val/loss": loss.item(),
             "val/loss_info_nce": loss_dict["loss_info_nce"].item(),
             "val/loss_aux": loss_dict["loss_aux"].item(),
-            "val/loss_weight": loss_dict["loss_weight"],
+            "val/contrastive_acc": loss_dict["contrastive_acc"].item(),
             "val/aux_acc": top1_accuracy(q_aux, batch["aux_labels"]).item(),
         }, on_epoch=True, prog_bar=True, sync_dist=sync_dist_safe(self))
     
@@ -417,8 +421,7 @@ class CLwAuxModel(BaseModel):
 @register(RK.PL_MODULE)
 class ClassificationModel(BaseModel):
     """
-    Generic model that can be used for any classification task, including
-    regression. 
+    Generic model that can be used for any classification task.
     
     Automatically computes loss and logs specified metrics,
     as long as loss_fn/metric accept (B, 1) torch.float32 labels.
@@ -466,6 +469,9 @@ class ClassificationModel(BaseModel):
                 self.metrics.append(cast(Callable, resolve_fn(metric)))
         
         self.flat_labels = flat_labels
+
+        logger.info(f"[{self.__class__.__name__}] Initialized with "
+                    f"metrics={self.metrics}, flat_labels={self.flat_labels}.")
 
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get input tensor to appropriate shape and labels to device."""
@@ -574,3 +580,83 @@ class ClassificationModel(BaseModel):
             w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
             vals = {f"modality_{i}": float(v) for i, v in enumerate(w)}
             logger.info(f"Final learnable modality weights: {vals}")
+
+
+@register(RK.PL_MODULE)
+class RegressionModel(ClassificationModel):
+    """
+    Generic model for regression tasks.
+
+    Extends the ClassificationModel, but with the following features:
+    - `flat_labels` is set to False by default.
+    - `center_labels` and `scale_labels` are supported; used for centering and 
+       optionally scaling labels to [-1, 1] range.
+    - `metrics` is set to [mse_score, rmse_score, mae_score, r2_score, pearsonr] by default.
+    - `init_bias` is set to 0.0 by default; used to initialize the bias of the last layer. 
+       Can be set to match the mean of the labels distribution to avoid early-stage loss spikes.
+    """
+    def __init__(
+        self, 
+        center_labels: str | None = None,
+        scale_labels: list[float] | None = None,
+        init_bias: float | None = 0.0,
+        metrics: list[Callable] | list[str] | None = [
+            'rmse_score', 'mae_score', 'r2_score', 'pearsonr'
+        ],
+        **base_model_kwargs,
+    ):
+        super().__init__(
+            flat_labels=False,
+            metrics=metrics,
+            **base_model_kwargs,
+        )
+
+        self.center_labels = center_labels
+        self.scale_labels = scale_labels
+        self.labels_meta: dict[str, Any] = {} # For storing label statistics
+
+        msg = (f"[{self.__class__.__name__}] Initialized RegressionModel with "
+               f"center_labels={self.center_labels}, "
+               f"scale_labels={self.scale_labels}. ")
+
+        if init_bias is not None:
+            is_found = False
+            for name, m in reversed(list(self.model.named_modules())):
+                if isinstance(m, torch.nn.Linear) and m.bias is not None:
+                    m.bias.data.fill_(float(init_bias))
+                    msg += f"Bias of layer `{name}.bias` initialized to {init_bias}."
+                    is_found = True
+                    break
+            if not is_found:
+                msg += f"Could not find a linear layer to initialize bias."
+        else:
+            msg += "Bias initialization disabled."
+        logger.info(msg)
+
+    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Computes loss; override for more complex behavior."""
+        target, self.labels_meta = scale_labels_if_needed(
+            target, self.center_labels, self.scale_labels
+        )
+        return self.loss_fn(out, target) # type: ignore 
+    
+    @torch.no_grad()
+    def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
+        """Computes metrics; ignores if a metric fails."""
+        out = unscale_preds_if_needed(out, self.labels_meta)
+        stats = {}
+        for m in self.metrics:
+            name = getattr(m, "__name__", m.__class__.__name__)
+            try:
+                val = m(out, target)
+            except Exception:
+                logger.exception(f"[{self.__class__.__name__}] Failed to compute "
+                                 f"metric {name}; skipping.")
+                continue
+            stats[name] = val.item()
+        return stats
+    
+    def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Predict step; performs sliding window inference."""
+        out = self.inferer(batch["img"], self.model)
+        return unscale_preds_if_needed(out, self.labels_meta)

@@ -651,6 +651,10 @@ class ClassificationDataModule(BaseDataModule):
 
         self.strict = strict
         self.modalities = modalities
+        
+        # Will get populated in setup()
+        self.train_label_mean: float | None = None
+        self.train_label_std: float | None = None
 
     def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """
