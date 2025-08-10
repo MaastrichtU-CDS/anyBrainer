@@ -230,7 +230,7 @@ def get_regression_train_transforms(
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
         RandRotated(keys=keys, prob=0.5, range_x=(0.08, 0.12), range_y=(0.08, 0.12), 
-                    range_z=(0.08, 0.12), mode='bilinear', padding_mode='border', 
+                    range_z=(0.08, 0.12), mode='bilinear', padding_mode='zeros', 
                     allow_missing_keys=allow_missing_keys),
         RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.8, 
                                      allow_missing_keys=True),
