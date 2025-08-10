@@ -9,11 +9,14 @@ __all__ = [
     "GetKeyQueryd",
     "SlidingWindowPatch",
     "SlidingWindowPatchd",
+    "RandImgKeyd",
 ]
 
 from typing import Literal, Sequence
+from collections.abc import Hashable
 import logging
 import math
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -399,4 +402,37 @@ class SlidingWindowPatchd(MapTransform):
         d = dict(data)
         for key in self.key_iterator(d):
             d[key] = self.transform(d[key])
+        return d
+
+
+class RandImgKeyd(MapTransform, Randomizable):
+    """
+    Dictionary transform to randomly select a key from 
+    the provided keys and store it in a new key.
+    """
+    def __init__(
+        self,
+        keys: Sequence[Hashable] | Hashable,
+        new_key: str = "img",
+        allow_missing_keys: bool = False,
+    ):
+        super().__init__(keys, allow_missing_keys)
+        self.new_key = new_key
+
+    def randomize(self, candidates: Sequence[Hashable]) -> Hashable:
+        idx = int(self.R.randint(0, len(candidates)))
+        return candidates[idx]
+
+    def __call__(self, data):
+        d = dict(data)
+        candidates = [k for k in self.key_iterator(d)]
+        if not candidates:
+            if self.allow_missing_keys:
+                return d
+            msg = f"None of {self.keys} present in data."
+            logger.error(msg)
+            raise KeyError(msg)
+
+        chosen_key = self.randomize(candidates)
+        d[self.new_key] = deepcopy(d[chosen_key])
         return d

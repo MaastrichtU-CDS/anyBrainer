@@ -533,8 +533,9 @@ class ClassificationModel(BaseModel):
     
     def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
         """Logs step statistics."""
+        on_step = step_name == "train"
         self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
-                      on_step=True, on_epoch=True, prog_bar=False, 
+                      on_step=on_step, on_epoch=True, prog_bar=False, 
                       sync_dist=sync_dist_safe(self))
 
     def training_step(self, batch: dict, batch_idx: int):
