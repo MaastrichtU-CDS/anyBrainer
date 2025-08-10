@@ -190,7 +190,7 @@ def get_classification_train_transforms(
     for key in keys: # unique intensity augmentations for each modality
         transforms.extend([
             RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.3, 
-                                         allow_missing_keys=True),
+                                         allow_missing_keys=allow_missing_keys),
             RandGaussianNoised(keys=key, std=0.01, prob=0.2, 
                                allow_missing_keys=allow_missing_keys),
             RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.2, 
@@ -239,7 +239,7 @@ def get_regression_train_transforms(
     for key in keys: # unique intensity augmentations for each modality
         transforms.extend([
             RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.8, 
-                                        allow_missing_keys=True),
+                                        allow_missing_keys=allow_missing_keys),
             RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
                             allow_missing_keys=allow_missing_keys),
             RandGaussianSmoothd(keys=keys, sigma_x=(0.5, 1.0), prob=0.2, 
