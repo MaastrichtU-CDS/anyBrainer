@@ -229,8 +229,8 @@ def get_regression_train_transforms(
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
-        RandRotated(keys=keys, prob=0.5, range_x=(0.08, 0.12), range_y=(0.08, 0.12), 
-                    range_z=(0.08, 0.12), mode='bilinear', padding_mode='zeros', 
+        RandAffined(keys=keys, rotate_range=(0.12, 0.12, 0.12),
+                    mode='bilinear', padding_mode='zeros', prob=0.5,
                     allow_missing_keys=allow_missing_keys),
         RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.8, 
                                      allow_missing_keys=True),
