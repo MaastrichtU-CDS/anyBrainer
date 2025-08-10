@@ -238,17 +238,17 @@ def get_regression_train_transforms(
     ]
     for key in keys: # unique intensity augmentations for each modality
         transforms.extend([
-            RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.8, 
+            RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                         allow_missing_keys=allow_missing_keys),
-            RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
+            RandGaussianNoised(keys=key, std=0.01, prob=0.2, 
                             allow_missing_keys=allow_missing_keys),
-            RandGaussianSmoothd(keys=keys, sigma_x=(0.5, 1.0), prob=0.2, 
+            RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.2, 
                                 allow_missing_keys=allow_missing_keys),
-            RandBiasFieldd(keys=keys, coeff_range=(0.0, 0.05), prob=0.2, 
+            RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.2, 
                         allow_missing_keys=allow_missing_keys),
-            RandGibbsNoised(keys=keys, alpha=(0.2, 0.4), prob=0.2, 
+            RandGibbsNoised(keys=key, alpha=(0.2, 0.4), prob=0.2, 
                             allow_missing_keys=allow_missing_keys),
-            RandAdjustContrastd(keys=keys, gamma=(0.9, 1.1), prob=0.5, 
+            RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=0.5, 
                                 allow_missing_keys=allow_missing_keys),
             RandSimulateLowResolutiond(keys=key, prob=0.2, zoom_range=(0.7, 1.0),
                                        allow_missing_keys=allow_missing_keys),
