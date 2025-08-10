@@ -220,7 +220,7 @@ def scale_labels_if_needed(
             - "mean": Subtract mean of labels.
             - "fixed:<value>": Subtract a fixed numeric value.
         scale_labels: List [min_val, max_val] or None. If given, 
-            scales labels to [-1, 1] based on provided range.
+            scales labels to (max_val - min_val) / 2.
 
     Returns:
         scaled_labels: Transformed labels.

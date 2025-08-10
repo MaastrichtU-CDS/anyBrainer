@@ -28,6 +28,7 @@ from monai.transforms import (
     RandBiasFieldd, 
     RandGibbsNoised, 
     RandAdjustContrastd,
+    RandRotated,
 )
 
 from .unit_transforms import (
@@ -217,6 +218,51 @@ def get_classification_train_transforms(
         ])
     return transforms
 
+@register(RK.TRANSFORM)
+def get_regression_train_transforms(
+    patch_size: int | Sequence[int] = (128, 128, 128),
+    keys: list[str] = OPEN_KEYS,
+    allow_missing_keys: bool = True,
+    concat_img: bool = False,
+    n_patches: int | Sequence[int] = (2, 2, 2),
+) -> list[Callable]:
+    transforms: list[Callable] = [
+        LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
+                   allow_missing_keys=allow_missing_keys),
+        RandRotated(keys=keys, prob=0.5, range_x=(0.08, 0.12), range_y=(0.08, 0.12), 
+                    range_z=(0.08, 0.12), mode='bilinear', padding_mode='border', 
+                    allow_missing_keys=allow_missing_keys),
+        RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.8, 
+                                     allow_missing_keys=True),
+        RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
+                           allow_missing_keys=allow_missing_keys),
+        RandGaussianSmoothd(keys=keys, sigma_x=(0.5, 1.0), prob=0.2, 
+                            allow_missing_keys=allow_missing_keys),
+        RandBiasFieldd(keys=keys, coeff_range=(0.0, 0.05), prob=0.2, 
+                       allow_missing_keys=allow_missing_keys),
+        RandGibbsNoised(keys=keys, alpha=(0.2, 0.4), prob=0.2, 
+                        allow_missing_keys=allow_missing_keys),
+        RandAdjustContrastd(keys=keys, gamma=(0.9, 1.1), prob=0.5, 
+                            allow_missing_keys=allow_missing_keys),
+        RandSimulateLowResolutiond(keys=keys, prob=0.2, zoom_range=(0.7, 1.0),
+                                   allow_missing_keys=allow_missing_keys),
+    ]
+    if not concat_img:
+        transforms.extend([
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+                        allow_missing_keys=allow_missing_keys),
+            RandSpatialCropd(keys=keys, roi_size=patch_size, 
+                             allow_missing_keys=allow_missing_keys),
+        ])
+    else:
+        transforms.extend([
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
+                                n_patches=n_patches, allow_missing_keys=allow_missing_keys),
+            ConcatItemsd(keys=keys, name='img', dim=1,
+                        allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys)
+        ])
+    return transforms
 
 @register(RK.TRANSFORM)
 def get_classification_val_transforms(
