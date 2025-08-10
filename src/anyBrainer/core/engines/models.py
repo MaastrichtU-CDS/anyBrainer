@@ -439,7 +439,7 @@ class ClassificationModel(BaseModel):
     def __init__(
         self, 
         *,
-        metrics: list[Callable] | list[str] | None = None,
+        metrics: list[Callable] | list[str] | str | None = None,
         flat_labels: bool = False,
         **base_model_kwargs,
     ):
@@ -463,10 +463,11 @@ class ClassificationModel(BaseModel):
                                f"fusion_head.fusion_weights is not found; skipping "
                                f"logging of fusion weights.")
 
-        self.metrics: list[Callable] = []
-        if metrics is not None:
-            for metric in metrics:
-                self.metrics.append(cast(Callable, resolve_fn(metric)))
+        if isinstance(metrics, str):
+            metrics = [metrics]
+        self.metrics: list[Callable] = (
+            [cast(Callable, resolve_fn(m)) for m in metrics] if metrics else []
+        )
         
         self.flat_labels = flat_labels
 
