@@ -121,13 +121,28 @@ class TestFusionHead:
         fusion_head = FusionHead(n_fusion=n_fusion)
         output = fusion_head(torch.randn(input_shape)) # type: ignore
         assert output.shape == (4, 768)
+    
+    def test_mod_only(self):
+        fusion_head = FusionHead(n_fusion=4, mod_only=True)
+        output = fusion_head(torch.randn(4, 4, 768)) # type: ignore
+        assert output.shape == (4, 768)
 
     def test_wrong_shape(self):
         with pytest.raises(ValueError):
             fusion_head = FusionHead(n_fusion=2)
             fusion_head(torch.randn(768, 4, 4, 4)) # type: ignore
     
+    def test_wrong_shape_mod_only(self):
+        with pytest.raises(ValueError):
+            fusion_head = FusionHead(n_fusion=2, mod_only=True)
+            fusion_head(torch.randn(4, 4, 8, 768, 4, 4, 4)) # type: ignore
+    
     def test_mismatch_n_fusion(self):
         with pytest.raises(ValueError):
             fusion_head = FusionHead(n_fusion=2)
             fusion_head(torch.randn(4, 3, 8, 768, 4, 4, 4)) # type: ignore
+    
+    def test_mismatch_n_fusion_mod_only(self):
+        with pytest.raises(ValueError):
+            fusion_head = FusionHead(n_fusion=4, mod_only=True)
+            fusion_head(torch.randn(4, 3, 768)) # type: ignore

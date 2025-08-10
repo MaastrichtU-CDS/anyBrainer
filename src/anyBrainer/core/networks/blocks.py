@@ -31,7 +31,6 @@ class ProjectionHead(nn.Module):
         activation: str = "GELU",
         *,
         activation_kwargs: dict[str, Any] | None = None,
-        model_name: str | None = None,
     ):
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool3d(1)
@@ -49,10 +48,8 @@ class ProjectionHead(nn.Module):
         )
 
         # Log hyperparameters
-        msg = (f"ProjectionHead initialized with in_dim={in_dim}, "
+        msg = (f"[{self.__class__.__name__}] ProjectionHead initialized with in_dim={in_dim}, "
                f"hidden_dim={hidden_dim}, proj_dim={proj_dim}")
-        if model_name is not None:
-            msg = f"[{model_name}] " + msg
         logger.info(msg)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -81,7 +78,6 @@ class ClassificationHead(nn.Module):
         activation: Sequence[str] | str = "GELU",
         *,
         activation_kwargs: Sequence[dict[str, Any]] | dict[str, Any] | None = None,
-        model_name: str | None = None,
     ):
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool3d(1)
@@ -111,8 +107,7 @@ class ClassificationHead(nn.Module):
             f"num_hidden_layers={num_hidden_layers}, dropout(s)={dropouts}, "
             f"linear_layer(s)={hidden_dims}, activation(s)={activations}"
         )
-        logger.info(f"[{model_name}] ClassificationHead initialized with {summary}"
-                    if model_name else f"ClassificationHead initialized with {summary}")
+        logger.info(f"[{self.__class__.__name__}] ClassificationHead initialized with {summary}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim == 5:
@@ -133,38 +128,53 @@ class FusionHead(nn.Module):
     Designed for low-data regimes; the only learnable parameters
     are the modality fusion weights; rest is global average pooling.
 
+    Set `mod_only=True` to only fuse modalities, and `mod_only=False` to perform
+    global average pooling on spatial features and n_patches.
+
     Input shape: (B, n_fusion, n_patches, n_features, D, H, W);
         typically output by an encoder.
     Output shape: (B, n_features)
     """
-    def __init__(self, n_fusion: int):
+    def __init__(
+        self, 
+        n_fusion: int,
+        mod_only: bool = False,
+    ):
         super().__init__()
         self.n_fusion = n_fusion 
+        self.mod_only = mod_only
         self.fusion_weights = nn.Parameter(torch.ones(n_fusion))
 
         logger.info(f"[{self.__class__.__name__}] FusionHead initialized with "
                     f"n_fusion={n_fusion}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.dim() == 7: # (B, n_fusion, n_patches, n_features, D, H, W)
-            pass
-        elif x.dim() == 6: # (B, n_patches, n_features, D, H, W)
-            x = x.unsqueeze(1)
-        elif x.dim() == 5: # (B, n_features, D, H, W)
-            x = x.unsqueeze(1).unsqueeze(2)
-        else:
-            msg = f"[{self.__class__.__name__}] Unexpected input shape {x.shape}"
-            logger.error(msg)
-            raise ValueError(msg)
-        
+        if not self.mod_only: # Fuse everything
+            if x.dim() == 7: # (B, n_fusion, n_patches, n_features, D, H, W)
+                pass
+            elif x.dim() == 6: # (B, n_patches, n_features, D, H, W)
+                x = x.unsqueeze(1)
+            elif x.dim() == 5: # (B, n_features, D, H, W)
+                x = x.unsqueeze(1).unsqueeze(2)
+            else:
+                msg = f"[{self.__class__.__name__}] Unexpected input shape {x.shape}"
+                logger.error(msg)
+                raise ValueError(msg)
+            x = x.mean(dim=[-3, -2, -1]) # (B, n_fusion, n_patches, n_features)
+            x = x.mean(dim=2) # (B, n_fusion, n_features)
+        else: # Already fused, except modalities
+            if x.dim() != 3:
+                msg = (f"[{self.__class__.__name__}] Invalid input shape {x.shape} "
+                       f"for `mod_only` mode; expected (B, n_fusion, n_features).")
+                logger.error(msg)
+                raise ValueError(msg)
+            
         if x.size(1) != self.n_fusion:
             msg = (f"[{self.__class__.__name__}] Unexpected number of fusion channels; "
-                   f"expected {self.n_fusion}, got {x.size(1)}")
+                f"expected {self.n_fusion}, got {x.size(1)}")
             logger.error(msg)
             raise ValueError(msg)
-        
-        x = x.mean(dim=[-3, -2, -1]) # (B, n_fusion, n_patches, n_features)
-        x = x.mean(dim=2) # (B, n_fusion, n_features)
+            
         weights = torch.softmax(self.fusion_weights, dim=0)  # (n_fusion,)
         x = (x * weights.view(1, -1, 1)).sum(dim=1) # (B, n_features)
         return x

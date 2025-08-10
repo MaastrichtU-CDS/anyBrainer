@@ -28,7 +28,6 @@ from monai.transforms import (
     RandBiasFieldd, 
     RandGibbsNoised, 
     RandAdjustContrastd,
-    RandRotated,
 )
 
 from .unit_transforms import (

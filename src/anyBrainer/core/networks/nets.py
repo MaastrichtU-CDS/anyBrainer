@@ -8,10 +8,11 @@ __all__ = [
 ]
 
 import logging
-from typing import Sequence, Any
+from typing import Sequence, Any, cast
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint as cp
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
@@ -78,7 +79,6 @@ class Swinv2CL(nn.Module):
             hidden_dim=proj_hidden_dim,
             proj_dim=proj_dim,
             activation=proj_hidden_act,
-            model_name="Swinv2CL",
         )
 
         # Optional auxiliary classification head
@@ -90,7 +90,6 @@ class Swinv2CL(nn.Module):
                 hidden_dim=aux_mlp_hidden_dim,
                 activation=aux_mlp_hidden_act,
                 dropout=aux_mlp_dropout,
-                model_name="Swinv2CL",
             )
         else:
             self.classification_head = None
@@ -190,12 +189,12 @@ class Swinv2Classifier(nn.Module):
             hidden_dim=mlp_hidden_dim,
             activation=mlp_activations,
             dropout=mlp_dropout,
-            model_name="Swinv2Classifier",
         )
 
         if self.late_fusion:
             self.fusion_head = FusionHead(
                 n_fusion=self.n_late_fusion,
+                mod_only=True,
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -236,15 +235,20 @@ class Swinv2Classifier(nn.Module):
                 raise ValueError(msg)
             
             # Split input into chunks of size B and pass to encoder
-            x_chunks = x.permute(1, 2, 0, 3, *range(4, x.ndim)) # (n_late_fusion, n_patches, B, C, *spatial)
-            x_chunks = x_chunks.reshape(n_late_fusion * n_patches, B, C, *spatial)
-            feats = torch.stack([self.encoder(xk)[-1] for xk in x_chunks.unbind(0)], dim=0)
-            
-            # Rearrange and fuse
-            feats = feats.reshape(n_late_fusion, n_patches, B, *feats.shape[2:])
-            feats = feats.permute(2, 0, 1, 3, *range(4, feats.ndim)) # (B, n_late_fusion, n_patches, *feats)
+            mod_vecs = []
+            for m in range(n_late_fusion):
+                vec_sum = None
+                for p in range(n_patches): # stream over patches to avoid keeping many feature maps
+                    xmp = x[:, m, p].contiguous() # (B, C, *spatial)
+                    f_map = self.encoder(xmp)[-1] # (B, n_feats, *bottleneck_dims)  last-scale feature
+                    v = f_map.mean(dim=tuple(range(2, f_map.ndim))) # GAP -> (B, n_feats)
+                    vec_sum = v if vec_sum is None else vec_sum + v
+                mod_vecs.append(cast(torch.Tensor, vec_sum) / n_patches) # (B, n_feats)
+
+            feats = torch.stack(mod_vecs, dim=1) # (B, n_fusion, n_feats)
             feats = self.fusion_head(feats) # (B, in_dim)
         else:
-            feats = self.encoder(x)[-1]
+            f_map = self.encoder(x)[-1] # (B, n_feats, *bottleneck_dims)
+            feats = f_map.mean(dim=tuple(range(2, f_map.ndim))) # GAP -> (B, n_feats)
 
         return self.classification_head(feats)
