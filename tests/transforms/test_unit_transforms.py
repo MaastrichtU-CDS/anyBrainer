@@ -14,6 +14,7 @@ from anyBrainer.core.transforms.unit_transforms import (
     CreateEmptyMaskd,
     GetKeyQueryd,
     SlidingWindowPatch,
+    RandImgKeyd,
 )
 
 @pytest.mark.parametrize("mask_ratio,mask_patch_size", [
@@ -265,3 +266,28 @@ class TestSlidingWindowPatch:
                 spatial_dims=3,
                 overlap=None,
             )
+
+
+class TestRandImgKeyd:
+    def test_output_keys(self, contrastive_sample_data):
+        out = RandImgKeyd(keys=["img_0", "img_1"])(contrastive_sample_data)
+        assert out.get("img_0") is not None
+        assert out.get("img_1") is not None
+        assert out.get("img") is not None
+    
+    def test_error_no_keys_match(self, contrastive_sample_data):
+        with pytest.raises(KeyError):
+            RandImgKeyd(keys=["img_999", "img_1000"])(contrastive_sample_data)
+    
+    def test_error_no_keys_match_allow_missing(self, contrastive_sample_data):
+        out = RandImgKeyd(keys=["img_40", "img_41"], 
+                          allow_missing_keys=True)(contrastive_sample_data)
+        assert out.get("img_0") is not None
+        assert out.get("img_1") is not None
+        assert out.get("img") is None
+    
+    def test_no_error_replace_key(self, contrastive_sample_data):
+        out = RandImgKeyd(keys=["img_0", "img_1"], new_key="img_0")(contrastive_sample_data)
+        assert out.get("img_0") is not None
+        assert out.get("img_1") is not None
+        assert out.get("img") is None
