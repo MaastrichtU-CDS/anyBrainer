@@ -186,36 +186,35 @@ def get_classification_train_transforms(
                     scale_range=(0.1, 0.1, 0.1), shear_range=(0.3, 0.3, 0.3),
                     mode='bilinear', padding_mode='zeros', prob=1.0,
                     allow_missing_keys=allow_missing_keys),
-        RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.3, 
-                                     allow_missing_keys=True),
-        RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
-                           allow_missing_keys=allow_missing_keys),
-        RandGaussianSmoothd(keys=keys, sigma_x=(0.5, 1.0), prob=0.2, 
-                            allow_missing_keys=allow_missing_keys),
-        RandBiasFieldd(keys=keys, coeff_range=(0.0, 0.05), prob=0.3, 
-                       allow_missing_keys=allow_missing_keys),
-        RandGibbsNoised(keys=keys, alpha=(0.2, 0.4), prob=0.2, 
-                        allow_missing_keys=allow_missing_keys),
-        RandAdjustContrastd(keys=keys, gamma=(0.9, 1.1), prob=0.3, 
-                            allow_missing_keys=allow_missing_keys),
-        RandSimulateLowResolutiond(keys=keys, prob=0.1, zoom_range=(0.5, 1.0),
-                                   allow_missing_keys=allow_missing_keys),
     ]
-    if not concat_img:
-        transforms.extend([
-            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
-                        allow_missing_keys=allow_missing_keys),
-            RandSpatialCropd(keys=keys, roi_size=patch_size, 
-                             allow_missing_keys=allow_missing_keys),
-        ])
-    else:
+    if concat_img:
         transforms.extend([
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=keys, name='img', dim=1,
-                        allow_missing_keys=allow_missing_keys),
-            DeleteItemsd(keys=keys)
+            ConcatItemsd(keys=keys, name="img", dim=1, allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys),  # now only 'img' remains
         ])
+        img_keys = ["img"]
+    else:
+        transforms.extend([
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode="constant",
+                        allow_missing_keys=allow_missing_keys),
+            RandSpatialCropd(keys=keys, roi_size=patch_size,
+                             allow_missing_keys=allow_missing_keys),
+        ])
+        img_keys = keys
+        
+    # intensity/artefacts AFTER shapes are aligned
+    transforms.extend([
+        RandScaleIntensityFixedMeand(keys=img_keys, factors=0.1, prob=0.8, allow_missing_keys=True),
+        RandGaussianNoised(keys=img_keys, std=0.01, prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandGaussianSmoothd(keys=img_keys, sigma_x=(0.5, 1.0), prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandBiasFieldd(keys=img_keys, coeff_range=(0.0, 0.05), prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandGibbsNoised(keys=img_keys, alpha=(0.2, 0.4), prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandAdjustContrastd(keys=img_keys, gamma=(0.9, 1.1), prob=0.5, allow_missing_keys=allow_missing_keys),
+        RandSimulateLowResolutiond(keys=img_keys, prob=0.2, zoom_range=(0.7, 1.0),
+                                   allow_missing_keys=allow_missing_keys),
+    ])
     return transforms
 
 @register(RK.TRANSFORM)
@@ -227,41 +226,40 @@ def get_regression_train_transforms(
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
     transforms: list[Callable] = [
-        LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
+        LoadImaged(keys=keys, reader="NumpyReader", ensure_channel_first=True,
                    allow_missing_keys=allow_missing_keys),
         RandAffined(keys=keys, rotate_range=(0.12, 0.12, 0.12),
-                    mode='bilinear', padding_mode='zeros', prob=0.5,
+                    mode="bilinear", padding_mode="border", prob=0.5,
                     allow_missing_keys=allow_missing_keys),
-        RandScaleIntensityFixedMeand(keys=keys, factors=0.1, prob=0.8, 
-                                     allow_missing_keys=True),
-        RandGaussianNoised(keys=keys, std=0.01, prob=0.2, 
-                           allow_missing_keys=allow_missing_keys),
-        RandGaussianSmoothd(keys=keys, sigma_x=(0.5, 1.0), prob=0.2, 
-                            allow_missing_keys=allow_missing_keys),
-        RandBiasFieldd(keys=keys, coeff_range=(0.0, 0.05), prob=0.2, 
-                       allow_missing_keys=allow_missing_keys),
-        RandGibbsNoised(keys=keys, alpha=(0.2, 0.4), prob=0.2, 
-                        allow_missing_keys=allow_missing_keys),
-        RandAdjustContrastd(keys=keys, gamma=(0.9, 1.1), prob=0.5, 
-                            allow_missing_keys=allow_missing_keys),
-        RandSimulateLowResolutiond(keys=keys, prob=0.2, zoom_range=(0.7, 1.0),
-                                   allow_missing_keys=allow_missing_keys),
     ]
-    if not concat_img:
-        transforms.extend([
-            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
-                        allow_missing_keys=allow_missing_keys),
-            RandSpatialCropd(keys=keys, roi_size=patch_size, 
-                             allow_missing_keys=allow_missing_keys),
-        ])
-    else:
+    if concat_img:
         transforms.extend([
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=keys, name='img', dim=1,
-                        allow_missing_keys=allow_missing_keys),
-            DeleteItemsd(keys=keys)
+            ConcatItemsd(keys=keys, name="img", dim=1, allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys),  # now only 'img' remains
         ])
+        img_keys = ["img"]
+    else:
+        transforms.extend([
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode="constant",
+                        allow_missing_keys=allow_missing_keys),
+            RandSpatialCropd(keys=keys, roi_size=patch_size,
+                             allow_missing_keys=allow_missing_keys),
+        ])
+        img_keys = keys
+
+    # intensity/artefacts AFTER shapes are aligned
+    transforms.extend([
+        RandScaleIntensityFixedMeand(keys=img_keys, factors=0.1, prob=0.8, allow_missing_keys=True),
+        RandGaussianNoised(keys=img_keys, std=0.01, prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandGaussianSmoothd(keys=img_keys, sigma_x=(0.5, 1.0), prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandBiasFieldd(keys=img_keys, coeff_range=(0.0, 0.05), prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandGibbsNoised(keys=img_keys, alpha=(0.2, 0.4), prob=0.2, allow_missing_keys=allow_missing_keys),
+        RandAdjustContrastd(keys=img_keys, gamma=(0.9, 1.1), prob=0.5, allow_missing_keys=allow_missing_keys),
+        RandSimulateLowResolutiond(keys=img_keys, prob=0.2, zoom_range=(0.7, 1.0),
+                                   allow_missing_keys=allow_missing_keys),
+    ])
     return transforms
 
 @register(RK.TRANSFORM)
