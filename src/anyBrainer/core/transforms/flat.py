@@ -7,7 +7,8 @@ __all__ = [
     'get_contrastive_val_transforms',
     'get_predict_transforms',
     'get_classification_train_transforms',
-    'get_classification_val_transforms',
+    'get_segmentation_train_transforms',
+    'get_downstream_val_transforms',
 ]
 
 from typing import Sequence, Callable
@@ -19,15 +20,17 @@ from monai.transforms import (
     LoadImaged,
     SpatialPadd,
     RandFlipd, 
-    RandAffined, 
+    RandAffined,
+    Rand3DElasticd,
     RandSpatialCropd, 
     RandSimulateLowResolutiond,
     RandScaleIntensityFixedMeand, 
-    RandGaussianNoised, 
+    RandRicianNoised,
     RandGaussianSmoothd,
     RandBiasFieldd, 
     RandGibbsNoised, 
     RandAdjustContrastd,
+    RandCropByPosNegLabeld,
 )
 
 from .unit_transforms import (
@@ -61,7 +64,7 @@ def get_mae_train_transforms(
         CreateRandomMaskd(keys=['img'], mask_key='mask', mask_ratio=0.6,
                           mask_patch_size=32),
         RandScaleIntensityFixedMeand(keys=['img'], factors=0.1, prob=0.3),
-        RandGaussianNoised(keys=['img'], std=0.01, prob=0.2),
+        RandRicianNoised(keys=['img'], std=0.01, prob=0.2),
         RandGaussianSmoothd(keys=['img'], sigma_x=(0.5, 1.0), prob=0.2),
         RandBiasFieldd(keys=['img'], coeff_range=(0.0, 0.05), prob=0.3),
         RandGibbsNoised(keys=['img'], alpha=(0.2, 0.4), prob=0.2),
@@ -106,8 +109,8 @@ def get_contrastive_train_transforms(
         RandSpatialCropd(keys=['key'], roi_size=patch_size),
         RandScaleIntensityFixedMeand(keys=['query'], factors=0.1, prob=0.3),
         RandScaleIntensityFixedMeand(keys=['key'], factors=0.1, prob=0.3),
-        RandGaussianNoised(keys=['query'], std=0.01, prob=0.2),
-        RandGaussianNoised(keys=['key'], std=0.01, prob=0.2),
+        RandRicianNoised(keys=['query'], std=0.01, prob=0.2),
+        RandRicianNoised(keys=['key'], std=0.01, prob=0.2),
         RandGaussianSmoothd(keys=['query'], sigma_x=(0.5, 1.0), prob=0.2),
         RandGaussianSmoothd(keys=['key'], sigma_x=(0.5, 1.0), prob=0.2),
         RandBiasFieldd(keys=['query'], coeff_range=(0.0, 0.05), prob=0.3),
@@ -136,7 +139,7 @@ def get_contrastive_val_transforms(
         RandSpatialCropd(keys=['query'], roi_size=patch_size),
         RandSpatialCropd(keys=['key'], roi_size=patch_size),
         RandScaleIntensityFixedMeand(keys=['key'], factors=0.1, prob=0.3),
-        RandGaussianNoised(keys=['key'], std=0.01, prob=0.2),
+        RandRicianNoised(keys=['key'], std=0.01, prob=0.2),
         RandGaussianSmoothd(keys=['key'], sigma_x=(0.5, 1.0), prob=0.2),
         RandBiasFieldd(keys=['key'], coeff_range=(0.0, 0.05), prob=0.3),
         RandGibbsNoised(keys=['key'], alpha=(0.2, 0.4), prob=0.2),
@@ -176,6 +179,9 @@ def get_classification_train_transforms(
     concat_img: bool = False,
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
+    """
+    IO transforms + augmentations for classification tasks.
+    """
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
@@ -183,29 +189,29 @@ def get_classification_train_transforms(
                   allow_missing_keys=allow_missing_keys),
         RandAffined(keys=keys, rotate_range=(0.3, 0.3, 0.3),
                     scale_range=(0.1, 0.1, 0.1), shear_range=(0.3, 0.3, 0.3),
-                    mode='bilinear', padding_mode='zeros', prob=1.0,
+                    mode='bilinear', padding_mode='border', prob=1.0,
                     allow_missing_keys=allow_missing_keys),
     ]
     for key in keys: # unique intensity augmentations for each modality
         transforms.extend([
-            RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.3, 
+            RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                          allow_missing_keys=allow_missing_keys),
-            RandGaussianNoised(keys=key, std=0.01, prob=0.2, 
+            RandRicianNoised(keys=key, std=0.01, prob=0.2, 
                                allow_missing_keys=allow_missing_keys),
             RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.2, 
                                 allow_missing_keys=allow_missing_keys),
-            RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.3, 
+            RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.2, 
                        allow_missing_keys=allow_missing_keys),
             RandGibbsNoised(keys=key, alpha=(0.2, 0.4), prob=0.2, 
                             allow_missing_keys=allow_missing_keys),
-            RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=0.3, 
+            RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=0.5, 
                                 allow_missing_keys=allow_missing_keys),
-            RandSimulateLowResolutiond(keys=key, prob=0.1, zoom_range=(0.5, 1.0),
+            RandSimulateLowResolutiond(keys=key, prob=0.2, zoom_range=(0.7, 1.0),
                                        allow_missing_keys=allow_missing_keys),
         ])
     if not concat_img:
         transforms.extend([
-            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode='border', 
                         allow_missing_keys=allow_missing_keys),
             RandSpatialCropd(keys=keys, roi_size=patch_size, 
                              allow_missing_keys=allow_missing_keys),
@@ -228,18 +234,21 @@ def get_regression_train_transforms(
     concat_img: bool = False,
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
+    """
+    IO transforms + augmentations for regression tasks.
+    """
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
-        RandAffined(keys=keys, rotate_range=(0.12, 0.12, 0.12),
-                    mode='bilinear', padding_mode='zeros', prob=0.5,
+        RandAffined(keys=keys, rotate_range=(0.1, 0.1, 0.1),
+                    mode='bilinear', padding_mode='border', prob=0.5,
                     allow_missing_keys=allow_missing_keys),
     ]
     for key in keys: # unique intensity augmentations for each modality
         transforms.extend([
             RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                         allow_missing_keys=allow_missing_keys),
-            RandGaussianNoised(keys=key, std=0.01, prob=0.2, 
+            RandRicianNoised(keys=key, std=0.01, prob=0.2, 
                             allow_missing_keys=allow_missing_keys),
             RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.2, 
                                 allow_missing_keys=allow_missing_keys),
@@ -254,7 +263,7 @@ def get_regression_train_transforms(
         ])
     if not concat_img:
         transforms.extend([
-            SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode='border', 
                         allow_missing_keys=allow_missing_keys),
             RandSpatialCropd(keys=keys, roi_size=patch_size, 
                              allow_missing_keys=allow_missing_keys),
@@ -270,7 +279,72 @@ def get_regression_train_transforms(
     return transforms
 
 @register(RK.TRANSFORM)
-def get_classification_val_transforms(
+def get_segmentation_train_transforms(
+    patch_size: int | Sequence[int] = (128, 128, 128),
+    keys: list[str] = OPEN_KEYS,
+    seg_key: str = "seg",
+    allow_missing_keys: bool = True,
+    concat_img: bool = False,
+    n_patches: int | Sequence[int] = (2, 2, 2),
+) -> list[Callable]:
+    """
+    IO transforms + augmentations for segmentation tasks.
+    """
+    all_keys = [seg_key, *keys]
+    img_keys = keys
+    pad_mode = ['zeros'] + ['border'] * len(keys)
+    interp_mode = ['nearest'] + ['bilinear'] * len(keys)
+    transforms: list[Callable] = [
+        LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
+                   allow_missing_keys=allow_missing_keys),
+        RandFlipd(keys=all_keys, spatial_axis=(0, 1), prob=0.3, 
+                  allow_missing_keys=allow_missing_keys),
+        RandAffined(keys=all_keys, rotate_range=(0.1, 0.1, 0.1),
+                    scale_range=(0.1, 0.1, 0.1), mode=interp_mode, 
+                    padding_mode=pad_mode, prob=1.0,
+                    allow_missing_keys=allow_missing_keys),
+        Rand3DElasticd(keys=all_keys, sigma_range=(4, 8), prob=0.2,
+                       magnitude_range=(0.5, 1.5),
+                       allow_missing_keys=allow_missing_keys),
+    ]
+    for key in img_keys: # unique intensity augmentations for each modality
+        transforms.extend([
+            RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
+                                         allow_missing_keys=allow_missing_keys),
+            RandRicianNoised(keys=key, std=0.01, prob=0.2, 
+                               allow_missing_keys=allow_missing_keys),
+            RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.2, 
+                                allow_missing_keys=allow_missing_keys),
+            RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.2, 
+                       allow_missing_keys=allow_missing_keys),
+            RandGibbsNoised(keys=key, alpha=(0.2, 0.4), prob=0.2, 
+                            allow_missing_keys=allow_missing_keys),
+            RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=0.5, 
+                                allow_missing_keys=allow_missing_keys),
+            RandSimulateLowResolutiond(keys=key, prob=0.2, zoom_range=(0.8, 1.0),
+                                       allow_missing_keys=allow_missing_keys),
+        ])
+    if not concat_img:
+        transforms.extend([
+            SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode, 
+                        allow_missing_keys=allow_missing_keys),
+            RandCropByPosNegLabeld(keys=all_keys, label_key=seg_key, 
+                                   spatial_size=patch_size, 
+                                   pos=1, neg=2, num_samples=1,
+                                   allow_missing_keys=allow_missing_keys),
+        ])
+    else:
+        transforms.extend([
+            SlidingWindowPatchd(keys=all_keys, patch_size=patch_size, overlap=None,
+                                n_patches=n_patches, allow_missing_keys=allow_missing_keys),
+            ConcatItemsd(keys=img_keys, name='img', dim=1,
+                        allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=img_keys)
+        ])
+    return transforms
+
+@register(RK.TRANSFORM)
+def get_downstream_val_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
@@ -285,8 +359,6 @@ def get_classification_val_transforms(
         transforms.extend([
             SpatialPadd(keys=keys, spatial_size=patch_size, mode='constant', 
                         allow_missing_keys=allow_missing_keys),
-            RandSpatialCropd(keys=keys, roi_size=patch_size, 
-                             allow_missing_keys=allow_missing_keys),
         ])
     else:
         transforms.extend([

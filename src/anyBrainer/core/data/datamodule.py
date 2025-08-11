@@ -626,7 +626,7 @@ class ClassificationDataModule(BaseDataModule):
         """
         Args:
         - labels_dir: Directory containing labels with naming pattern 
-            sub_x_ses_y_labels.txt
+            sub_x/ses_y/label.txt or any other structure mirroring the data_dir.
         - labels_filename: Name of the label file
         - expected_labels: Expected labels in the label file. 
             If list of two ints, it will be interpreted as a range of values.
@@ -725,6 +725,100 @@ class ClassificationDataModule(BaseDataModule):
             used_sessions,
             used_modality_counts,
             label_counts,
+        ))
+
+        return list_of_dicts
+
+
+@register(RK.DATAMODULE)
+class SegmentationDataModule(BaseDataModule):
+    """
+    DataModule for any segmentation task.
+
+    The `seg_dir` should be either a directory with the same structure as `data_dir`
+    or `data_dir` itself. The segmentation mask is retrieved from `seg_filename`. 
+    """
+    def __init__(
+        self,
+        *,
+        seg_dir: Path | str | None = None,
+        seg_filename: str = "seg.npy",
+        modalities: list[str] | None = None,
+        **base_module_kwargs,
+    ):
+        """
+        Args:
+        - seg_dir: Directory containing segmentation masks with naming pattern 
+            sub_x/ses_y/seg.npy or any other structure mirroring the data_dir.
+        - seg_filename: Name of the segmentation mask file
+        - modalities: List of modalities to include. If None, all modalities are included.
+
+        See `BaseDataModule` for all initialization parameters.
+        """
+        super().__init__(**base_module_kwargs)
+        self.seg_dir = (resolve_path(seg_dir) 
+                        if seg_dir is not None else self.data_dir)
+        self.seg_filename = seg_filename
+        self.modalities = modalities
+
+    def process_data_list(self, data_list: list[Path]) -> list[Any]:
+        """
+        Create data list of session-level entries for segmentation.
+
+        Skips sessions with no segmentation mask file.
+        """
+        grouped_data = group_data(group_by="session", data_list=data_list) # list(sessions(list(files+metadata)))
+        
+        list_of_dicts = []
+        used_subjects = set()
+        used_sessions = set()
+        used_modality_counts = Counter()
+
+        for session, session_files in tqdm(grouped_data["grouped_data"].items(), 
+                                  desc="Creating data list"):
+            # Filter by modality
+            if self.modalities is not None:
+                session_files = [
+                    f for f in session_files 
+                    if f['modality'] in self.modalities
+                ]
+                if not session_files:
+                    logger.warning(f"No valid modalities found for session "
+                                   f"{session}; skipping")
+                    continue
+
+            file_metadata = session_files[0]
+            seg_path = (self.seg_dir / 
+                        file_metadata['file_name'].relative_to(self.data_dir).parent / 
+                        self.seg_filename)
+
+            if not seg_path.exists():
+                logger.warning(f"Segmentation mask file {seg_path} not found for session "
+                               f"{session}; skipping")
+                continue
+
+            # Build the session entry
+            session_entry = {
+                'sub_id': file_metadata['sub_id'],
+                'ses_id': file_metadata['ses_id'],
+                'count': len(session_files),
+                'seg': seg_path,
+            }
+
+            for i, f in enumerate(session_files):
+                session_entry[f"img_{i}"] = f['file_name']
+                session_entry[f"mod_{i}"] = f['modality']
+                used_modality_counts[f['modality']] += 1
+
+            used_subjects.add(file_metadata['sub_id'])
+            used_sessions.add(f"{file_metadata['sub_id']}_{file_metadata['ses_id']}")
+
+            list_of_dicts.append(session_entry)
+
+        logger.info(get_summary_msg(
+            used_subjects,
+            used_sessions,
+            used_modality_counts,
         ))
 
         return list_of_dicts

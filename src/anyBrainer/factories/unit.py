@@ -15,6 +15,7 @@ import torch.optim as optim
 import lightning.pytorch as pl
 import lightning.pytorch.callbacks as pl_callbacks
 import monai.inferers as monai_inferers
+import monai.networks.nets as monai_nets
 
 from anyBrainer.registry import get, RegistryKind as RK
 
@@ -34,7 +35,7 @@ class UnitFactory:
         """
         Get model instance from kwargs.
 
-        Model class is retrieved from anyBrainer.registry-NETWORK.
+        Model class is retrieved from anyBrainer.registry-NETWORK or monai.networks.nets.
 
         Args:
             model_kwargs: model kwargs, containing "name" key.
@@ -57,9 +58,13 @@ class UnitFactory:
         try:
             model_cls = get(RK.NETWORK, model_name)
         except ValueError:
-            msg = f"Model '{model_name}' not found in anyBrainer.registry-NETWORK."
-            logger.error(msg)
-            raise ValueError(msg)
+            try:
+                model_cls = getattr(monai_nets, model_name)
+            except AttributeError:
+                msg = (f"Model '{model_name}' not found in anyBrainer.registry-NETWORK "
+                       "or monai.networks.nets.")
+                logger.error(msg)
+                raise ValueError(msg)
         
         # Handle improper initialization args
         try:

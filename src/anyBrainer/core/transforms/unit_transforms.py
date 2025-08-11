@@ -21,7 +21,6 @@ from copy import deepcopy
 import numpy as np
 import torch
 from monai.data.utils import dense_patch_slices
-
 # pyright: reportPrivateImportUsage=false
 from monai.transforms.utils import TransformBackends
 from monai.transforms import (
