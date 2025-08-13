@@ -495,7 +495,10 @@ def get_postprocess_segmentation_transforms(
     ]
 
 @register(RK.TRANSFORM)
-def get_segmentation_tta() -> list[Callable]:
+def get_segmentation_tta(
+    keys: list[str] = OPEN_KEYS,
+    allow_missing_keys: bool = True,
+) -> list[Callable]:
     """
     Get test time augmentation (TTA) transforms for segmentation tasks.
 
@@ -509,6 +512,6 @@ def get_segmentation_tta() -> list[Callable]:
     all_flip_axis = ((), (0,), (1,), (2,), (0, 1), (0, 2), (1, 2), (0, 1, 2))
     for flip_axis in all_flip_axis:
         tta_list.append([
-            Flipd(keys="img", spatial_axis=flip_axis),
+            Flipd(keys=keys, spatial_axis=flip_axis, allow_missing_keys=allow_missing_keys),
         ])
     return [Compose(tta) for tta in tta_list]
