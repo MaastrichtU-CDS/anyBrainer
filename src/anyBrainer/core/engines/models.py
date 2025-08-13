@@ -748,6 +748,8 @@ class SegmentationModel(BaseModel):
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
         out_no_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=False))
+        logger.info(f"shape of out_no_tta: {out_no_tta.shape}, "
+                    f"shape of batch['seg']: {batch['seg'].shape}")
         
         # Non-TTA stats; regular val/
         loss = self.compute_loss(out_no_tta, batch["seg"])
