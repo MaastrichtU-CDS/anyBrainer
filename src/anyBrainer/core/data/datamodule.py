@@ -775,6 +775,9 @@ class SegmentationDataModule(BaseDataModule):
 
         for session, session_files in tqdm(grouped_data["grouped_data"].items(), 
                                   desc="Creating data list"):
+            
+            session_files = cast(list, session_files).copy()
+            
             # Filter by modality
             if self.modalities is not None:
                 session_files = [
@@ -803,6 +806,10 @@ class SegmentationDataModule(BaseDataModule):
                 'count': len(session_files),
                 'seg': seg_path,
             }
+
+            for i, f in enumerate(session_files): # remove seg from img_* scans
+                if 'seg.npy' in f['file_name']:
+                    session_files.pop(i)
 
             for i, f in enumerate(session_files):
                 session_entry[f"img_{i}"] = f['file_name']
