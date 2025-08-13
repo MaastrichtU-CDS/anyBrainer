@@ -1,11 +1,21 @@
 """Utility functions for data operations."""
 
 import logging
-from typing import Literal, Sequence
+from typing import Literal, Sequence, Callable, cast
 
 import numpy as np
 import torch
 from torch.nn import functional as F
+from monai.data.utils import (
+    decollate_batch, 
+    list_data_collate,
+)
+# pyright: reportPrivateImportUsage=false
+from monai.transforms import (
+    Invertd,
+    EnsureType,
+    InvertibleTransform,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -161,3 +171,28 @@ def pad_to_size(
     if any(pads):
         img = F.pad(img, pad=pads, mode=mode)
     return img
+
+def apply_tta_monai_batch(x: torch.Tensor, tta: Callable) -> tuple[torch.Tensor, Callable]:
+    """
+    x: (B, C, D, H, W) or (B, C, H, W)
+    tta: a MONAI transform (e.g., Compose([...])) that operates on a single sample.
+    Returns: (aug_x, invert_fn) where invert_fn maps logits back to original space.
+    """
+    # make MetaTensor per-sample so MONAI can track/invert
+    samples = cast(list[torch.Tensor], decollate_batch(EnsureType(track_meta=True)(x)))
+    aug_samples = [tta(s) for s in samples]
+    aug_x = list_data_collate(aug_samples)  # -> (B, C, ...), MetaTensor
+
+    def invert_fn(logits: torch.Tensor) -> torch.Tensor:
+        if isinstance(tta, InvertibleTransform):
+            # invert per-sample using Invertd
+            logits_list = cast(list[torch.Tensor], decollate_batch(logits))
+            inv_op = Invertd(keys="logits", transform=tta, orig_keys="img")
+            inv_list = [
+                inv_op({"img": a, "logits": y})["logits"]
+                for a, y in zip(aug_samples, logits_list)
+            ]
+            return cast(torch.Tensor, list_data_collate(inv_list))
+        return logits
+
+    return cast(torch.Tensor, aug_x), invert_fn

@@ -18,14 +18,10 @@ from copy import deepcopy
 import torch
 from lightning.pytorch import LightningModule as plModule
 from monai.inferers.inferer import Inferer
-from monai.transforms.utility.array import Identity
 #pyright: reportPrivateImportUsage=false
 from monai.transforms import (
     Compose,
-    Invertd,
     InvertibleTransform,
-    Randomizable,
-    EnsureType,
     Transform,
 )
 
@@ -34,6 +30,7 @@ from anyBrainer.core.utils import (
     load_param_group_from_ckpt,
     resolve_path,
     callable_name,
+    apply_tta_monai_batch,
 )
 from anyBrainer.config import resolve_fn, resolve_transform
 from anyBrainer.core.engines.utils import (
@@ -465,10 +462,11 @@ class InfererMixin(PLModuleMixin):
 
         Defaults to SimpleInferer, Identity() postprocess, and no TTA. 
         
-        If TTA is enabled, the input tensor is processed through each TTA transform,
-        the model is applied, and the output is inverted if the TTA transform is invertible;
-        i.e., must implement MONAI's `InvertibleTransform` interface, which is true for any 
-        `Compose` object. The raw logits are then averaged and postprocessed. 
+        If TTA is enabled, the input tensor is decollated, processed through each TTA transform,
+        the model is applied (collated back), and the output is inverted (decollate->collate) if 
+        the TTA transform is invertible; i.e., must implement the `InvertibleTransform` interface, 
+        which is true for any MONAI `Compose` object. The raw logits are then averaged and 
+        postprocessed. 
         
         If `return_std` is True, the standard deviation of the predictions is returned.
         If `seed` is provided, the predictions are deterministic.
@@ -496,7 +494,6 @@ class InfererMixin(PLModuleMixin):
         mean = None
         m2 = None
         n = 0
-        ensure_meta = EnsureType(track_meta=True)
         for i, tta_run in enumerate(self.tta):
             # Optional determinism for randomizable transforms
             try:
@@ -505,16 +502,14 @@ class InfererMixin(PLModuleMixin):
             except Exception as e:
                 logger.warning(f"[{self.__class__.__name__}] set_random_state failed: {e}")
             
-            current_in = tta_run(ensure_meta(input))
+            if not isinstance(tta_run, InvertibleTransform):
+                logger.warning(f"[{self.__class__.__name__}] TTA transform {callable_name(tta_run)} "
+                                "is not invertible; accumulating without inversion.")
+            
+            current_in, invert_fn = apply_tta_monai_batch(input, tta_run)
             current_logits = self.inferer(current_in, self.model) # type: ignore[attr-defined]
+            inv_logits = invert_fn(current_logits)
 
-            inv_logits = current_logits
-            if isinstance(tta_run, InvertibleTransform):
-                invert_op = Invertd(keys="logits", transform=tta_run, orig_keys="input")
-                inv_logits = invert_op({"input": current_in, "logits": current_logits})["logits"]
-            else:
-                logger.warning(f"[{self.__class__.__name__}] TTA transform is not "
-                                "invertible; accumulating without inversion.")
             # Online mean/variance update
             n += 1
             if mean is None:
