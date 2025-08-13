@@ -695,6 +695,8 @@ class SegmentationModel(BaseModel):
     ):
         super().__init__(**base_model_kwargs)
 
+        self.summarize()
+
         self.get_uncertainty = self.tta is not None and get_uncertainty
         
         self.metrics: list[Callable] = []
