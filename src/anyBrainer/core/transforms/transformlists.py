@@ -321,7 +321,7 @@ def get_regression_train_transforms(
 def get_segmentation_train_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
-    choose_one_of: bool = False,
+    choose_one_of: bool = True,
     seg_key: str = "seg",
     allow_missing_keys: bool = True,
     concat_img: bool = False,
@@ -341,6 +341,7 @@ def get_segmentation_train_transforms(
             logger.warning("`concat_img` is ignored when `choose_one_of` is True")
         transforms.extend([
             RandImgKeyd(keys=keys, new_key='img', allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=img_keys)
         ])
         img_keys = ['img']
         all_keys = [seg_key, 'img']
