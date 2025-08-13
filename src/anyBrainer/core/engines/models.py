@@ -748,8 +748,6 @@ class SegmentationModel(BaseModel):
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
         out_no_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=False))
-        logger.info(f"shape of out_no_tta: {out_no_tta.shape}, "
-                    f"shape of batch['seg']: {batch['seg'].shape}")
         
         # Non-TTA stats; regular val/
         loss = self.compute_loss(out_no_tta, batch["seg"])
@@ -758,7 +756,7 @@ class SegmentationModel(BaseModel):
         self.log_step("val", stats)
 
         # TTA stats; log mean and std
-        if self.tta is not None:
+        if self.tta:
             out_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=True))
             stats = self.compute_metrics(out_tta, batch["seg"])
             stats["loss"] = loss.item()
@@ -869,12 +867,12 @@ class SegmentationModel(BaseModel):
                         w_var_sum = w_i * var_i
                     continue
                 
-                assert (w_mu_sum is not None and w_mu2_sum is not None and 
-                        w_var_sum is not None ) # satisfy type checker
-                
+                assert w_mu_sum is not None
                 w_sum += w_i
                 w_mu_sum += w_i * mu_i
+                
                 if return_std:
+                    assert w_mu2_sum is not None and w_var_sum is not None
                     w_mu2_sum += w_i * (mu_i * mu_i)
                     w_var_sum += w_i * var_i
 
