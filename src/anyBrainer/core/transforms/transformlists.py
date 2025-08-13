@@ -42,7 +42,7 @@ from monai.transforms import (
     RemoveSmallObjects,
     KeepLargestConnectedComponent,
     EnsureType,
-    Flip, 
+    Flipd, 
 )
 import torch
 
@@ -495,20 +495,20 @@ def get_postprocess_segmentation_transforms(
     ]
 
 @register(RK.TRANSFORM)
-def get_segmentation_tta() -> list[Compose]:
+def get_segmentation_tta() -> list[Callable]:
     """
     Get test time augmentation (TTA) transforms for segmentation tasks.
 
     Contains only array-based transforms; inputs will be processed as torch.Tensor
     and converted to monai.data.MetaTensor to track metadata. 
 
-    They are returned as a list of `Compose` objects, each containing the
-    transforms for a single TTA run.
+    They are returned as a list of `Compose` objects, each containing the transforms 
+    for a single TTA run.
     """
-    tta_list: list[list[Callable]] = []
+    tta_list = []
     all_flip_axis = ((), (0,), (1,), (2,), (0, 1), (0, 2), (1, 2), (0, 1, 2))
     for flip_axis in all_flip_axis:
         tta_list.append([
-            Flip(spatial_axis=flip_axis),
+            Flipd(keys="img", spatial_axis=flip_axis),
         ])
     return [Compose(tta) for tta in tta_list]

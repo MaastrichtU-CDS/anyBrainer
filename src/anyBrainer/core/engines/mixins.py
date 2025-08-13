@@ -415,7 +415,7 @@ class InfererMixin(PLModuleMixin):
     """
     inferer: Inferer
     postprocess: Callable | Compose | Transform
-    tta: list[Callable | Compose | Transform] | None
+    tta: list[Compose] | None
 
     def setup_mixin(
         self,
@@ -438,7 +438,7 @@ class InfererMixin(PLModuleMixin):
 
         # Resolve postprocess, tta, and inferer
         self.postprocess = Compose(resolve_transform(inference_settings.get("postprocess")))
-        self.tta = resolve_transform(inference_settings.get("tta"))
+        self.tta = cast(list[Compose], resolve_transform(inference_settings.get("tta")))
         self.inferer = UnitFactory.get_inferer_instance_from_kwargs(
             inference_settings.get("inferer_kwargs", {"name": "SimpleInferer"})
         )
@@ -449,13 +449,13 @@ class InfererMixin(PLModuleMixin):
     @torch.no_grad()
     def predict(
         self, 
-        input: torch.Tensor,
+        batch: dict[str, Any],
+        img_key: str = "img",
         *,
         seed: int | None = None,
         return_std: bool = False,
         do_tta: bool = True,
         do_postprocess: bool = True,
-        clone_tensor: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """
         Prediction pipeline for input tensor.
@@ -471,13 +471,7 @@ class InfererMixin(PLModuleMixin):
         If `return_std` is True, the standard deviation of the predictions is returned.
         If `seed` is provided, the predictions are deterministic.
         If `do_tta` is False, TTA is disabled; defaults to True.
-        If `clone_tensor` is True, the input tensor is cloned before processing; 
-        defaults to False for max efficiency, since typical MONAI and PyTorch operations 
-        do not modify tensors in place.
         """
-        if clone_tensor:
-            input = input.detach().clone()
-
         if not hasattr(self, "model"):
             msg = (f"[{self.__class__.__name__}] Expected attribute 'model' "
                    "before calling InfererMixin.predict().")
@@ -485,30 +479,32 @@ class InfererMixin(PLModuleMixin):
             raise ValueError(msg)
 
         if not self.tta or not do_tta:
-            output = self.inferer(input, self.model) # type: ignore[attr-defined]
+            output = self.inferer(input[img_key], self.model) # type: ignore[attr-defined]
             if do_postprocess:
                 output = self.postprocess(output)
+            if return_std:
+                logger.warning("TTA disabled/empty; cannot compute std. Returning only mean.")
             return cast(torch.Tensor, output)
 
         # TTA loop
-        mean = None
-        m2 = None
+        mean: torch.Tensor | None = None
+        m2: torch.Tensor | None = None
         n = 0
         for i, tta_run in enumerate(self.tta):
-            # Optional determinism for randomizable transforms
-            try:
-                if seed is not None and hasattr(tta_run, "set_random_state"):
-                    tta_run.set_random_state(seed=seed + i) # type: ignore[attr-defined]
-            except Exception as e:
-                logger.warning(f"[{self.__class__.__name__}] set_random_state failed: {e}")
-            
-            if not isinstance(tta_run, InvertibleTransform):
-                logger.warning(f"[{self.__class__.__name__}] TTA transform {callable_name(tta_run)} "
-                                "is not invertible; accumulating without inversion.")
-            
-            current_in, invert_fn = apply_tta_monai_batch(input, tta_run)
-            current_logits = self.inferer(current_in, self.model) # type: ignore[attr-defined]
-            inv_logits = invert_fn(current_logits)
+            # Apply TTA to batch
+            aug_batch, invert_fn = apply_tta_monai_batch(
+                batch, tta_run, img_key=img_key, seed=(None if seed is None else seed + i)
+            )
+            # Forward inference pass on augmented batch
+            aug_batch["logits"] = self.inferer(aug_batch[img_key], self.model) # type: ignore[attr-defined]
+
+            # Invert TTA on logits
+            inv_logits = invert_fn(
+                aug_batch, 
+                out_key="logits", 
+                nearest_interp=False,
+                device=batch[img_key].device,
+            )["logits"]
 
             # Online mean/variance update
             n += 1
@@ -521,18 +517,21 @@ class InfererMixin(PLModuleMixin):
                 mean = mean + delta / n
                 if return_std:
                     m2 = m2 + delta * (inv_logits - mean)
+            
+            del aug_batch, inv_logits
 
         # Finalize
-        output = mean
+        output = cast(torch.Tensor, mean)
         if do_postprocess:
-            output = self.postprocess(output)
+            output = cast(torch.Tensor, self.postprocess(output))
 
         if return_std:
-            var = m2 / (n - 1) if n > 1 else torch.zeros_like(mean) # type: ignore
+            m2 = cast(torch.Tensor, m2)
+            var = m2 / (n - 1) if n > 1 else torch.zeros_like(output)
             std = torch.sqrt(torch.clamp(var, min=0))
-            return cast(torch.Tensor, output), cast(torch.Tensor, std)
+            return output, std
 
-        return cast(torch.Tensor, output)
+        return output
 
 
 @register(RK.PL_MODULE_MIXIN)

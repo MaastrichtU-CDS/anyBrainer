@@ -9,6 +9,8 @@ __all__ = [
 import logging
 from typing import Callable, Any, cast
 
+from monai.transforms.compose import Compose
+
 from anyBrainer.registry import get, RegistryKind as RK
 from anyBrainer.factories.unit import UnitFactory
 
@@ -42,7 +44,7 @@ def resolve_metric(
 
 def resolve_transform(
     transform: dict[str, Any] | str | list[Callable] | Callable | None,
-) -> list[Callable] | None:
+) -> list[Callable] | list[Compose] | None:
     """Directly returns the list of transforms. """
     if isinstance(transform, dict):
         return UnitFactory.get_transformslist_from_kwargs(transform)

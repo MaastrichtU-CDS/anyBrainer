@@ -1,7 +1,7 @@
 """Utility functions for data operations."""
 
 import logging
-from typing import Literal, Sequence, Callable, cast
+from typing import Literal, Sequence, Callable, Any, cast
 
 import numpy as np
 import torch
@@ -13,8 +13,9 @@ from monai.data.utils import (
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
     Invertd,
-    EnsureType,
-    InvertibleTransform,
+    EnsureTyped,
+    MapTransform,
+    Compose,
 )
 
 logger = logging.getLogger(__name__)
@@ -172,29 +173,90 @@ def pad_to_size(
         img = F.pad(img, pad=pads, mode=mode)
     return img
 
-def apply_tta_monai_batch(x: torch.Tensor, tta: Callable) -> tuple[torch.Tensor, Callable]:
+def apply_tta_monai_batch(
+    batch: dict[str, Any], 
+    tta: list[Callable] | Compose,
+    img_key: str = "img",
+    seed: int | None = None,
+) -> tuple[dict[str, Any], Callable]:
     """
-    x: (B, C, D, H, W) or (B, C, H, W)
-    tta: a MONAI transform (e.g., Compose([...])) that operates on a single sample.
-    Returns: (aug_x, invert_fn) where invert_fn maps logits back to original space.
+    Apply MONAI dictionary transforms (TTA) to a batched dict and return both the
+    augmented batch and an inversion function for model outputs.
+
+    The TTA must be a sequence of MONAI `MapTransform`s (e.g., `Flipd`, 
+    `RandAffined`) or a `Compose` of `MapTransform`s. The `EnsureTyped(track_meta=True)`
+    transform is prepended by default to ensure appropriate metadata is tracked for
+    inversion, and the complete TTA is wrapped in a `Compose`, to make use of the 
+    `InvertibleTransform` interface.
+
+    Args:
+        batch: A batched dict (e.g., {"img": (B,C,...) tensor, ...}).
+        tta: A sequence of `MapTransform`s (or a `Compose` of them) to apply to `img_key`.
+            Only transforms implementing the `InvertibleTransform` interface will be
+            invertible.
+        img_key: Key for the input tensor within the batch dictionary.
+        seed: Optional seed for deterministic TTA.
+   Returns:
+        (aug_batch, invert_fn)
+          - aug_batch: the batch after applying TTA to `img_key` (other keys are carried through).
+          - invert_fn: callable that takes (batch_with_logits, out_key, nearest_interp, device)
+                       and returns a batch where `out_key` has been inverted back to original space.
+    
+    Raises:
+        KeyError: if `img_key` is not present in `batch`.
+        TypeError: if any transform in `tta` is not a MapTransform (or Compose of MapTransforms).
     """
-    # make MetaTensor per-sample so MONAI can track/invert
-    samples = cast(list[torch.Tensor], decollate_batch(EnsureType(track_meta=True)(x)))
-    aug_samples = [tta(s) for s in samples]
-    aug_x = list_data_collate(aug_samples)  # -> (B, C, ...), MetaTensor
+    if img_key not in batch:
+        msg = f"`img_key='{img_key}'` not found in batch keys {list(batch.keys())}."
+        logger.error(msg)
+        raise KeyError(msg)
 
-    def invert_fn(logits: torch.Tensor) -> torch.Tensor:
-        if isinstance(tta, InvertibleTransform):
-            # invert per-sample using Invertd
-            logits_list = cast(list[torch.Tensor], decollate_batch(logits))
-            inv_op = Invertd(
-                keys="logits", transform=tta, orig_keys="img", allow_missing_keys=True,
-            )
-            inv_list = [
-                inv_op({"img": a, "logits": y})["logits"]
-                for a, y in zip(aug_samples, logits_list)
-            ]
-            return cast(torch.Tensor, list_data_collate(inv_list))
-        return logits
+    # Normalize tta -> list of callable transforms
+    if isinstance(tta, Compose):
+        tta_transforms = list(tta.transforms)
+    else:
+        tta_transforms = list(tta)
 
-    return cast(torch.Tensor, aug_x), invert_fn
+    # Validate that transforms are map-based (so Invertd can work)
+    for tr in tta_transforms:
+        if isinstance(tr, Compose):
+            if not all(isinstance(t, MapTransform) for t in tr.transforms):
+                msg = ("Compose contains non-MapTransform; use *d transforms "
+                       "for dict pipelines.")
+                logger.error(msg)
+                raise TypeError(msg)
+        elif not isinstance(tr, MapTransform):
+            msg = (f"TTA transform {tr.__class__.__name__} is not a MapTransform; "
+                   "use dictionary transforms (e.g., Flipd, RandAffined).")
+            logger.error(msg)
+            raise TypeError(msg)
+    
+    # Compose and optionally seed transforms
+    composed_tta = Compose([EnsureTyped(keys=img_key, track_meta=True)] + tta_transforms)
+    if seed is not None:
+        composed_tta.set_random_state(seed=seed)
+
+    # Decollate -> Apply the TTA transforms to the batch -> Collate back.
+    aug_batch = cast(dict[str, Any], list_data_collate(
+        [composed_tta(sample) for sample in cast(list, decollate_batch(batch))]
+    ))
+
+    def invert_fn(
+        batch: dict[str, Any], 
+        out_key: str = "logits", 
+        nearest_interp: bool = True,
+        device: torch.device | None = None,
+    ) -> dict[str, Any]:
+        """Invert TTA on `out_key` using the transform trace recorded on `img_key`."""
+        inv_op = Invertd(
+            keys=out_key, 
+            transform=composed_tta, 
+            orig_keys=img_key,
+            nearest_interp=nearest_interp,
+            device=device,
+        )
+        return cast(dict[str, Any], list_data_collate(
+            [inv_op(sample) for sample in cast(list, decollate_batch(batch))]
+        ))
+
+    return aug_batch, invert_fn
