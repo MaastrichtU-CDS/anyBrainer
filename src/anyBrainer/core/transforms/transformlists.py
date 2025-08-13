@@ -452,24 +452,24 @@ def get_segmentation_val_transforms(
     """
     IO transforms for segmentation tasks.
     """
-    keys = [seg_key] + keys.copy()
+    all_keys = [seg_key] + keys.copy()
     pad_mode = ['constant'] + ['edge'] * len(keys)
     transforms: list[Callable] = [
-            LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
+            LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
                     allow_missing_keys=allow_missing_keys),
     ]
     if not concat_img:
         transforms.extend([
-            SpatialPadd(keys=keys, spatial_size=patch_size, mode=pad_mode, 
+            SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode, 
                         allow_missing_keys=allow_missing_keys),
         ])
     else:
         transforms.extend([
-            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
+            SlidingWindowPatchd(keys=all_keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=keys, name=concat_key, dim=1,
-                        allow_missing_keys=allow_missing_keys),
-            DeleteItemsd(keys=keys)
+            ConcatItemsd(keys=all_keys, name=concat_key, dim=1,
+                         allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=all_keys)
         ])
     return transforms
 
