@@ -30,22 +30,48 @@ def top1_accuracy(
     logits: torch.Tensor,
     targets: torch.Tensor,
     is_one_hot: bool = False,
+    is_logits: bool = True,
+    threshold: float = 0.5,
 ) -> torch.Tensor:
-    """Compute top-1 accuracy for both binary and multiclass logits."""
-    # Binary classification case (logits are shape [B] or [B, 1])
+    """
+    Top-1 accuracy for binary or multiclass.
+    logits: (B,) or (B,1) for binary; (B,C) for multiclass.
+    targets: class indices (B,) or one-hot (B,C) if is_one_hot=True.
+    is_logits: set to True if `logits` are raw model outputs; set to 
+        False if `logits` are post-processed (e.g. sigmoided, discretized)
+    threshold: used if binary; for `is_logits==True`, only applied when != 0.5
+    """
+    # binary: shape (B,) or (B,1)
     if logits.ndim == 1 or logits.size(1) == 1:
-        # Apply sigmoid and threshold at 0.5
-        preds = (logits.view(-1).sigmoid() >= 0.5).long()
-        targets = targets.view(-1).long()
-    else:
-        # Multiclass classification (logits shape [B, C])
-        preds = logits.argmax(dim=1)
-        if is_one_hot:
-            targets = targets.argmax(dim=1)
+        x = logits.view(-1)
+        if is_logits:
+            if threshold == 0.5:
+                preds = (x >= 0).long() # sigmoid(x)>=0.5 <=> x>=0
+            else:
+                preds = (x.sigmoid() >= threshold).long()
         else:
-            targets = targets.view(-1).long()
-    
-    return (preds == targets).float().mean()
+            # if probs in [0,1], threshold; if already discrete, this still works
+            preds = (x >= threshold).long()
+        t = targets.view(-1).long()
+
+    # multiclass: shape (B,C)
+    else:
+        preds = logits.argmax(dim=1)
+        t = targets.argmax(dim=1) if is_one_hot else targets.view(-1).long()
+
+    # safety: device, shape, empty-batch
+    t = t.to(preds.device)
+    preds = preds.reshape(-1)
+    t = t.reshape(-1)
+    if preds.numel() != t.numel():
+        msg = f"top1_accuracy: shape mismatch preds {preds.shape} vs targets {t.shape}"
+        logger.error(msg)
+        raise ValueError(msg)
+    if preds.numel() == 0:
+        logger.warning("top1_accuracy: empty batch")
+        return torch.tensor(0.0, device=preds.device)
+
+    return (preds == t).float().mean()
 
 @register(RK.UTIL)
 def effective_rank(

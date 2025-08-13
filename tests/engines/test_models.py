@@ -398,7 +398,7 @@ class TestTrainingStep:
         """Test that the momentum is updated correctly."""
         old_k = [p.clone() for p in model.key_encoder.parameters()]
         manual_param_step(model.model) # simulate online model update
-        momentum = model.get_step_scheduler_values()[1]["momentum"]
+        momentum = model.get_step_scheduler_values()[2]["momentum"]
 
         model._update_key_encoder()
         

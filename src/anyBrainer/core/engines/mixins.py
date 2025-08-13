@@ -15,16 +15,28 @@ import logging
 from typing import Any, Callable, TYPE_CHECKING, cast
 from copy import deepcopy
 
+import torch
 from lightning.pytorch import LightningModule as plModule
 from monai.inferers.inferer import Inferer
+from monai.transforms.utility.array import Identity
+#pyright: reportPrivateImportUsage=false
+from monai.transforms import (
+    Compose,
+    Invertd,
+    InvertibleTransform,
+    Randomizable,
+    EnsureType,
+    Transform,
+)
 
 from anyBrainer.core.utils import (
     get_parameter_groups_from_prefixes,
     load_param_group_from_ckpt,
     resolve_path,
+    callable_name,
 )
+from anyBrainer.config import resolve_fn, resolve_transform
 from anyBrainer.core.engines.utils import (
-    resolve_fn,
     format_optimizer_log,
 )
 from anyBrainer.factories import UnitFactory
@@ -74,16 +86,16 @@ class WeightInitMixin(PLModuleMixin):
     """
     def setup_mixin(
         self,
-        weights_init_kwargs: dict[str, Any] | None,
+        weights_init_settings: dict[str, Any] | None,
         **kwargs,
     ) -> None:
         """
         Initialize model weights either through a pretrained checkpoint or a 
         custom weight initialization function.
         """
-        if not isinstance(weights_init_kwargs, (dict, type(None))):
-            msg = (f"[{self.__class__.__name__}] `weights_init_kwargs` must be a dict, "
-                   f"or None, got {type(weights_init_kwargs).__name__}.")
+        if not isinstance(weights_init_settings, (dict, type(None))):
+            msg = (f"[{self.__class__.__name__}] `weights_init_settings` must be a dict, "
+                   f"or None, got {type(weights_init_settings).__name__}.")
             logger.error(msg)
             raise TypeError(msg)
 
@@ -92,12 +104,12 @@ class WeightInitMixin(PLModuleMixin):
             logger.error(msg)
             raise ValueError(msg)
         
-        weights_init_kwargs = weights_init_kwargs or {}
+        weights_init_settings = weights_init_settings or {}
         
-        weights_init_fn = weights_init_kwargs.get("weights_init_fn")
-        load_pretrain_weights = weights_init_kwargs.get("load_pretrain_weights")
-        load_param_group_prefix = weights_init_kwargs.get("load_param_group_prefix")
-        extra_load_kwargs = weights_init_kwargs.get("extra_load_kwargs", {})
+        weights_init_fn = weights_init_settings.get("weights_init_fn")
+        load_pretrain_weights = weights_init_settings.get("load_pretrain_weights")
+        load_param_group_prefix = weights_init_settings.get("load_param_group_prefix")
+        extra_load_kwargs = weights_init_settings.get("extra_load_kwargs", {})
 
         if weights_init_fn is None and load_pretrain_weights is None:
             logger.info(f"[{self.__class__.__name__}] Model initialized with random weights.")
@@ -397,31 +409,127 @@ class InfererMixin(PLModuleMixin):
     Adds support for model inference.
     """
     inferer: Inferer
+    postprocess: Callable | Compose | Transform
+    tta: list[Callable | Compose | Transform] | None
 
     def setup_mixin(
         self,
-        inferer_kwargs: dict[str, Any] | None,
+        inference_settings: dict[str, Any] | None,
         **kwargs,
     ) -> None:
         """Create inferer instance using the dedicated factory."""
-        if not isinstance(inferer_kwargs, (dict, type(None))):
-            msg = (f"[{self.__class__.__name__}] `inferer_kwargs` must be a dict, "
-                   f"got {type(inferer_kwargs).__name__}.")
+        if not isinstance(inference_settings, (dict, type(None))):
+            msg = (f"[{self.__class__.__name__}] `inference_settings` must be a dict, "
+                   f"got {type(inference_settings).__name__}.")
             logger.error(msg)
             raise TypeError(msg)
         
         if hasattr(self, "inferer"):
             logger.warning(f"[{self.__class__.__name__}] Attribute `inferer' already exists "
                            "and will be overwritten.")
+
+        inference_settings = inference_settings or {}
+        inference_settings = deepcopy(inference_settings)
+
+        # Resolve postprocess, tta, and inferer
+        self.postprocess = Compose(resolve_transform(inference_settings.get("postprocess")))
+        self.tta = resolve_transform(inference_settings.get("tta"))
+        self.inferer = UnitFactory.get_inferer_instance_from_kwargs(
+            inference_settings.get("inferer_kwargs", {"name": "SimpleInferer"})
+        )
+
+        logger.info(f"[InfererMixin] Instantiated inferer: {self.inferer.__class__.__name__}, "
+                    f"postprocess transforms: {callable_name(self.postprocess)}.")
+
+    @torch.no_grad()
+    def predict(
+        self, 
+        input: torch.Tensor,
+        *,
+        seed: int | None = None,
+        return_std: bool = False,
+        do_tta: bool = True,
+        do_postprocess: bool = True,
+        clone_tensor: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Prediction pipeline for input tensor.
+
+        Defaults to SimpleInferer, Identity() postprocess, and no TTA. 
         
-        if inferer_kwargs is not None:
-            self.inferer = UnitFactory.get_inferer_instance_from_kwargs(inferer_kwargs)
-            logger.info(f"[InfererMixin] Instantiated inferer: {inferer_kwargs['name']}.")
-        else: # default to MONAI's SimpleInferer for uniform API
-            self.inferer = UnitFactory.get_inferer_instance_from_kwargs(
-                {"name": "SimpleInferer"}
-            )
-            logger.info(f"[{self.__class__.__name__}] Inferer initialized with MONAI's SimpleInferer.")
+        If TTA is enabled, the input tensor is processed through each TTA transform,
+        the model is applied, and the output is inverted if the TTA transform is invertible;
+        i.e., must implement MONAI's `InvertibleTransform` interface, which is true for any 
+        `Compose` object. The raw logits are then averaged and postprocessed. 
+        
+        If `return_std` is True, the standard deviation of the predictions is returned.
+        If `seed` is provided, the predictions are deterministic.
+        If `do_tta` is False, TTA is disabled; defaults to True.
+        If `clone_tensor` is True, the input tensor is cloned before processing; 
+        defaults to False for max efficiency, since typical MONAI and PyTorch operations 
+        do not modify tensors in place.
+        """
+        if clone_tensor:
+            input = input.detach().clone()
+
+        if not hasattr(self, "model"):
+            msg = (f"[{self.__class__.__name__}] Expected attribute 'model' "
+                   "before calling InfererMixin.predict().")
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if not self.tta or not do_tta:
+            output = self.inferer(input, self.model) # type: ignore[attr-defined]
+            if do_postprocess:
+                output = self.postprocess(output)
+            return cast(torch.Tensor, output)
+
+        # TTA loop
+        mean = None
+        m2 = None
+        n = 0
+        ensure_meta = EnsureType(track_meta=True)
+        for i, tta_run in enumerate(self.tta):
+            # Optional determinism for randomizable transforms
+            try:
+                if seed is not None and hasattr(tta_run, "set_random_state"):
+                    tta_run.set_random_state(seed=seed + i) # type: ignore[attr-defined]
+            except Exception as e:
+                logger.warning(f"[{self.__class__.__name__}] set_random_state failed: {e}")
+            
+            current_in = tta_run(ensure_meta(input))
+            current_logits = self.inferer(current_in, self.model) # type: ignore[attr-defined]
+
+            inv_logits = current_logits
+            if isinstance(tta_run, InvertibleTransform):
+                invert_op = Invertd(keys="logits", transform=tta_run, orig_keys="input")
+                inv_logits = invert_op({"input": current_in, "logits": current_logits})["logits"]
+            else:
+                logger.warning(f"[{self.__class__.__name__}] TTA transform is not "
+                                "invertible; accumulating without inversion.")
+            # Online mean/variance update
+            n += 1
+            if mean is None:
+                mean = inv_logits.clone()
+                if return_std:
+                    m2 = torch.zeros_like(inv_logits)
+            else:
+                delta = inv_logits - mean
+                mean = mean + delta / n
+                if return_std:
+                    m2 = m2 + delta * (inv_logits - mean)
+
+        # Finalize
+        output = mean
+        if do_postprocess:
+            output = self.postprocess(output)
+
+        if return_std:
+            var = m2 / (n - 1) if n > 1 else torch.zeros_like(mean) # type: ignore
+            std = torch.sqrt(torch.clamp(var, min=0))
+            return cast(torch.Tensor, output), cast(torch.Tensor, std)
+
+        return cast(torch.Tensor, output)
 
 
 @register(RK.PL_MODULE_MIXIN)

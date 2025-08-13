@@ -7,10 +7,14 @@ not vice versa.
 
 __all__ = [
     "ensure_tuple_dim",
+    "callable_name",
 ]
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence, Literal, cast
+
+from anyBrainer.factories.unit import UnitFactory
+from anyBrainer.registry import get, RegistryKind as RK
 
 logger = logging.getLogger(__name__)
 
@@ -32,3 +36,15 @@ def ensure_tuple_dim(
         msg = f"Expected tuple or list, got {type(value)}"
         logger.error(msg)
         raise ValueError(msg)
+
+def callable_name(obj: Callable) -> str:
+    """Get name of a callable."""
+    # If it's a function or classmethod, __name__ works
+    if hasattr(obj, "__name__"):
+        return obj.__name__
+    
+    # If it's an instance of a callable class
+    if hasattr(obj, "__class__"):
+        return obj.__class__.__name__
+    
+    return str(obj)  # fallback

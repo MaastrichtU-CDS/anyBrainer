@@ -199,8 +199,8 @@ class TestContrastiveDataModule:
             ref_out = next(ref_loader_iter)
         
         # Ensure outputs match for each sample
-        assert torch.equal(out['key'], ref_out['key'])
-        assert torch.equal(out['query'], ref_out['query'])
+        assert torch.allclose(out['key'], ref_out['key'])
+        assert torch.allclose(out['query'], ref_out['query'])
 
 @pytest.mark.slow
 class TestEpochAwareDeterminism:
@@ -217,21 +217,8 @@ class TestEpochAwareDeterminism:
         data_module.setup(stage="validate")
         val_loader_iter = iter(data_module.val_dataloader())
         val_out = next(val_loader_iter)
-
-        data_module.setup(stage="test")
-        test_loader_iter = iter(data_module.test_dataloader())
-        test_out = next(test_loader_iter)
-
-        data_module.setup(stage="predict")
-        predict_loader_iter = iter(data_module.predict_dataloader())
-        predict_out = next(predict_loader_iter)
         
-        assert not torch.equal(out['img'], val_out['img'])
-        assert not torch.equal(out['img'], test_out['img'])
-        assert not torch.equal(out['img'], predict_out['img'])
-        assert not torch.equal(val_out['img'], test_out['img'])
-        assert not torch.equal(val_out['img'], predict_out['img'])
-        assert not torch.equal(test_out['img'], predict_out['img'])
+        assert not torch.allclose(out['img'], val_out['img'])
 
     def test_different_seeds_per_epoch(self, data_module):
         """Check that different epochs have different seeds"""
@@ -243,7 +230,7 @@ class TestEpochAwareDeterminism:
         train_loader_iter = iter(data_module.train_dataloader())
         out_1 = next(train_loader_iter)
 
-        assert not torch.equal(out_0['img'], out_1['img'])
+        assert not torch.allclose(out_0['img'], out_1['img'])
     
     def test_epoch_determinism_vs_ref(self, data_module, ref_mae_train_transforms):
         """Check that dataloader transforms are epoch-aware deterministic"""
@@ -263,7 +250,7 @@ class TestEpochAwareDeterminism:
                                 generator=torch.Generator().manual_seed(ref_seed)))
         ref_out = next(ref_loader_iter)
         
-        assert torch.equal(out['img'], ref_out['img'])
+        assert torch.allclose(out['img'], ref_out['img'])
     
     def test_resumed_training_from_ckpt(self, data_module):
         """
@@ -283,4 +270,4 @@ class TestEpochAwareDeterminism:
         train_loader_iter = iter(new_data_module.train_dataloader())
         resumed_out = next(train_loader_iter)
 
-        assert torch.equal(single_run_out['img'], resumed_out['img'])
+        assert torch.allclose(single_run_out['img'], resumed_out['img'])

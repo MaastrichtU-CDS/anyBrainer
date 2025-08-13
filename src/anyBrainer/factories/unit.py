@@ -16,6 +16,8 @@ import lightning.pytorch as pl
 import lightning.pytorch.callbacks as pl_callbacks
 import monai.inferers as monai_inferers
 import monai.networks.nets as monai_nets
+import monai.metrics as monai_metrics
+import monai.losses as monai_losses
 
 from anyBrainer.registry import get, RegistryKind as RK
 
@@ -334,16 +336,20 @@ class UnitFactory:
 
         loss_fn_kwargs = loss_fn_kwargs.copy()
         loss_fn_name = loss_fn_kwargs.pop("name")
-        
+
         # Extract requested loss fn class
         try:
-            loss_fn_cls = getattr(nn, loss_fn_name)
-        except AttributeError:
+            loss_fn_cls = get(RK.LOSS, loss_fn_name)
+        except ValueError:
+            if loss_fn_name.startswith("monai:"):
+                module = monai_losses
+            else:
+                module = nn
+            loss_fn_name = loss_fn_name.split(":")[-1]
             try:
-                loss_fn_cls = get(RK.LOSS, loss_fn_name)
-            except ValueError:  
-                msg = (f"Loss fn '{loss_fn_name}' not found in torch.nn or "
-                        f"anyBrainer.registry-LOSS.")
+                loss_fn_cls = getattr(module, loss_fn_name)
+            except AttributeError:  
+                msg = (f"Loss fn '{loss_fn_name}' not found in {module.__name__}.")
                 logger.error(msg)
                 raise ValueError(msg)
         
@@ -530,3 +536,46 @@ class UnitFactory:
             raise
         
         return activation_fn
+    
+    @classmethod
+    def get_metric_from_kwargs(
+        cls,
+        metric_kwargs: dict[str, Any],
+    ) -> Callable:
+        """
+        Get metric from anyBrainer.registry-METRIC or monai.metrics.
+
+        Args:
+            metric_kwargs: metric kwargs, containing "name" key.
+
+        Raises:
+            ValueError: If metric name is not provided in metric_kwargs.
+            ValueError: If requested metric is not found in anyBrainer.registry-METRIC or monai.metrics.
+            Exception: If error occurs during metric initialization.
+        """
+        if "name" not in metric_kwargs:
+            msg = "Metric name not provided in metric_kwargs."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        metric_kwargs = metric_kwargs.copy()
+        metric_name = metric_kwargs.pop("name")
+        
+        try:
+            metric_cls = getattr(monai_metrics, metric_name)
+        except AttributeError:
+            try:
+                metric_cls = get(RK.METRIC, metric_name)
+            except ValueError:
+                msg = f"Metric '{metric_name}' not found in anyBrainer.registry-METRIC or monai.metrics."
+                logger.error(msg)
+                raise ValueError(msg)
+            
+        try:
+            metric = metric_cls(**metric_kwargs) # type: ignore
+        except Exception as e:
+            msg = f"Error initializing metric '{metric_name}': {e}"
+            logger.exception(msg)
+            raise
+        
+        return metric

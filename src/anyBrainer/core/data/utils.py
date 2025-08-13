@@ -200,27 +200,6 @@ def get_summary_msg_w_labels(
 
     return msg
 
-def resolve_transform(
-    transform: dict[str, Any] | str | list[Callable] | None,
-) -> list[Callable] | None:
-    """Get transform list from config."""
-    if isinstance(transform, dict):
-        return UnitFactory.get_transformslist_from_kwargs(transform)
-
-    if isinstance(transform, str):
-        return cast(Callable, get(RK.TRANSFORM, transform))()
-    
-    return transform
-
-def resolve_fn(
-    fn: Callable | str | None,
-) -> Callable | None:
-    """Get function from config."""
-    if isinstance(fn, str):
-        return cast(Callable, get(RK.UTIL, fn))
-    
-    return fn
-
 def read_label_from_txt(
     file_path: Path | str, 
     expected_labels: list[str] | None = ['0', '1'],

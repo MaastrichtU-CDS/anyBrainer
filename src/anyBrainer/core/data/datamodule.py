@@ -42,14 +42,13 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
 from anyBrainer.registry import register
+from anyBrainer.config import resolve_fn, resolve_transform
 from anyBrainer.core.data.utils import (
     check_data_dir_exists,
     parse_filename_nested_nifti,
     group_data,
     get_summary_msg,
     get_summary_msg_w_labels,
-    resolve_transform,
-    resolve_fn,
     read_label_from_txt,
 )
 from anyBrainer.core.utils import (

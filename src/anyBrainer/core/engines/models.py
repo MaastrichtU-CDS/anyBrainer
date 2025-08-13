@@ -15,13 +15,14 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
 from copy import deepcopy
 
 import torch
 import lightning.pytorch as pl
 import torch.nn.functional as F
 from lightning.pytorch.utilities import rank_zero_only
+from monai.transforms.utility.array import Identity
 
 
 from anyBrainer.registry import register
@@ -30,7 +31,6 @@ from anyBrainer.core.engines.utils import (
     pack_ids,
     get_sub_ses_tensors,
     dict_get_as_tensor,
-    resolve_fn,
     setup_all_mixins,
     scale_labels_if_needed,
     unscale_preds_if_needed,
@@ -41,7 +41,9 @@ from anyBrainer.core.utils import (
     top1_accuracy,  
     effective_rank,
     feature_variance,
+    callable_name,
 )
+from anyBrainer.config import resolve_fn, resolve_metric
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.core.engines.mixins import (
     ModelInitMixin,
@@ -101,8 +103,8 @@ class BaseModel(
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
         lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None = None,
         param_scheduler_kwargs: list[dict[str, Any]] | None = None,
-        weights_init_kwargs: dict[str, Any] | None = None,
-        inferer_kwargs: dict[str, Any] | None = None,
+        weights_init_settings: dict[str, Any] | None = None,
+        inference_settings: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
         **extra
     ):
@@ -125,8 +127,8 @@ class BaseModel(
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             param_scheduler_kwargs=param_scheduler_kwargs,
-            weights_init_kwargs=weights_init_kwargs,
-            inferer_kwargs=inferer_kwargs,
+            weights_init_settings=weights_init_settings,
+            inference_settings=inference_settings,
             ignore_hparams=ignore_hparams,
             **extra,
         )
@@ -176,8 +178,8 @@ class CLwAuxModel(BaseModel):
         loss_kwargs: dict[str, Any] | None = None,
         loss_scheduler_kwargs: dict[str, Any] | None = None,
         momentum_scheduler_kwargs: dict[str, Any] | None = None,
-        weights_init_kwargs: dict[str, Any] | None = None,
-        inferer_kwargs: dict[str, Any] | None = None,
+        weights_init_settings: dict[str, Any] | None = None,
+        inference_settings: dict[str, Any] | None = None,
         logits_postprocess_fn: Callable | str | None = None,
     ):  
         if loss_kwargs is None:
@@ -240,8 +242,8 @@ class CLwAuxModel(BaseModel):
             optimizer_kwargs=optimizer_kwargs,
             lr_scheduler_kwargs=lr_scheduler_kwargs,
             param_scheduler_kwargs=other_schedulers,
-            weights_init_kwargs=weights_init_kwargs,
-            inferer_kwargs=inferer_kwargs,
+            weights_init_settings=weights_init_settings,
+            inference_settings=inference_settings,
             ignore_hparams=ignore_hparams,
         )
        
@@ -439,7 +441,8 @@ class ClassificationModel(BaseModel):
     def __init__(
         self, 
         *,
-        metrics: list[Callable] | list[str] | str | None = None,
+        metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
+                  Callable | str | dict[str, Any] | None) = None,
         flat_labels: bool = False,
         **base_model_kwargs,
     ):
@@ -463,16 +466,21 @@ class ClassificationModel(BaseModel):
                                f"fusion_head.fusion_weights is not found; skipping "
                                f"logging of fusion weights.")
 
-        if isinstance(metrics, str):
-            metrics = [metrics]
-        self.metrics: list[Callable] = (
-            [cast(Callable, resolve_fn(m)) for m in metrics] if metrics else []
-        )
+        self.metrics: list[Callable] = []
+        if metrics is not None:
+            if isinstance(metrics, str):
+                metrics = [metrics]
+            elif isinstance(metrics, dict):
+                metrics = [metrics]
+            elif callable(metrics):
+                metrics = [metrics]
+            self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
         
         self.flat_labels = flat_labels
 
         logger.info(f"[{self.__class__.__name__}] Initialized with "
-                    f"metrics={self.metrics}, flat_labels={self.flat_labels}.")
+                    f"metrics={[callable_name(m) for m in self.metrics]}, "
+                    f"flat_labels={self.flat_labels}.")
 
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
         """Get input tensor to appropriate shape and labels to device."""
@@ -602,7 +610,8 @@ class RegressionModel(ClassificationModel):
         center_labels: str | None = None,
         scale_labels: list[float] | None = None,
         bias_init: float | None = None,
-        metrics: list[Callable] | list[str] | None = [
+        metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
+                  Callable | str | dict[str, Any] | None) = [
             'rmse_score', 'mae_score', 'r2_score', 'pearsonr'
         ],
         **base_model_kwargs,
@@ -662,3 +671,224 @@ class RegressionModel(ClassificationModel):
         """Predict step; performs sliding window inference."""
         out = self.inferer(batch["img"], self.model)
         return unscale_preds_if_needed(out, self.labels_meta)
+
+
+@register(RK.PL_MODULE)
+class SegmentationModel(BaseModel):
+    """
+    Generic model that can be used for any segmentation task.
+
+    If `get_uncertainty` is True, returns (mean, std) instead of mean;
+    effective only when TTA is provided and enabled.
+    """
+    def __init__(
+        self, 
+        *,
+        metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
+                  Callable | str | dict[str, Any] | None) = [
+            {"name": "DiceMetric"}, {"name": "MeanIoU"}, {"name": "HausdorffDistanceMetric"}, 
+            {"name": "SurfaceDistanceMetric"}, {"name": "ConfusionMatrixMetric", "metric_name": "sensitivity"}, 
+            {"name": "ConfusionMatrixMetric", "metric_name": "precision"}, 
+        ],
+        get_uncertainty: bool = False, # if True, returns (mean, std)
+        **base_model_kwargs,
+    ):
+        super().__init__(**base_model_kwargs)
+
+        self.get_uncertainty = self.tta is not None and get_uncertainty
+        
+        self.metrics: list[Callable] = []
+        if metrics is not None:
+            if isinstance(metrics, str):
+                metrics = [metrics]
+            elif isinstance(metrics, dict):
+                metrics = [metrics]
+            elif callable(metrics):
+                metrics = [metrics]
+            self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
+
+        logger.info(f"[{self.__class__.__name__}] Initialized with "
+                    f"metrics={self.metrics}.")
+    
+    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Computes loss; override for more complex behavior."""
+        return self.loss_fn(out, target) # type: ignore
+
+    @torch.no_grad()
+    def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
+        """Computes metrics; ignores if a metric fails."""
+        stats = {}
+        for m in self.metrics:
+            name = getattr(m, "__name__", m.__class__.__name__)
+            try:
+                val = m(out, target)
+            except Exception:
+                logger.exception(f"[{self.__class__.__name__}] Failed to compute "
+                                 f"metric {name}; skipping.")
+                continue
+            stats[name] = val.item()
+        return stats
+    
+    def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
+        """Logs step statistics."""
+        on_step = step_name == "train"
+        self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
+                      on_step=on_step, on_epoch=True, prog_bar=False, 
+                      sync_dist=sync_dist_safe(self))
+
+    def training_step(self, batch: dict, batch_idx: int):
+        """Training step; computes loss and metrics."""
+        out = self.model(batch["img"])
+        loss = self.compute_loss(out, batch["seg"])
+        stats = self.compute_metrics(out, batch["seg"])
+        stats["loss"] = loss.item()
+        self.log_step("train", stats)
+        return loss
+    
+    def validation_step(self, batch: dict, batch_idx: int):
+        """Validation step; performs inference and computes metrics."""
+        out_no_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=False))
+        
+        # Non-TTA stats; regular val/
+        loss = self.compute_loss(out_no_tta, batch["seg"])
+        stats = self.compute_metrics(out_no_tta, batch["seg"])
+        stats["loss"] = loss.item()
+        self.log_step("val", stats)
+
+        # TTA stats; log mean and std
+        if self.tta is not None:
+            out_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=True))
+            stats = self.compute_metrics(out_tta, batch["seg"])
+            stats["loss"] = loss.item()
+            self.log_step("val_tta", stats)
+
+        return loss
+        
+    def test_step(self, batch: dict, batch_idx: int) -> None:
+        """Test step; performs inference and computes metrics."""
+        mean = cast(torch.Tensor, self._shared_inference(batch))
+        stats = self.compute_metrics(mean, batch["seg"])
+        self.log_step("test", stats)
+    
+    def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Predict step; performs sliding window inference."""
+        return cast(
+            torch.Tensor, 
+            self._shared_inference(batch, return_std=self.get_uncertainty)
+        )
+
+    def _shared_inference(
+        self,
+        batch: dict,
+        *,
+        eps: float = 1e-6,
+        min_std: float = 1e-3,
+        weighting: Literal["invvar", "softmin", "uniform"] = "invvar",
+        softmin_tau: float = 0.1,
+        accumulate_on_cpu: bool = False,
+        do_tta: bool = True,
+        do_postprocess: bool = True,
+        return_std: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fuse segmentation logits across multiple images (img_*) using uncertainty weights.
+        Works for shapes (B, C, H, W, D) or (B, 1, ...). Averages in logit space based on
+        the standard deviation of the TTA outputs.
+        """
+        infer_keys = [k for k in batch if k.startswith("img_")]
+        if not infer_keys:
+            msg = "No 'img_*' keys found in batch."
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        if weighting == "softmin" and softmin_tau <= 0:
+            msg = "`softmin_tau` must be > 0"
+            logger.error(msg)
+            raise ValueError(msg)
+
+        w_sum: torch.Tensor | None = None # Σ w_i
+        w_mu_sum: torch.Tensor | None = None # Σ w_i * μ_i
+        w_mu2_sum: torch.Tensor | None = None # Σ w_i * μ_i^2 (for return_std)
+        w_var_sum: torch.Tensor | None = None # Σ w_i * σ_i^2 (for return_std)
+
+        # Cannot get pred std, so use uniform weighting
+        if self.tta is None or not do_tta:
+            if return_std:
+                logger.warning("TTA not provided/disabled; setting return_std=False")
+                return_std = False
+
+            for k in infer_keys:
+                out = cast(
+                    torch.Tensor, 
+                    self.predict(batch[k], return_std=False, do_postprocess=False)
+                )
+                if accumulate_on_cpu:
+                    out = out.cpu()
+                if w_sum is None:
+                    w_sum = torch.ones_like(out) # uniform weighting
+                    w_mu_sum = out.clone()
+                    continue
+                
+                assert w_mu_sum is not None # satisfy type checker
+                w_sum += 1.0
+                w_mu_sum += out
+
+        # Compute weighted mean and var based on std from TTA runs
+        else:
+            for k in infer_keys:
+                mu_i, std_i = self.predict(
+                    batch[k], return_std=True, do_postprocess=False, do_tta=do_tta
+                )
+                # Sanitize std and compute weights
+                std_i = torch.nan_to_num(
+                    std_i, nan=min_std, posinf=min_std, neginf=min_std
+                ).clamp_min(min_std)
+                var_i = std_i * std_i + eps
+
+                if weighting == "invvar":
+                    w_i = 1.0 / var_i
+                elif weighting == "softmin":
+                    w_i = torch.exp(-std_i / softmin_tau)
+                elif weighting == "uniform":
+                    w_i = torch.ones_like(var_i)
+                else:
+                    msg = f"Unknown weighting '{weighting}'"
+                    logger.error(msg)
+                    raise ValueError(msg)
+
+                if accumulate_on_cpu:
+                    mu_i, var_i, w_i = mu_i.cpu(), var_i.cpu(), w_i.cpu()
+
+                # Lazy init accumulators to correct shape/device/dtype
+                if w_sum is None:
+                    w_sum = w_i.clone()
+                    w_mu_sum = w_i * mu_i
+                    if return_std:
+                        w_mu2_sum = w_i * (mu_i * mu_i)
+                        w_var_sum = w_i * var_i
+                    continue
+                
+                assert (w_mu_sum is not None and w_mu2_sum is not None and 
+                        w_var_sum is not None ) # satisfy type checker
+                
+                w_sum += w_i
+                w_mu_sum += w_i * mu_i
+                if return_std:
+                    w_mu2_sum += w_i * (mu_i * mu_i)
+                    w_var_sum += w_i * var_i
+
+                del mu_i, std_i, var_i, w_i
+
+        # Weighted mean logits
+        assert w_sum is not None and w_mu_sum is not None # satisfy type checker
+        mu = w_mu_sum / (w_sum + 1e-12)
+
+        if return_std: # E[σ^2 + μ^2] − (E[μ])^2
+            assert w_var_sum is not None and w_mu2_sum is not None # satisfy type checker
+            second_moment = (w_var_sum + w_mu2_sum) / w_sum
+            var_pred = (second_moment - mu * mu).clamp_min(0)
+            std_pred = torch.sqrt(var_pred)
+
+        # Postprocess once at the end
+        out = cast(torch.Tensor, self.postprocess(mu)) if do_postprocess else mu
+        return (out, std_pred) if return_std else out

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Callable, cast, TYPE_CHECKING
+from typing import Any, Callable, Literal,cast, TYPE_CHECKING
 
 from sympy.core.evalf import List
 import torch
@@ -130,14 +130,6 @@ def dict_get_as_tensor(value: Any) -> torch.Tensor | None:
     logger.error(msg)
     raise ValueError(msg)
 
-def resolve_fn(
-    fn: Callable | str | None,
-) -> Callable | None:
-    """Get function from config."""
-    if isinstance(fn, str):
-        return cast(Callable, get(RK.UTIL, fn))
-    return fn
-
 def setup_all_mixins(module: pl.LightningModule, **cfg) -> None:
     """Setup all registered mixins for a PL module."""
     mixins = flush(RK.PL_MODULE_MIXIN)
@@ -257,7 +249,6 @@ def scale_labels_if_needed(
         meta["scale_range"] = (min_val, max_val)
 
     return labels, meta
-
 
 def unscale_preds_if_needed(
     preds: torch.Tensor,
