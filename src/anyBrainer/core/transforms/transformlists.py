@@ -332,8 +332,6 @@ def get_segmentation_train_transforms(
     """
     all_keys = [seg_key] + keys
     img_keys = keys
-    pad_mode = ['zeros'] + ['border'] * len(keys)
-    interp_mode = ['nearest'] + ['bilinear'] * len(keys)
     transforms: list[Callable] = []
 
     if choose_one_of:
@@ -345,6 +343,9 @@ def get_segmentation_train_transforms(
         ])
         img_keys = ['img']
         all_keys = [seg_key, 'img']
+    
+    pad_mode = ['zeros'] + ['border'] * len(img_keys)
+    interp_mode = ['nearest'] + ['bilinear'] * len(img_keys)
 
     transforms.extend([
         LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
@@ -356,7 +357,7 @@ def get_segmentation_train_transforms(
                     padding_mode=pad_mode, prob=1.0,
                     allow_missing_keys=allow_missing_keys),
         Rand3DElasticd(keys=all_keys, sigma_range=(4, 8), prob=0.2,
-                       magnitude_range=(0.5, 1.5),
+                       magnitude_range=(0.5, 1.5), mode=interp_mode,
                        allow_missing_keys=allow_missing_keys),
     ])
     for key in img_keys: # unique intensity augmentations for each modality
