@@ -814,13 +814,12 @@ class SegmentationModel(BaseModel):
         # Cannot get pred std, so use uniform weighting
         if self.tta is None or not do_tta:
             if return_std:
-                logger.warning("TTA not provided/disabled; setting return_std=False")
                 return_std = False
 
             for k in infer_keys:
                 out = cast(
                     torch.Tensor, 
-                    self.predict(batch[k], return_std=False, do_postprocess=False)
+                    self.predict(batch, img_key=k, return_std=False, do_postprocess=False)
                 )
                 if accumulate_on_cpu:
                     out = out.cpu()
@@ -837,7 +836,7 @@ class SegmentationModel(BaseModel):
         else:
             for k in infer_keys:
                 mu_i, std_i = self.predict(
-                    batch[k], return_std=True, do_postprocess=False, do_tta=do_tta
+                    batch, img_key=k, return_std=True, do_postprocess=False, do_tta=do_tta
                 )
                 # Sanitize std and compute weights
                 std_i = torch.nan_to_num(

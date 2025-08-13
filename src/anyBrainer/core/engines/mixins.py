@@ -422,7 +422,17 @@ class InfererMixin(PLModuleMixin):
         inference_settings: dict[str, Any] | None,
         **kwargs,
     ) -> None:
-        """Create inferer instance using the dedicated factory."""
+        """
+        Create inferer instance using the dedicated factory.
+        
+        If `postprocess` is provided, it is resolved as a `Compose` object.
+            Expected to be a single--or a list of--array-based transforms.
+        If `tta` is provided, it is resolved as a list of `Compose` objects.
+            Each element is expected to comprise dictionary transforms, 
+            e.g., `Flipd`, `RandAffined`, etc, which are needed for inverting
+            the model outputs.
+        If `inferer_kwargs` is provided, it is used to instantiate the inferer.
+        """
         if not isinstance(inference_settings, (dict, type(None))):
             msg = (f"[{self.__class__.__name__}] `inference_settings` must be a dict, "
                    f"got {type(inference_settings).__name__}.")
@@ -460,13 +470,13 @@ class InfererMixin(PLModuleMixin):
         """
         Prediction pipeline for input tensor.
 
-        Defaults to SimpleInferer, Identity() postprocess, and no TTA. 
+        Defaults to SimpleInferer, no postprocess, and no TTA. 
         
         If TTA is enabled, the input tensor is decollated, processed through each TTA transform,
         the model is applied (collated back), and the output is inverted (decollate->collate) if 
         the TTA transform is invertible; i.e., must implement the `InvertibleTransform` interface, 
         which is true for any MONAI `Compose` object. The raw logits are then averaged and 
-        postprocessed. 
+        postprocessed.
         
         If `return_std` is True, the standard deviation of the predictions is returned.
         If `seed` is provided, the predictions are deterministic.
