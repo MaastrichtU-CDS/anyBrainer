@@ -815,6 +815,7 @@ class SegmentationModel(BaseModel):
         if self.tta is None or not do_tta:
             if return_std:
                 return_std = False
+                logger.warning("TTA not provided/disabled; setting return_std=False")
 
             for k in infer_keys:
                 out = cast(
@@ -870,7 +871,7 @@ class SegmentationModel(BaseModel):
                 assert w_mu_sum is not None
                 w_sum += w_i
                 w_mu_sum += w_i * mu_i
-                
+
                 if return_std:
                     assert w_mu2_sum is not None and w_var_sum is not None
                     w_mu2_sum += w_i * (mu_i * mu_i)
