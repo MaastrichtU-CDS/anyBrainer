@@ -348,7 +348,8 @@ def get_segmentation_train_transforms(
         img_keys = ['img']
         all_keys = [seg_key, 'img']
     
-    pad_mode = ['constant'] + ['border'] * len(img_keys)
+    pad_mode_affine = ['constant'] + ['border'] * len(img_keys)
+    pad_mode_spatial = ['constant'] + ['edge'] * len(img_keys)
     interp_mode = ['nearest'] + ['bilinear'] * len(img_keys)
 
     transforms.extend([
@@ -358,7 +359,7 @@ def get_segmentation_train_transforms(
                   allow_missing_keys=allow_missing_keys),
         RandAffined(keys=all_keys, rotate_range=(0.1, 0.1, 0.1),
                     scale_range=(0.1, 0.1, 0.1), mode=interp_mode, 
-                    padding_mode=pad_mode, prob=1.0,
+                    padding_mode=pad_mode_affine, prob=1.0,
                     allow_missing_keys=allow_missing_keys),
         Rand3DElasticd(keys=all_keys, sigma_range=(4, 8), prob=0.2,
                        magnitude_range=(0.5, 1.5), mode=interp_mode,
@@ -394,7 +395,7 @@ def get_segmentation_train_transforms(
     # Finalize
     if not concat_img or choose_one_of:
         transforms.extend([
-            SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode, 
+            SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode_spatial, 
                         allow_missing_keys=allow_missing_keys),
             RandCropByPosNegLabeld(keys=all_keys, label_key=seg_key, 
                                    spatial_size=patch_size, 
