@@ -92,13 +92,14 @@ def register(kind: RegistryKind) -> Callable[[T], T]:
         return obj
     return _decorator
 
-def get(kind: RegistryKind, name: str) -> Any:
+def get(kind: RegistryKind, name: str, silence: bool = False) -> Any:
     """Get an object from the registry."""
     try:
         return REGISTRIES[kind][name]
     except KeyError:
         msg = f"{name!r} not found in {kind.value} registry"
-        logger.error(msg)
+        if not silence:
+            logger.error(msg)
         raise ValueError(msg)
 
 def flush(

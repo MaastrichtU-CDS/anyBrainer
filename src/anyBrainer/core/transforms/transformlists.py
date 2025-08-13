@@ -449,7 +449,7 @@ def get_postprocess_classification_transforms(
 
 @register(RK.TRANSFORM)
 def get_postprocess_segmentation_transforms(
-    min_size: int = 50,
+    min_size: int = 1,
     threshold: float = 0.5,
 ) -> list[Callable]:    
     return [

@@ -58,7 +58,7 @@ class UnitFactory:
 
         # Extract requested model class
         try:
-            model_cls = get(RK.NETWORK, model_name)
+            model_cls = get(RK.NETWORK, model_name, silence=True)
         except ValueError:
             try:
                 model_cls = getattr(monai_nets, model_name)
@@ -339,7 +339,7 @@ class UnitFactory:
 
         # Extract requested loss fn class
         try:
-            loss_fn_cls = get(RK.LOSS, loss_fn_name)
+            loss_fn_cls = get(RK.LOSS, loss_fn_name, silence=True)
         except ValueError:
             if loss_fn_name.startswith("monai:"):
                 module = monai_losses
