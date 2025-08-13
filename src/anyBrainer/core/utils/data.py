@@ -187,7 +187,9 @@ def apply_tta_monai_batch(x: torch.Tensor, tta: Callable) -> tuple[torch.Tensor,
         if isinstance(tta, InvertibleTransform):
             # invert per-sample using Invertd
             logits_list = cast(list[torch.Tensor], decollate_batch(logits))
-            inv_op = Invertd(keys="logits", transform=tta, orig_keys="img")
+            inv_op = Invertd(
+                keys="logits", transform=tta, orig_keys="img", allow_missing_keys=True,
+            )
             inv_list = [
                 inv_op({"img": a, "logits": y})["logits"]
                 for a, y in zip(aug_samples, logits_list)
