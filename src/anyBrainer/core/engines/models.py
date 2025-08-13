@@ -664,7 +664,7 @@ class RegressionModel(ClassificationModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            stats[name] = val.item()
+            stats[name] = val.mean().item()
         return stats
     
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
@@ -726,7 +726,7 @@ class SegmentationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            stats[name] = val.item()
+            stats[name] = val.mean().item()
         return stats
     
     def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
