@@ -137,9 +137,9 @@ class BaseModel(
         """OptimConfigMixin defines get_optimizers_and_schedulers()"""
         return self.get_optimizers_and_schedulers()
 
-    def summarize(self) -> None:
+    def summarize(self) -> str:
         """Show model parameters."""
-        logger.info(summarize_model_params(self))
+        return summarize_model_params(self)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
@@ -694,8 +694,6 @@ class SegmentationModel(BaseModel):
         **base_model_kwargs,
     ):
         super().__init__(**base_model_kwargs)
-
-        self.summarize()
 
         self.get_uncertainty = self.tta is not None and get_uncertainty
         

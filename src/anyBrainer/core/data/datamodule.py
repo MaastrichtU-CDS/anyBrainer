@@ -809,7 +809,7 @@ class SegmentationDataModule(BaseDataModule):
             }
 
             for i, f in enumerate(session_files): # remove seg from img_* scans
-                if 'seg.npy' in f['file_name']:
+                if 'seg.npy' in cast(Path, f['file_name']).name:
                     session_files.pop(i)
 
             for i, f in enumerate(session_files):
