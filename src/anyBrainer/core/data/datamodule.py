@@ -55,6 +55,7 @@ from anyBrainer.core.utils import (
     split_data_by_subjects, 
     resolve_path,
     make_worker_init_fn,
+    callable_name,
 )
 from anyBrainer.core.data.explorer import DataHandler
 from anyBrainer.registry import RegistryKind as RK
@@ -174,9 +175,9 @@ class BaseDataModule(pl.LightningDataModule):
                     f"data_dir: {self.data_dir}, batch_size: {self.batch_size}, "
                     f"num_workers: {self.num_workers}, train_val_test_split: {self.train_val_test_split}, "
                     f"seed: {self.seed}, random_state: {self.R}, "
-                    f"worker_logging_fn: {self.worker_logging_fn}, "
-                    f"worker_seeding_fn: {self.worker_seeding_fn}, "
-                    f"collate_fn: {self.collate_fn}, "
+                    f"worker_logging_fn: {callable_name(self.worker_logging_fn)}, "
+                    f"worker_seeding_fn: {callable_name(self.worker_seeding_fn)}, "
+                    f"collate_fn: {callable_name(self.collate_fn)}, "
                     f"val_mode: {self.val_mode}, n_splits: {self.n_splits}, "
                     f"predict_on_test: {self.predict_on_test}")
     

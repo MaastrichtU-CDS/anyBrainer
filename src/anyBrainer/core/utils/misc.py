@@ -37,14 +37,12 @@ def ensure_tuple_dim(
         logger.error(msg)
         raise ValueError(msg)
 
-def callable_name(obj: Callable) -> str:
-    """Get name of a callable."""
-    # If it's a function or classmethod, __name__ works
+def callable_name(obj: Any | None) -> str:
+    """Get name of a callable or a descriptive string if None/non-callable."""
+    if obj is None:
+        return "None"
     if hasattr(obj, "__name__"):
         return obj.__name__
-    
-    # If it's an instance of a callable class
     if hasattr(obj, "__class__"):
         return obj.__class__.__name__
-    
-    return str(obj)  # fallback
+    return str(obj)
