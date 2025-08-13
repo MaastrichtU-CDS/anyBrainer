@@ -330,8 +330,8 @@ def get_segmentation_train_transforms(
     """
     IO transforms + augmentations for segmentation tasks.
     """
-    all_keys = [seg_key] + keys
-    img_keys = keys
+    all_keys = [seg_key] + keys.copy()
+    img_keys = keys.copy()
     transforms: list[Callable] = []
 
     if choose_one_of:
@@ -418,6 +418,38 @@ def get_downstream_val_transforms(
     transforms: list[Callable] = [
         LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
+    ]
+    if not concat_img:
+        transforms.extend([
+            SpatialPadd(keys=keys, spatial_size=patch_size, mode='edge', 
+                        allow_missing_keys=allow_missing_keys),
+        ])
+    else:
+        transforms.extend([
+            SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
+                                n_patches=n_patches, allow_missing_keys=allow_missing_keys),
+            ConcatItemsd(keys=keys, name='img', dim=1,
+                        allow_missing_keys=allow_missing_keys),
+            DeleteItemsd(keys=keys)
+        ])
+    return transforms
+
+@register(RK.TRANSFORM)
+def get_segmentation_val_transforms(
+    patch_size: int | Sequence[int] = (128, 128, 128),
+    keys: list[str] = OPEN_KEYS,
+    seg_key: str = "seg",
+    allow_missing_keys: bool = True,
+    concat_img: bool = False,
+    n_patches: int | Sequence[int] = (2, 2, 2),
+) -> list[Callable]:
+    """
+    IO transforms for segmentation tasks.
+    """
+    keys = [seg_key] + keys.copy()
+    transforms: list[Callable] = [
+            LoadImaged(keys=keys, reader='NumpyReader', ensure_channel_first=True, 
+                    allow_missing_keys=allow_missing_keys),
     ]
     if not concat_img:
         transforms.extend([
