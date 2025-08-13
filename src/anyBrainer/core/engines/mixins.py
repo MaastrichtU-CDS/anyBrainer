@@ -109,6 +109,8 @@ class WeightInitMixin(PLModuleMixin):
         weights_init_fn = weights_init_settings.get("weights_init_fn")
         load_pretrain_weights = weights_init_settings.get("load_pretrain_weights")
         load_param_group_prefix = weights_init_settings.get("load_param_group_prefix")
+        rename_map = weights_init_settings.get("rename_map")
+        strict_load = weights_init_settings.get("strict_load", False)
         extra_load_kwargs = weights_init_settings.get("extra_load_kwargs", {})
 
         if weights_init_fn is None and load_pretrain_weights is None:
@@ -128,6 +130,8 @@ class WeightInitMixin(PLModuleMixin):
             self._load_pretrain_weights(
                 load_pretrain_weights=load_pretrain_weights,
                 load_param_group_prefix=load_param_group_prefix,
+                rename_map=rename_map,
+                strict=strict_load,
                 extra_load_kwargs=extra_load_kwargs,
             )
 
@@ -135,6 +139,8 @@ class WeightInitMixin(PLModuleMixin):
         self,
         load_pretrain_weights: str,
         load_param_group_prefix: str | list[str] | None,
+        rename_map: dict[str, str] | None = None,
+        strict: bool = True,
         extra_load_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """
@@ -146,8 +152,10 @@ class WeightInitMixin(PLModuleMixin):
             self.model, stats = load_param_group_from_ckpt(
                 model_instance=self.model,
                 checkpoint_path=resolve_path(load_pretrain_weights),
-                param_group_prefix=load_param_group_prefix,
-                extra_load_kwargs=extra_load_kwargs,
+                select_prefixes=load_param_group_prefix,
+                rename_map=rename_map,
+                strict=strict,
+                torch_load_kwargs=extra_load_kwargs,
             )
             logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
                         f"{load_pretrain_weights}\n#### Summary ####"

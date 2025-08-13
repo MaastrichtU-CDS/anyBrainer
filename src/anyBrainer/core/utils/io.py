@@ -10,9 +10,10 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import torch
+import torch.nn as nn
 import lightning.pytorch as pl
 import yaml
 import json
@@ -87,48 +88,75 @@ def load_config(path: Path) -> dict[str, Any]:
     )
 
 def load_param_group_from_ckpt(
-    model_instance: torch.nn.Module,
+    model_instance: nn.Module,
     checkpoint_path: Path,
-    param_group_prefix: str | list[str] | None = None,
-    extra_load_kwargs: dict[str, Any] | None = None,
-) -> tuple[torch.nn.Module, dict[str, Any]]:
+    select_prefixes: Sequence[str] | None = None,
+    rename_map: dict[str, str] | None = None,
+    strict: bool = False,
+    torch_load_kwargs: dict[str, Any] | None = None,
+) -> tuple[nn.Module, dict[str, Any]]:
     """
-    Selectively load a parameter group from a checkpoint file.
-    """
-    if extra_load_kwargs is None:
-        extra_load_kwargs = {}
+    Load (optionally a subset of) parameters from a checkpoint into a module,
+    with optional prefix-based key renaming.
 
-    # Get checkpoint
-    ckpt = torch.load(checkpoint_path, **extra_load_kwargs)
-    state_dict = ckpt.get("state_dict", ckpt)
+    Args:
+        model_instance: The module to load parameters into.
+        checkpoint_path: The path to the checkpoint file.
+        select_prefixes: A list of prefixes to select parameters from.
+        rename_map: A dictionary of old prefixes to new prefixes. 
+        strict: Whether to raise an error if there are missing or unexpected keys.
+        torch_load_kwargs: Additional keyword arguments to pass to `torch.load`.
+
+    Returns:
+        model_instance: The loaded module.
+        stats: A dictionary of statistics.
     
-    # Determine which keys to load
-    if param_group_prefix is None:
-        filtered_dict = state_dict
+    Raises:
+        FileNotFoundError: if ``checkpoint_path`` does not exist.
+        TypeError: if the loaded checkpoint does not contain a dict-like state dict.
+    """
+    kw = torch_load_kwargs or {}
+    ckpt = torch.load(str(checkpoint_path), **kw)
+    state_dict = ckpt.get("state_dict", ckpt)
+    if not isinstance(state_dict, dict):
+        msg = "No dict-like 'state_dict' in checkpoint."
+        logger.error(msg)
+        raise TypeError(msg)
+
+    # selection
+    if select_prefixes:
+        selected = {k: v for k, v in state_dict.items() if any(k.startswith(p) for p in select_prefixes)}
+        ignored = [k for k in state_dict if k not in selected]
     else:
-        if isinstance(param_group_prefix, str):
-            param_group_prefix = [param_group_prefix]
-        filtered_dict = {
-            k: v for k, v in state_dict.items()
-            if any(k.startswith(p) for p in param_group_prefix)
-        }
+        selected = dict(state_dict)
+        ignored = []
 
-    ignored_keys = [k for k in state_dict.keys() if k not in filtered_dict]
+    # renaming
+    to_load = {}
+    if rename_map:
+        for k, v in selected.items():
+            new_k = k
+            for old, new in rename_map.items():
+                if k.startswith(old):
+                    new_k = new + k[len(old):]
+                    break
+            to_load[new_k] = v
+    else:
+        to_load = selected
 
-    # Remove `model.` from target keys (directly loading to model not to pl module)
-    filtered_dict = {
-        k.split("model.")[-1]: v for k, v in filtered_dict.items()
-    }
-
-    missing_keys, unexpected_keys = model_instance.load_state_dict(
-        filtered_dict, strict=extra_load_kwargs.get("strict", False)
-    )
+    result = model_instance.load_state_dict(to_load, strict=strict)
+    if hasattr(result, "missing_keys"):
+        missing_keys = list(result.missing_keys)
+        unexpected_keys = list(result.unexpected_keys)
+    elif isinstance(result, tuple) and len(result) == 2:
+        missing_keys, unexpected_keys = list(result[0]), list(result[1])
+    else:
+        missing_keys, unexpected_keys = [], []
 
     stats = {
-        "loaded_keys": list(filtered_dict.keys()),
-        "ignored_keys": ignored_keys,
+        "loaded_keys": list(to_load.keys()),
+        "ignored_keys": ignored,
         "missing_keys": missing_keys,
         "unexpected_keys": unexpected_keys,
     }
-
     return model_instance, stats
