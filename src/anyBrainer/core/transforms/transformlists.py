@@ -468,31 +468,54 @@ def get_segmentation_val_transforms(
 
 @register(RK.TRANSFORM)
 def get_postprocess_classification_transforms(
-    activations_kwargs: dict[str, Any] | None = None,
+    activation_kwargs: dict[str, Any] | None = None,
     as_discrete_kwargs: dict[str, Any] | None = None,
 ) -> list[Callable]:
-    if activations_kwargs is None:
-        activations_kwargs = {'sigmoid': True}
+    """
+    Postprocess classification outputs.
+
+    `activations_kwargs` and `as_discrete_kwargs` are passed to the respective transforms.
+    """
+    if activation_kwargs is None:
+        activation_kwargs = {'sigmoid': True}
     if as_discrete_kwargs is None:
         as_discrete_kwargs = {'threshold': 0.5}
     return [
-        Activations(**activations_kwargs),
+        Activations(**activation_kwargs),
         AsDiscrete(**as_discrete_kwargs),
         EnsureType()
     ]
 
 @register(RK.TRANSFORM)
 def get_postprocess_segmentation_transforms(
-    min_size: int = 1,
-    threshold: float = 0.5,
-) -> list[Callable]:    
-    return [
-        Activations(sigmoid=True),
-        AsDiscrete(threshold=threshold),
-        RemoveSmallObjects(min_size=min_size),
-        KeepLargestConnectedComponent(applied_labels=[1]),
-        EnsureType()
+    activation_kwargs: dict[str, Any] | None = None,
+    as_discrete_kwargs: dict[str, Any] | None = None,
+    keep_largest: bool = True,
+    keep_largest_kwargs: dict[str, Any] | None = None,
+    remove_small_objects: bool = True,
+    remove_small_objects_kwargs: dict[str, Any] | None = None,
+) -> list[Callable]:
+    """
+    Postprocess segmentation outputs.
+
+    If `keep_largest` is True, the largest connected component is kept.
+    If `remove_small_objects` is True, small objects are removed.
+
+    `keep_largest_kwargs` and `remove_small_objects_kwargs` are passed to the respective transforms.
+    """
+    activation_kwargs = activation_kwargs or {'sigmoid': True}
+    as_discrete_kwargs = as_discrete_kwargs or {'threshold': 0.5}
+    keep_largest_kwargs = keep_largest_kwargs or {'applied_labels': [1]}
+    remove_small_objects_kwargs = remove_small_objects_kwargs or {'min_size': 1}
+    transforms = [
+        Activations(**activation_kwargs),
+        AsDiscrete(**as_discrete_kwargs),
     ]
+    if keep_largest:
+        transforms.append(KeepLargestConnectedComponent(**keep_largest_kwargs))
+    if remove_small_objects:
+        transforms.append(RemoveSmallObjects(**remove_small_objects_kwargs))
+    return transforms
 
 @register(RK.TRANSFORM)
 def get_segmentation_tta(
