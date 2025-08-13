@@ -330,7 +330,7 @@ def get_segmentation_train_transforms(
     """
     IO transforms + augmentations for segmentation tasks.
     """
-    all_keys = [seg_key, *keys]
+    all_keys = [seg_key] + keys
     img_keys = keys
     pad_mode = ['zeros'] + ['border'] * len(keys)
     interp_mode = ['nearest'] + ['bilinear'] * len(keys)
