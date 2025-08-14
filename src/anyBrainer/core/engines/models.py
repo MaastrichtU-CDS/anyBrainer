@@ -537,12 +537,13 @@ class ClassificationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            if isinstance(val, CumulativeIterationMetric):
+
+            if isinstance(m, CumulativeIterationMetric):
                 agg = m.aggregate(reduction="mean")
                 if isinstance(agg, torch.Tensor):
                     stats[name] = agg.item()
                 elif isinstance(agg, list):
-                    for metric_name, val in zip(m.metric_names, agg):
+                    for metric_name, val in zip(m.metric_name, agg): # type: ignore[attr-defined]
                         stats[f"{name}_{metric_name}"] = val.item()
                 else:
                     msg = (f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
@@ -730,12 +731,13 @@ class SegmentationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            if isinstance(val, CumulativeIterationMetric):
+
+            if isinstance(m, CumulativeIterationMetric):
                 agg = m.aggregate(reduction="mean")
                 if isinstance(agg, torch.Tensor):
                     stats[name] = agg.item()
                 elif isinstance(agg, list):
-                    for metric_name, val in zip(m.metric_names, agg):
+                    for metric_name, val in zip(m.metric_name, agg): # type: ignore[attr-defined]
                         stats[f"{name}_{metric_name}"] = val.item()
                 else:
                     msg = (f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
