@@ -137,7 +137,7 @@ class WeightInitMixin(PLModuleMixin):
         load_pretrain_weights: str,
         load_param_group_prefix: str | list[str] | None,
         rename_map: dict[str, str] | None = None,
-        strict: bool = True,
+        strict: bool = False,
         extra_load_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """
