@@ -537,9 +537,18 @@ class ClassificationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-
             if isinstance(val, CumulativeIterationMetric):
-                stats[name] = m.aggregate(reduction="mean").item()
+                agg = m.aggregate(reduction="mean")
+                if isinstance(agg, torch.Tensor):
+                    stats[name] = agg.item()
+                elif isinstance(agg, list):
+                    for metric_name, val in zip(m.metric_names, agg):
+                        stats[f"{name}_{metric_name}"] = val.item()
+                else:
+                    msg = (f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
+                           f"aggregation type: {type(agg)}")
+                    logger.error(msg)
+                    raise ValueError(msg)
             else:
                 stats[name] = val.mean().item()
         return stats
@@ -660,17 +669,7 @@ class RegressionModel(ClassificationModel):
     def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
         """Computes metrics; ignores if a metric fails."""
         out = unscale_preds_if_needed(out, self.labels_meta)
-        stats = {}
-        for m in self.metrics:
-            name = getattr(m, "__name__", m.__class__.__name__)
-            try:
-                val = m(out, target)
-            except Exception:
-                logger.exception(f"[{self.__class__.__name__}] Failed to compute "
-                                 f"metric {name}; skipping.")
-                continue
-            stats[name] = val.mean().item()
-        return stats
+        return super().compute_metrics(out, target)
     
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Predict step; performs sliding window inference."""
@@ -731,8 +730,18 @@ class SegmentationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            if isinstance(m, CumulativeIterationMetric):
-                stats[name] = m.aggregate(reduction="mean").item()
+            if isinstance(val, CumulativeIterationMetric):
+                agg = m.aggregate(reduction="mean")
+                if isinstance(agg, torch.Tensor):
+                    stats[name] = agg.item()
+                elif isinstance(agg, list):
+                    for metric_name, val in zip(m.metric_names, agg):
+                        stats[f"{name}_{metric_name}"] = val.item()
+                else:
+                    msg = (f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
+                           f"aggregation type: {type(agg)}")
+                    logger.error(msg)
+                    raise ValueError(msg)
             else:
                 stats[name] = val.mean().item()
         return stats
