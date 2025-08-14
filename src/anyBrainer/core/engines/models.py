@@ -723,8 +723,15 @@ class SegmentationModel(BaseModel):
     def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
         """Computes metrics; ignores if a metric fails."""
         # Convert to one-hot for uniform API across metrics and tasks.
-        out = cast(torch.Tensor, AsDiscrete(to_onehot=True)(out))
-        target = cast(torch.Tensor, AsDiscrete(to_onehot=True)(target))
+        if out.ndim == target.ndim + 1:
+            out = cast(torch.Tensor, AsDiscrete(to_onehot=out.shape[1])(out)) # Assumes (B, C, ...)
+        elif out.ndim == target.ndim:
+            pass
+        else:
+            msg = (f"[{self.__class__.__name__}.compute_metrics] Unexpected output "
+                   f"and target shapes: {out.shape} and {target.shape}.")
+            logger.error(msg)
+            raise ValueError(msg)
 
         stats = {}
         for m in self.metrics:
