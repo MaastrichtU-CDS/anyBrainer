@@ -8,7 +8,7 @@ import torch
 from torch.nn import functional as F
 from monai.data.utils import (
     decollate_batch, 
-    list_data_collate,
+    pad_list_data_collate,
 )
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import (
@@ -237,7 +237,7 @@ def apply_tta_monai_batch(
         composed_tta.set_random_state(seed=seed)
 
     # Decollate -> Apply the TTA transforms to the batch -> Collate back.
-    aug_batch = cast(dict[str, Any], list_data_collate(
+    aug_batch = cast(dict[str, Any], pad_list_data_collate(
         [composed_tta(sample) for sample in cast(list, decollate_batch(batch))]
     ))
 
@@ -255,7 +255,7 @@ def apply_tta_monai_batch(
             nearest_interp=nearest_interp,
             device=device,
         )
-        return cast(dict[str, Any], list_data_collate(
+        return cast(dict[str, Any], pad_list_data_collate(
             [inv_op(sample) for sample in cast(list, decollate_batch(batch))]
         ))
 
