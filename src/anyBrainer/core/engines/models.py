@@ -42,6 +42,7 @@ from anyBrainer.core.utils import (
     effective_rank,
     feature_variance,
     callable_name,
+    pad_to_size,
 )
 from anyBrainer.config import resolve_fn, resolve_metric
 from anyBrainer.registry import RegistryKind as RK
@@ -730,7 +731,7 @@ class SegmentationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            if isinstance(val, CumulativeIterationMetric):
+            if isinstance(m, CumulativeIterationMetric):
                 stats[name] = m.aggregate(reduction="mean").item()
             else:
                 stats[name] = val.mean().item()
@@ -790,6 +791,7 @@ class SegmentationModel(BaseModel):
         *,
         eps: float = 1e-6,
         min_std: float = 1e-3,
+        n_spatial_dims: int = 3,
         weighting: Literal["invvar", "softmin", "uniform"] = "invvar",
         softmin_tau: float = 0.1,
         accumulate_on_cpu: bool = False,
@@ -813,43 +815,59 @@ class SegmentationModel(BaseModel):
             logger.error(msg)
             raise ValueError(msg)
 
-        w_sum: torch.Tensor | None = None # Σ w_i
-        w_mu_sum: torch.Tensor | None = None # Σ w_i * μ_i
-        w_mu2_sum: torch.Tensor | None = None # Σ w_i * μ_i^2 (for return_std)
-        w_var_sum: torch.Tensor | None = None # Σ w_i * σ_i^2 (for return_std)
+        # Decide accumulation device
+        acc_device = torch.device("cpu") if accumulate_on_cpu else batch[infer_keys[0]].device
 
-        # Cannot get pred std, so use uniform weighting
-        if self.tta is None or not do_tta:
+        # Determine spatial_dims and target (max) spatial size from inputs
+        target_spatial = list(batch[infer_keys[0]].shape[-n_spatial_dims:])
+        for k in infer_keys[1:]:
+            shp = batch[k].shape[-n_spatial_dims:]
+            target_spatial = [max(a, b) for a, b in zip(target_spatial, shp)]
+        
+        def _pad(x: torch.Tensor) -> torch.Tensor:
+            return pad_to_size(x, target_spatial, n_spatial_dims, mode="constant", side="both")
+        
+        # Accumulators
+        w_sum: torch.Tensor | None = None       # Σ w_i
+        w_mu_sum: torch.Tensor | None = None    # Σ w_i * μ_i
+        w_mu2_sum: torch.Tensor | None = None   # Σ w_i * μ_i^2 (if return_std)
+        w_var_sum: torch.Tensor | None = None   # Σ w_i * σ_i^2 (if return_std)
+
+        def _alloc(full_like: torch.Tensor, need_var: bool) -> None:
+            nonlocal w_sum, w_mu_sum, w_mu2_sum, w_var_sum
+            full_like = full_like.to(acc_device)
+            w_sum    = torch.zeros_like(full_like, device=acc_device)
+            w_mu_sum = torch.zeros_like(full_like, device=acc_device)
+            if need_var:
+                w_mu2_sum = torch.zeros_like(full_like, device=acc_device)
+                w_var_sum = torch.zeros_like(full_like, device=acc_device)
+
+        # 3) Aggregate
+        if not self.tta or not do_tta:
+            # Uniform weighting; std not available
             if return_std:
-                return_std = False
-                logger.warning("TTA not provided/disabled; setting return_std=False")
+                return_std = False  # std can't be computed without TTA
 
-            for k in infer_keys:
-                out = cast(
-                    torch.Tensor, 
-                    self.predict(batch, img_key=k, return_std=False, do_postprocess=False)
-                )
+            for idx, k in enumerate(infer_keys):
+                out = cast(torch.Tensor, self.predict(batch, img_key=k, return_std=False, do_postprocess=False))
                 if accumulate_on_cpu:
                     out = out.cpu()
-                if w_sum is None:
-                    w_sum = torch.ones_like(out) # uniform weighting
-                    w_mu_sum = out.clone()
-                    continue
-                
-                assert w_mu_sum is not None # satisfy type checker
+                out = _pad(out)
+
+                if idx == 0:
+                    _alloc(out, need_var=False)
+
+                w_sum = cast(torch.Tensor, w_sum)
+                w_mu_sum = cast(torch.Tensor, w_mu_sum)
+
                 w_sum += 1.0
                 w_mu_sum += out
 
-        # Compute weighted mean and var based on std from TTA runs
         else:
-            for k in infer_keys:
-                mu_i, std_i = self.predict(
-                    batch, img_key=k, return_std=True, do_postprocess=False, do_tta=do_tta
-                )
-                # Sanitize std and compute weights
-                std_i = torch.nan_to_num(
-                    std_i, nan=min_std, posinf=min_std, neginf=min_std
-                ).clamp_min(min_std)
+            for idx, k in enumerate(infer_keys):
+                mu_i, std_i = self.predict(batch, img_key=k, return_std=True, do_postprocess=False, do_tta=True)
+
+                std_i = torch.nan_to_num(std_i, nan=min_std, posinf=min_std, neginf=min_std).clamp_min(min_std)
                 var_i = std_i * std_i + eps
 
                 if weighting == "invvar":
@@ -859,43 +877,43 @@ class SegmentationModel(BaseModel):
                 elif weighting == "uniform":
                     w_i = torch.ones_like(var_i)
                 else:
-                    msg = f"Unknown weighting '{weighting}'"
-                    logger.error(msg)
-                    raise ValueError(msg)
+                    raise ValueError(f"Unknown weighting '{weighting}'")
 
                 if accumulate_on_cpu:
                     mu_i, var_i, w_i = mu_i.cpu(), var_i.cpu(), w_i.cpu()
 
-                # Lazy init accumulators to correct shape/device/dtype
-                if w_sum is None:
-                    w_sum = w_i.clone()
-                    w_mu_sum = w_i * mu_i
-                    if return_std:
-                        w_mu2_sum = w_i * (mu_i * mu_i)
-                        w_var_sum = w_i * var_i
-                    continue
-                
-                assert w_mu_sum is not None
+                mu_i  = _pad(mu_i)
+                var_i = _pad(var_i)
+                w_i   = _pad(w_i)
+
+                if idx == 0:
+                    _alloc(mu_i, need_var=return_std)
+
+                # Accumulate    
+                w_sum = cast(torch.Tensor, w_sum)
+                w_mu_sum = cast(torch.Tensor, w_mu_sum)
                 w_sum += w_i
                 w_mu_sum += w_i * mu_i
 
                 if return_std:
-                    assert w_mu2_sum is not None and w_var_sum is not None
+                    w_mu2_sum = cast(torch.Tensor, w_mu2_sum)
+                    w_var_sum = cast(torch.Tensor, w_var_sum)
                     w_mu2_sum += w_i * (mu_i * mu_i)
                     w_var_sum += w_i * var_i
 
                 del mu_i, std_i, var_i, w_i
 
-        # Weighted mean logits
-        assert w_sum is not None and w_mu_sum is not None # satisfy type checker
+        # 4) Finish
+        w_sum = cast(torch.Tensor, w_sum)
+        w_mu_sum = cast(torch.Tensor, w_mu_sum)
         mu = w_mu_sum / (w_sum + 1e-12)
 
-        if return_std: # E[σ^2 + μ^2] − (E[μ])^2
-            assert w_var_sum is not None and w_mu2_sum is not None # satisfy type checker
-            second_moment = (w_var_sum + w_mu2_sum) / w_sum
+        if return_std:
+            w_mu2_sum = cast(torch.Tensor, w_mu2_sum)
+            w_var_sum = cast(torch.Tensor, w_var_sum)
+            second_moment = (w_var_sum + w_mu2_sum) / (w_sum + 1e-12)
             var_pred = (second_moment - mu * mu).clamp_min(0)
             std_pred = torch.sqrt(var_pred)
 
-        # Postprocess once at the end
         out = cast(torch.Tensor, self.postprocess(mu)) if do_postprocess else mu
         return (out, std_pred) if return_std else out

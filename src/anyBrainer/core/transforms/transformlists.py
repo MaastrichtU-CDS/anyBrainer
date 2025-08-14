@@ -355,7 +355,9 @@ def get_segmentation_train_transforms(
     transforms.extend([
         LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
-        RandFlipd(keys=all_keys, spatial_axis=(0, 1), prob=0.3, 
+        RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5, 
+                  allow_missing_keys=allow_missing_keys),
+        RandFlipd(keys=all_keys, spatial_axis=1, prob=0.5, 
                   allow_missing_keys=allow_missing_keys),
         RandAffined(keys=all_keys, rotate_range=(0.1, 0.1, 0.1),
                     scale_range=(0.1, 0.1, 0.1), mode=interp_mode, 
@@ -540,7 +542,7 @@ def get_segmentation_tta(
     for a single TTA run.
     """
     tta_list = []
-    all_flip_axis = ((), (0,), (1,), (2,), (0, 1), (0, 2), (1, 2), (0, 1, 2))
+    all_flip_axis = ((), (0,), (1,), (0, 1))
     for flip_axis in all_flip_axis:
         tta_list.append([
             Flipd(keys=keys, spatial_axis=flip_axis, allow_missing_keys=allow_missing_keys),
