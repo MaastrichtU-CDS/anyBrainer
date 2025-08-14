@@ -87,27 +87,23 @@ class LogGradNorm(pl.Callback):
     Callback to log the gradient norm for all parameters in the model.
     """
     @rank_zero_only
-    def on_before_optimizer_step(
+    def on_train_batch_end(
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        optimizer: optim.Optimizer,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
     ) -> None:
         """Log the gradient norm."""
-        params = [p for g in optimizer.param_groups for p in g["params"] if p.grad is not None]
-        if not params:
-            return
-        
-        total_norm = torch.norm(
-            torch.stack([p.grad.detach().norm(2) for p in params]), p=2,
-        )
         pl_module.log(
-            "train/grad_norm", 
-            total_norm, 
-            on_step=True, 
-            on_epoch=False, 
-            prog_bar=False, 
-            sync_dist=False,
+            "train/grad_norm",
+            get_total_grad_norm(pl_module),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            sync_dist=sync_dist_safe(pl_module),
         )
 
 
