@@ -550,6 +550,7 @@ class ClassificationModel(BaseModel):
                            f"aggregation type: {type(agg)}")
                     logger.error(msg)
                     raise ValueError(msg)
+                m.reset()
             else:
                 stats[name] = val.mean().item()
         return stats
@@ -755,6 +756,7 @@ class SegmentationModel(BaseModel):
                            f"aggregation type: {type(agg)}")
                     logger.error(msg)
                     raise ValueError(msg)
+                m.reset()
             else:
                 stats[name] = val.mean().item()
         return stats
