@@ -714,7 +714,7 @@ class SegmentationModel(BaseModel):
             self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
 
         logger.info(f"[{self.__class__.__name__}] Initialized with "
-                    f"metrics={self.metrics}.")
+                    f"metrics={[callable_name(m) for m in self.metrics]}.")
     
     def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Computes loss; override for more complex behavior."""

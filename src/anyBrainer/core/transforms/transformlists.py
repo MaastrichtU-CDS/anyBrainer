@@ -330,6 +330,7 @@ def get_segmentation_train_transforms(
     concat_img: bool = False,
     concat_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
+    overfit: bool = False,
 ) -> list[Callable]:
     """
     IO transforms + augmentations for segmentation tasks.
@@ -355,53 +356,57 @@ def get_segmentation_train_transforms(
     transforms.extend([
         LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
-        RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5, 
-                  allow_missing_keys=allow_missing_keys),
-        RandFlipd(keys=all_keys, spatial_axis=1, prob=0.5, 
-                  allow_missing_keys=allow_missing_keys),
-        RandAffined(keys=all_keys, rotate_range=(0.1, 0.1, 0.1),
-                    scale_range=(0.1, 0.1, 0.1), mode=interp_mode, 
-                    padding_mode=pad_mode_affine, prob=1.0,
-                    allow_missing_keys=allow_missing_keys),
-        Rand3DElasticd(keys=all_keys, sigma_range=(4, 8), prob=0.2,
-                       magnitude_range=(0.5, 1.5), mode=interp_mode,
-                       allow_missing_keys=allow_missing_keys),
     ])
-    for key in img_keys: # unique intensity augmentations for each modality
+    if not overfit:
         transforms.extend([
-            RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
-                                         allow_missing_keys=allow_missing_keys),
-            RandRicianNoised(keys=key, std=0.01, prob=0.3, 
-                               allow_missing_keys=allow_missing_keys),
+            RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5, 
+                    allow_missing_keys=allow_missing_keys),
+            RandFlipd(keys=all_keys, spatial_axis=1, prob=0.5, 
+                    allow_missing_keys=allow_missing_keys),
+            RandAffined(keys=all_keys, rotate_range=(0.1, 0.1, 0.1),
+                        scale_range=(0.1, 0.1, 0.1), mode=interp_mode, 
+                        padding_mode=pad_mode_affine, prob=1.0,
+                        allow_missing_keys=allow_missing_keys),
+            Rand3DElasticd(keys=all_keys, sigma_range=(4, 8), prob=0.2,
+                        magnitude_range=(0.5, 1.5), mode=interp_mode,
+                        allow_missing_keys=allow_missing_keys),
         ])
-        # Simulate artefacts
-        transforms.extend([
-            OneOf(transforms=[
-                RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.7, 
-                                    allow_missing_keys=allow_missing_keys),
-                RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.7, 
-                               allow_missing_keys=allow_missing_keys),
-                RandGibbsNoised(keys=key, alpha=(0.2, 0.4), prob=0.7, 
+        for key in img_keys: # unique intensity augmentations for each modality
+            transforms.extend([
+                RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
+                                            allow_missing_keys=allow_missing_keys),
+                RandRicianNoised(keys=key, std=0.01, prob=0.3, 
                                 allow_missing_keys=allow_missing_keys),
-            ], weights=[1.0, 1.0, 1.0]),
-        ])
-        # Simulate different acquisitions
-        transforms.extend([
-            OneOf(transforms=[
-                RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=1.0, 
+            ])
+            # Simulate artefacts
+            transforms.extend([
+                OneOf(transforms=[
+                    RandGaussianSmoothd(keys=key, sigma_x=(0.5, 1.0), prob=0.7, 
+                                        allow_missing_keys=allow_missing_keys),
+                    RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.7, 
+                                allow_missing_keys=allow_missing_keys),
+                    RandGibbsNoised(keys=key, alpha=(0.2, 0.4), prob=0.7, 
                                     allow_missing_keys=allow_missing_keys),
-                RandSimulateLowResolutiond(keys=key, prob=0.5, zoom_range=(0.8, 1.0),
-                                           allow_missing_keys=allow_missing_keys),
-            ], weights=[1.0, 1.0]),
-        ])
+                ], weights=[1.0, 1.0, 1.0]),
+            ])
+            # Simulate different acquisitions
+            transforms.extend([
+                OneOf(transforms=[
+                    RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=1.0, 
+                                        allow_missing_keys=allow_missing_keys),
+                    RandSimulateLowResolutiond(keys=key, prob=0.5, zoom_range=(0.8, 1.0),
+                                            allow_missing_keys=allow_missing_keys),
+                ], weights=[1.0, 1.0]),
+            ])
     # Finalize
     if not concat_img or choose_one_of:
+        n_pos, n_neg = (1, 2) if not overfit else (1, 0)
         transforms.extend([
             SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode_spatial, 
                         allow_missing_keys=allow_missing_keys),
             RandCropByPosNegLabeld(keys=all_keys, label_key=seg_key, 
                                    spatial_size=patch_size, 
-                                   pos=1, neg=2, num_samples=1,
+                                   pos=n_pos, neg=n_neg, num_samples=1,
                                    allow_missing_keys=allow_missing_keys),
         ])
     else:
