@@ -489,7 +489,7 @@ class InfererMixin(PLModuleMixin):
             raise ValueError(msg)
 
         if not self.tta or not do_tta:
-            output = self.inferer(input[img_key], self.model) # type: ignore[attr-defined]
+            output = self.inferer(batch[img_key], self.model) # type: ignore[attr-defined]
             if do_postprocess:
                 output = self.postprocess(output)
             if return_std:
