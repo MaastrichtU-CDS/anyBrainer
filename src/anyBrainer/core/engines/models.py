@@ -22,7 +22,7 @@ import torch
 import lightning.pytorch as pl
 import torch.nn.functional as F
 from lightning.pytorch.utilities import rank_zero_only
-from monai.transforms.utility.array import Identity
+from monai.metrics.metric import CumulativeIterationMetric
 
 
 from anyBrainer.registry import register
@@ -536,7 +536,11 @@ class ClassificationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            stats[name] = val.item()
+
+            if isinstance(val, CumulativeIterationMetric):
+                stats[name] = m.aggregate(reduction="mean").item()
+            else:
+                stats[name] = val.mean().item()
         return stats
     
     def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
@@ -726,7 +730,10 @@ class SegmentationModel(BaseModel):
                 logger.exception(f"[{self.__class__.__name__}] Failed to compute "
                                  f"metric {name}; skipping.")
                 continue
-            stats[name] = val.mean().item()
+            if isinstance(val, CumulativeIterationMetric):
+                stats[name] = m.aggregate(reduction="mean").item()
+            else:
+                stats[name] = val.mean().item()
         return stats
     
     def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
