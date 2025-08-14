@@ -692,8 +692,8 @@ class SegmentationModel(BaseModel):
         metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
                   Callable | str | dict[str, Any] | None) = [
             {"name": "DiceMetric"}, {"name": "MeanIoU"}, {"name": "HausdorffDistanceMetric"}, 
-            {"name": "SurfaceDistanceMetric"}, {"name": "ConfusionMatrixMetric", "metric_name": "sensitivity"}, 
-            {"name": "ConfusionMatrixMetric", "metric_name": "precision"}, 
+            {"name": "SurfaceDistanceMetric"}, {"name": "ConfusionMatrixMetric", 
+            "metric_name": ("sensitivity", "specificity", "precision", "recall")}, 
         ],
         get_uncertainty: bool = False, # if True, returns (mean, std)
         **base_model_kwargs,
