@@ -353,7 +353,7 @@ def get_segmentation_train_transforms(
     interp_mode = ['nearest'] + ['bilinear'] * len(img_keys)
 
     transforms.extend([
-        LoadImaged(keys=all_keys, ensure_channel_first=True, 
+        LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
                    allow_missing_keys=allow_missing_keys),
         RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5, 
                   allow_missing_keys=allow_missing_keys),
@@ -458,7 +458,7 @@ def get_segmentation_val_transforms(
     all_keys = [seg_key] + keys.copy()
     pad_mode = ['constant'] + ['edge'] * len(keys)
     transforms: list[Callable] = [
-            LoadImaged(keys=all_keys, ensure_channel_first=True, 
+            LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
                     allow_missing_keys=allow_missing_keys),
     ]
     if not concat_img:
