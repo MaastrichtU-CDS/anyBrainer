@@ -23,7 +23,7 @@ import lightning.pytorch as pl
 import torch.nn.functional as F
 from lightning.pytorch.utilities import rank_zero_only
 from monai.metrics.metric import CumulativeIterationMetric
-
+from monai.transforms.post.array import AsDiscrete
 
 from anyBrainer.registry import register
 from anyBrainer.core.engines.utils import (
@@ -722,6 +722,10 @@ class SegmentationModel(BaseModel):
     @torch.no_grad()
     def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
         """Computes metrics; ignores if a metric fails."""
+        # Convert to one-hot for uniform API across metrics and tasks.
+        out = cast(torch.Tensor, AsDiscrete(to_onehot=True)(out))
+        target = cast(torch.Tensor, AsDiscrete(to_onehot=True)(target))
+
         stats = {}
         for m in self.metrics:
             name = getattr(m, "__name__", m.__class__.__name__)
