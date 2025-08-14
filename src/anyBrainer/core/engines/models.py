@@ -693,7 +693,7 @@ class SegmentationModel(BaseModel):
                   Callable | str | dict[str, Any] | None) = [
             {"name": "DiceMetric"}, {"name": "MeanIoU"}, {"name": "HausdorffDistanceMetric"}, 
             {"name": "SurfaceDistanceMetric"}, {"name": "ConfusionMatrixMetric", 
-            "metric_name": ("sensitivity", "specificity", "precision", "recall")}, 
+            "metric_name": ("sensitivity", "specificity", "precision")}, 
         ],
         get_uncertainty: bool = False, # if True, returns (mean, std)
         **base_model_kwargs,
