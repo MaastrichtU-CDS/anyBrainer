@@ -827,6 +827,5 @@ class SegmentationDataModule(BaseDataModule):
             used_sessions,
             used_modality_counts,
         ))
-        print(f"list_of_dicts: {list_of_dicts}")
 
         return list_of_dicts
