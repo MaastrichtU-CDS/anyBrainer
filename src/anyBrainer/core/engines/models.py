@@ -725,15 +725,16 @@ class SegmentationModel(BaseModel):
         """Computes metrics; ignores if a metric fails."""
         # Convert everything to one-hot for uniform API across metrics and tasks; 
         # assumes (B, C, ...)
-        if out.shape[1] == target.shape[1]:
+        logger.info(f"img shape: {out.size()}, target shape: {target.size()}")
+        if out.size(1) == target.size(1):
             pass
-        elif out.shape[1] == 1: # one-hot labels and continuous output; convert out to one-hot
-            out = cast(torch.Tensor, AsDiscrete(argmax=True, to_onehot=target.shape[1])(out))
-        elif target.shape[1] == 1: # continuous output and one-hot labels; convert target to one-hot
-            target = cast(torch.Tensor, AsDiscrete(to_onehot=out.shape[1])(target))
+        elif out.size(1) == 1: # one-hot labels and continuous output; convert out to one-hot
+            out = cast(torch.Tensor, AsDiscrete(argmax=True, to_onehot=target.size(1))(out))
+        elif target.size(1) == 1: # continuous output and one-hot labels; convert target to one-hot
+            target = cast(torch.Tensor, AsDiscrete(to_onehot=out.size(1))(target))
         else:
             msg = (f"[{self.__class__.__name__}.compute_metrics] Unexpected output "
-                   f"and target shapes: {out.shape} and {target.shape}.")
+                   f"and target shapes: {out.size()} and {target.size()}.")
             logger.error(msg)
             raise ValueError(msg)
 
