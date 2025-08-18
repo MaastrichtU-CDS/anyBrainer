@@ -693,8 +693,7 @@ class SegmentationModel(BaseModel):
         metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
                   Callable | str | dict[str, Any] | None) = [
             {"name": "DiceMetric"}, {"name": "MeanIoU"}, {"name": "HausdorffDistanceMetric"}, 
-            {"name": "SurfaceDistanceMetric"}, {"name": "ConfusionMatrixMetric", 
-            "metric_name": ("sensitivity", "specificity", "precision")}, 
+            {"name": "SurfaceDistanceMetric"}, 
         ],
         get_uncertainty: bool = False, # if True, returns (mean, std)
         **base_model_kwargs,
@@ -723,20 +722,6 @@ class SegmentationModel(BaseModel):
     @torch.no_grad()
     def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
         """Computes metrics; ignores if a metric fails."""
-        # Convert everything to one-hot for uniform API across metrics and tasks; 
-        # assumes (B, C, ...)
-        if out.size(1) == target.size(1):
-            pass
-        elif out.size(1) == 1: # one-hot labels and continuous output; convert out to one-hot
-            out = cast(torch.Tensor, AsDiscrete(argmax=True, to_onehot=target.size(1))(out))
-        elif target.size(1) == 1: # continuous output and one-hot labels; convert target to one-hot
-            target = cast(torch.Tensor, AsDiscrete(to_onehot=out.size(1))(target))
-        else:
-            msg = (f"[{self.__class__.__name__}.compute_metrics] Unexpected output "
-                   f"and target shapes: {out.size()} and {target.size()}.")
-            logger.error(msg)
-            raise ValueError(msg)
-
         stats = {}
         for m in self.metrics:
             name = getattr(m, "__name__", m.__class__.__name__)
