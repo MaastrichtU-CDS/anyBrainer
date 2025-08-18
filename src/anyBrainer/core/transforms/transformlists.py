@@ -188,7 +188,7 @@ def get_predict_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=keys, reader='ITKReader', ensure_channel_first=True, 
+            LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys),
@@ -232,7 +232,7 @@ def get_classification_train_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=keys, reader='ITKReader', ensure_channel_first=True, 
+            LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys),
@@ -317,7 +317,7 @@ def get_regression_train_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=keys, reader='ITKReader', ensure_channel_first=True, 
+            LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys),
@@ -417,7 +417,7 @@ def get_segmentation_train_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=all_keys, reader='ITKReader', ensure_channel_first=True, 
+            LoadImaged(keys=all_keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, allow_missing_keys=allow_missing_keys),
@@ -510,7 +510,7 @@ def get_downstream_val_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=keys, reader='ITKReader', ensure_channel_first=True, 
+            LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys),
@@ -559,7 +559,7 @@ def get_segmentation_val_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=all_keys, reader='ITKReader', ensure_channel_first=True, 
+            LoadImaged(keys=all_keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, allow_missing_keys=allow_missing_keys),
