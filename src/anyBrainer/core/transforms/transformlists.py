@@ -417,7 +417,7 @@ def get_segmentation_train_transforms(
         ])
     else:
         transforms.extend([
-            LoadImaged(keys=all_keys, reader='NibabelReader', ensure_channel_first=True, 
+            LoadImaged(keys=all_keys, reader='ITKReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, allow_missing_keys=allow_missing_keys),
