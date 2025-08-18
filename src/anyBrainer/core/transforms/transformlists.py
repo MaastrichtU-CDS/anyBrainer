@@ -404,6 +404,7 @@ def get_segmentation_train_transforms(
         ])
         img_keys = [target_key]
         all_keys = [seg_key, target_key]
+        allow_missing_keys = False
     
     pad_mode_affine = ['constant'] + ['border'] * len(img_keys)
     pad_mode_spatial = ['constant'] + ['edge'] * len(img_keys)
