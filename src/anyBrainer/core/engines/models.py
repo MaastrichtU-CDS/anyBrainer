@@ -725,7 +725,7 @@ class SegmentationModel(BaseModel):
         """Computes metrics; ignores if a metric fails."""
         # Convert to one-hot for uniform API across metrics and tasks.
         if out.ndim == target.ndim + 1:
-            out = cast(torch.Tensor, AsDiscrete(to_onehot=out.shape[1])(out)) # Assumes (B, C, ...)
+            target = cast(torch.Tensor, AsDiscrete(to_onehot=out.shape[1])(target)) # Assumes (B, C, ...)
         elif out.ndim == target.ndim:
             pass
         else:
