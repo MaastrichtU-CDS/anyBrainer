@@ -775,6 +775,7 @@ class SegmentationModel(BaseModel):
     def training_step(self, batch: dict, batch_idx: int):
         """Training step; computes loss and metrics."""
         out = self.model(batch["img"])
+        print(f"out shape: {out.size()}, target shape: {batch['seg'].size()}")
         loss = self.compute_loss(out, batch["seg"])
         stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["seg"])
         stats["loss"] = loss.item()
