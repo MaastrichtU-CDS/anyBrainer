@@ -724,9 +724,6 @@ class SegmentationModel(BaseModel):
         """Computes metrics; ignores if a metric fails."""
         # assumes (B, C, ...)
         if out.size(1) != target.size(1):
-            out = cast(torch.Tensor, AsDiscrete(argmax=True, to_onehot=target.size(1))(out))
-            target = cast(torch.Tensor, AsDiscrete(to_onehot=out.size(1))(target))
-        else:
             msg = (f"[{self.__class__.__name__}.compute_metrics] Unexpected output "
                    f"and target shapes: {out.size()} and {target.size()}.")
             logger.error(msg)
