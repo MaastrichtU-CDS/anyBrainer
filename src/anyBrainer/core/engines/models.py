@@ -725,7 +725,6 @@ class SegmentationModel(BaseModel):
         """Computes metrics; ignores if a metric fails."""
         # Convert everything to one-hot for uniform API across metrics and tasks; 
         # assumes (B, C, ...)
-        logger.info(f"img shape: {out.size()}, target shape: {target.size()}")
         if out.size(1) == target.size(1):
             pass
         elif out.size(1) == 1: # one-hot labels and continuous output; convert out to one-hot
