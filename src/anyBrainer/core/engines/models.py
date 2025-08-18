@@ -722,13 +722,9 @@ class SegmentationModel(BaseModel):
     @torch.no_grad()
     def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
         """Computes metrics; ignores if a metric fails."""
-        # Convert everything to one-hot for uniform API across metrics and tasks; 
         # assumes (B, C, ...)
-        if out.size(1) == target.size(1):
-            pass
-        elif out.size(1) == 1: # one-hot labels and continuous output; convert out to one-hot
+        if out.size(1) != target.size(1):
             out = cast(torch.Tensor, AsDiscrete(argmax=True, to_onehot=target.size(1))(out))
-        elif target.size(1) == 1: # continuous output and one-hot labels; convert target to one-hot
             target = cast(torch.Tensor, AsDiscrete(to_onehot=out.size(1))(target))
         else:
             msg = (f"[{self.__class__.__name__}.compute_metrics] Unexpected output "
@@ -773,7 +769,6 @@ class SegmentationModel(BaseModel):
     def training_step(self, batch: dict, batch_idx: int):
         """Training step; computes loss and metrics."""
         out = self.model(batch["img"])
-        print(f"out shape: {out.size()}, target shape: {batch['seg'].size()}")
         loss = self.compute_loss(out, batch["seg"])
         stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["seg"])
         stats["loss"] = loss.item()
