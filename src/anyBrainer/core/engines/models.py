@@ -764,7 +764,7 @@ class SegmentationModel(BaseModel):
     def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
         """Logs step statistics."""
         on_step = step_name == "train"
-        self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
+        self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()},
                       on_step=on_step, on_epoch=True, prog_bar=False, 
                       sync_dist=sync_dist_safe(self))
 
@@ -772,7 +772,7 @@ class SegmentationModel(BaseModel):
         """Training step; computes loss and metrics."""
         out = self.model(batch["img"])
         loss = self.compute_loss(out, batch["seg"])
-        stats = self.compute_metrics(out, batch["seg"])
+        stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["seg"])
         stats["loss"] = loss.item()
         self.log_step("train", stats)
         return loss

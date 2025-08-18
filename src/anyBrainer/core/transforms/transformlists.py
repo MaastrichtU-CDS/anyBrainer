@@ -425,6 +425,7 @@ def get_segmentation_train_transforms(
 
     # Augmentations
     if not overfit:
+        # Spatial
         transforms.extend([
             RandFlipd(keys=all_keys, spatial_axis=0, prob=0.5, 
                     allow_missing_keys=allow_missing_keys),
@@ -438,7 +439,8 @@ def get_segmentation_train_transforms(
                         magnitude_range=(0.5, 1.5), mode=interp_mode,
                         allow_missing_keys=allow_missing_keys),
         ])
-        for key in img_keys: # unique intensity augmentations for each modality
+        # intensity; unique for each modality
+        for key in img_keys:
             transforms.extend([
                 RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                             allow_missing_keys=allow_missing_keys),
