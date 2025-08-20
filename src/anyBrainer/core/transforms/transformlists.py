@@ -431,11 +431,12 @@ def get_segmentation_train_transforms(
     transforms: list[Callable] = []
 
     # Filter keys
+    _allow_missing_keys = allow_missing_keys or create_empty_seg # till mask is created
     if choose_one_of:
         if concat_img:
             logger.warning("`concat_img` is ignored when `choose_one_of` is True")
         transforms.extend([
-            RandImgKeyd(keys=keys, new_key='img', allow_missing_keys=allow_missing_keys),
+            RandImgKeyd(keys=keys, new_key='img', allow_missing_keys=_allow_missing_keys),
             DeleteItemsd(keys=img_keys)
         ])
         img_keys = [target_key]
@@ -447,7 +448,6 @@ def get_segmentation_train_transforms(
     interp_mode = ['nearest'] + ['bilinear'] * len(img_keys)
     
     # Load data; normalize and reorient if NIfTI
-    _allow_missing_keys = allow_missing_keys or create_empty_seg
     if not is_nifti:
         transforms.extend([
             LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
@@ -601,6 +601,7 @@ def get_segmentation_val_transforms(
     keys: list[str] = OPEN_KEYS,
     seg_key: str = "seg",
     allow_missing_keys: bool = True,
+    create_empty_seg: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
     sliding_window: bool = False,
@@ -616,6 +617,7 @@ def get_segmentation_val_transforms(
     transforms: list[Callable] = []
 
     # Load data; normalize and reorient if NIfTI
+    _allow_missing_keys = allow_missing_keys or create_empty_seg
     if not is_nifti:
         transforms.extend([
             LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
@@ -627,6 +629,12 @@ def get_segmentation_val_transforms(
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, allow_missing_keys=allow_missing_keys),
+        ])
+    
+    # Ensure seg mask exists
+    if create_empty_seg:
+        transforms.extend([
+            CreateEmptyMaskd(keys=img_keys, mask_key=seg_key, allow_missing_keys=_allow_missing_keys),
         ])
     
     # Match expected size
