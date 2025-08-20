@@ -51,7 +51,7 @@ class SlidingWindowClassificationInferer(Inferer):
         spatial_dims: int = 3,
         padding_mode: str = "constant",
         aggregation_mode: Literal["weighted", "mean", "majority", "none", "noisy_or", "lse", "topk"] = "noisy_or",
-        apply_activation: bool = True,
+        apply_activation: bool = False,
         *,
         topk: int = 4,
         tau: float = 2.0,
