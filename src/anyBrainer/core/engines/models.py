@@ -996,6 +996,7 @@ class ClassificationMidFusionModel(BaseModel):
                 metrics = [metrics]
             self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
         
+        self.label_thres = label_thres
         self.flat_labels = flat_labels
 
         logger.info(f"[{self.__class__.__name__}] Initialized with "
