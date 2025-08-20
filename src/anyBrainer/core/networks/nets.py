@@ -374,6 +374,23 @@ class Swinv2ClassifierMidFusion(nn.Module):
         else:
             raise ValueError(f"Unknown aggregator: {self.aggregator}")
     
+    def _reshape_input(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Reshape input from (B, n_late_fusion, *spatial_dims) to 
+        (B, n_fusion, C, *spatial_dims).
+        """
+        if x.ndim == self.spatial_dims + 2: # n_late_fusion in channel_dim
+            x = x.unsqueeze(2)
+        elif x.ndim == self.spatial_dims + 3: # channel_dim already in place
+            pass
+        else:
+            msg = (f"[{self.__class__.__name__}] Expected input shape to be "
+                    f"(B, N, *spatial_dims) or (B, N, C, *spatial_dims), "
+                    f"but got {x.shape}.")
+            logger.error(msg)
+            raise ValueError(msg)
+        return x
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -382,6 +399,8 @@ class Swinv2ClassifierMidFusion(nn.Module):
         Returns:
             torch.Tensor: Raw logits of shape (B, num_classes).
         """
+        x = self._reshape_input(x)
+        
         if x.ndim != 3 + self.spatial_dims:
             msg = (f"[Swinv2ClassifierMidFusion] Expected input with "
                    f"{3 + self.spatial_dims} dims "

@@ -1011,20 +1011,6 @@ class ClassificationMidFusionModel(BaseModel):
         - img: (B, N, *spatial_dims)
         - seg: (B, *spatial_dims)
         """
-        # Reshape for late fusion support:(B, N, *spatial_dims) -> (B, N, C, *spatial_dims)
-        x = batch['img']
-        if x.ndim == self.spatial_dims + 2: # n_late_fusion in channel_dim
-            x = x.unsqueeze(2)
-        elif x.ndim == self.spatial_dims + 3: # channel_dim already in place
-            pass
-        else:
-            msg = (f"[{self.__class__.__name__}] Expected input shape to be "
-                    f"(B, N, *spatial_dims) or (B, N, C, *spatial_dims), "
-                    f"but got {x.shape}.")
-            logger.error(msg)
-            raise ValueError(msg)
-        batch['img'] = x
-
         # Get labels tensor to appropriate format
         sums = batch['seg'].sum(dim=tuple(range(-self.spatial_dims, 0)))
         lbl = (sums > self.label_thres).to(dtype=torch.float32)
