@@ -1070,13 +1070,13 @@ class ClassificationMidFusionModel(BaseModel):
     
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
-        out, _ = self.predict(batch, invert=False)
+        out = self.predict(batch, invert=False)
         stats = self.compute_metrics(cast(torch.Tensor, out), batch["label"])
         self.log_step("val", stats)
     
     def test_step(self, batch: dict, batch_idx: int) -> None:
         """Test step; performs inference and computes metrics."""
-        out, _ = self.predict(batch, invert=False)
+        out = self.predict(batch, invert=False)
         stats = self.compute_metrics(cast(torch.Tensor, out), batch["label"])
         self.log_step("test", stats)
     
