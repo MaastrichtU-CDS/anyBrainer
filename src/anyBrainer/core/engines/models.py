@@ -446,7 +446,9 @@ class ClassificationModel(BaseModel):
         self, 
         *,
         metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
-                  Callable | str | dict[str, Any] | None) = None,
+                  Callable | str | dict[str, Any] | None) = [
+            {"name": "top1_accuracy", "is_logits": False},
+        ],
         flat_labels: bool = False,
         **base_model_kwargs,
     ):
@@ -957,7 +959,9 @@ class ClassificationMidFusionModel(BaseModel):
         self,
         *,
         metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
-                  Callable | str | dict[str, Any] | None) = None,
+                  Callable | str | dict[str, Any] | None) = [
+            {"name": "top1_accuracy", "is_logits": False},
+        ],
         flat_labels: bool = False,
         label_thres: int = 0,
         **base_model_kwargs,
