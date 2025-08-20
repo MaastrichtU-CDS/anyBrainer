@@ -17,6 +17,7 @@ __all__ = [
 import logging
 from typing import Any, Callable, Literal, cast
 from copy import deepcopy
+import math
 
 import torch
 import lightning.pytorch as pl
@@ -972,13 +973,25 @@ class ClassificationMidFusionModel(BaseModel):
         """
         super().__init__(**base_model_kwargs)
 
-        if not isinstance(self.model, Swinv2ClassifierMidFusion):
+        # Init score head
+        if not hasattr(self.model, "score_head"):
             msg = (f"[{self.__class__.__name__}] Model does not have a "
-                   f"`Swinv2ClassifierMidFusion` class; cannot use mid-fusion.")
+                   f"`score_head`; cannot use mid-fusion.")
+            logger.error(msg)
+            raise ValueError(msg)
+        torch.nn.init.zeros_(self.model.score_head.weight) # type: ignore[attr-defined]
+        with torch.no_grad():
+            self.model.score_head.bias.fill_(math.log(1e-3) - math.log1p(-1e-3)) # type: ignore[attr-defined]
+
+        # Get fusion weights
+        if not hasattr(self.model, "fusion_weights"):
+            msg = (f"[{self.__class__.__name__}] Model does not have a "
+                   f"`fusion_weights`; cannot use mid-fusion.")
             logger.error(msg)
             raise ValueError(msg)
         self._fusion_w: torch.Tensor = cast(torch.Tensor, self.model.fusion_weights) # type: ignore[attr-defined]
 
+        # Get spatial dims; used for label binarization
         if hasattr(self.model, "spatial_dims"):
             self.spatial_dims = cast(int, self.model.spatial_dims)
         else:
@@ -986,6 +999,7 @@ class ClassificationMidFusionModel(BaseModel):
                            f"assuming 3D.")
             self.spatial_dims = 3
 
+        # Init metrics
         self.metrics: list[Callable] = []
         if metrics is not None:
             if isinstance(metrics, str):

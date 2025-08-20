@@ -284,7 +284,9 @@ class Swinv2ClassifierMidFusion(nn.Module):
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
 
-        # Head / fusion
+        # classification head
+        use_proj_head: bool = True,
+        proj_dim: int = 64,
         n_classes: int = 1,
         n_fusion: int = 1,
         spatial_dims: int = 3,
@@ -339,9 +341,17 @@ class Swinv2ClassifierMidFusion(nn.Module):
         else:
             self.encoders = nn.ModuleList([_make_encoder() for _ in range(n_fusion)])
             self._share_encoder = False
-        
-        # 1x1x1 scoring head: (B, n_feats, *spatial_dims) -> (B, n_classes, *spatial_dims)
-        self.head = nn.Conv3d(feature_size * 16, n_classes, 1)
+
+        # Projection head to proj_dim
+        self.proj_head = nn.Sequential(
+                nn.Conv3d(feature_size*16, proj_dim, 1, bias=False),
+                nn.GroupNorm(num_groups=8 if proj_dim>=8 else 1, num_channels=proj_dim),
+                nn.GELU(),
+                nn.Dropout3d(0.1),
+        ) if use_proj_head else nn.Identity()
+
+        # Classification head
+        self.score_head = nn.Conv3d(proj_dim, n_classes, 1)
 
         # Mid-level fusion weights across modalities (applied on logits)
         self.fusion_weights = nn.Parameter(torch.ones(n_fusion))
@@ -434,7 +444,8 @@ class Swinv2ClassifierMidFusion(nn.Module):
         for m in range(n_fusion):
             encoder = self.encoders[0] if self._share_encoder else self.encoders[m]
             feats = self._encode(encoder, x[:, m]) # (B, n_feats, *spatial_dims)
-            logits = self.head(feats) # (B, n_classes, *spatial_dims)
+            proj_feats = self.proj_head(feats) # (B, proj_dim, *spatial_dims)
+            logits = self.score_head(proj_feats) # (B, n_classes, *spatial_dims)
             per_mod_logits.append(logits)
         
         # Mid-level fusion on logits (weighted sum across modalities)
