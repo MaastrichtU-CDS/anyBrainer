@@ -1010,7 +1010,6 @@ class ClassificationMidFusionModel(BaseModel):
         - img: (B, N, *spatial_dims)
         - seg: (B, *spatial_dims)
         """
-        print(batch)
         # Reshape for late fusion support:(B, N, *spatial_dims) -> (B, N, C, *spatial_dims)
         x = batch['img']
         if x.ndim == self.spatial_dims + 2: # n_late_fusion in channel_dim
