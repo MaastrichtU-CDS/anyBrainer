@@ -90,7 +90,7 @@ def load_config(path: Path) -> dict[str, Any]:
 def load_param_group_from_ckpt(
     model_instance: nn.Module,
     checkpoint_path: Path,
-    select_prefixes: Sequence[str] | None = None,
+    select_prefixes: str | Sequence[str] | None = None,
     rename_map: dict[str, str] | None = None,
     strict: bool = False,
     torch_load_kwargs: dict[str, Any] | None = None,
@@ -125,6 +125,8 @@ def load_param_group_from_ckpt(
 
     # selection
     if select_prefixes:
+        if isinstance(select_prefixes, str):
+            select_prefixes = [select_prefixes]
         selected = {k: v for k, v in state_dict.items() if any(k.startswith(p) for p in select_prefixes)}
         ignored = [k for k in state_dict if k not in selected]
     else:

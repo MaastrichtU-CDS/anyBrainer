@@ -6,7 +6,10 @@ import pytest
 import torch
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
-from anyBrainer.core.networks import Swinv2Classifier
+from anyBrainer.core.networks import (
+    Swinv2Classifier,
+    Swinv2ClassifierMidFusion,
+)
 from anyBrainer.core.inferers import SlidingWindowClassificationInferer
 
 @pytest.fixture(scope="module")
@@ -15,6 +18,7 @@ def input_batch_classification():
     return {
         "img_0": torch.randn(8, 1, 160, 190, 160),
         "label": torch.randint(0, 2, (8, 2)),
+        "img": torch.randn(8, 2, 160, 190, 160),
     }
 
 
@@ -73,6 +77,19 @@ class TestSlidingWindowClassificationInferer:
             mlp_activation_kwargs={"dropout": 0.3},
         )
     
+    def model_mid_fusion(self):
+        """Model fixture for mid-fusion."""
+        return Swinv2ClassifierMidFusion(
+            patch_size=2,
+            depths=[2, 2, 6, 2],
+            num_heads=[3, 6, 12, 24],
+            window_size=7,
+            feature_size=48,
+            use_v2=True,
+            n_classes=2,
+            n_fusion=2,
+        )
+    
     @pytest.mark.parametrize("overlap", [0.0, 0.25, 0.5, 0.75])
     def test_sliding_window_shape(self, model, input_batch_classification, overlap):
         """Test that the model is properly initialized."""
@@ -100,22 +117,23 @@ class TestSlidingWindowClassificationInferer:
         preds = inferer(input_batch_classification["img_0"], model)
         assert preds.shape == (8, 2)
     
-    def test_sliding_window_mean(self, model, input_batch_classification):
+    @pytest.mark.parametrize("mode", ["noisy_or", "lse", "topk", "mean", "weighted", "majority"])
+    def test_sliding_window_mil(self, model, input_batch_classification, mode):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
             patch_size=(128, 128, 128),
             overlap=0.5,
-            aggregation_mode="mean",
+            aggregation_mode=mode,
         )
-        preds = inferer(input_batch_classification["img_0"], model)
+        preds = inferer(input_batch_classification["img"], model)
         assert preds.shape == (8, 2)
     
-    def test_sliding_window_majority(self, model, input_batch_classification):
+    def test_no_aggregation(self, model, input_batch_classification):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
             patch_size=(128, 128, 128),
             overlap=0.5,
-            aggregation_mode="majority",
+            aggregation_mode="none",
         )
-        preds = inferer(input_batch_classification["img_0"], model)
-        assert preds.shape == (8, 2)
+        preds = inferer(input_batch_classification["img"], model)
+        print(preds.shape)

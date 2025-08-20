@@ -466,6 +466,7 @@ class InfererMixin(PLModuleMixin):
         return_std: bool = False,
         do_tta: bool = True,
         do_postprocess: bool = True,
+        invert: bool = True,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """
         Prediction pipeline for input tensor.
@@ -509,26 +510,29 @@ class InfererMixin(PLModuleMixin):
             aug_batch["logits"] = self.inferer(aug_batch[img_key], self.model) # type: ignore[attr-defined]
 
             # Invert TTA on logits
-            inv_logits = invert_fn(
-                aug_batch, 
-                out_key="logits", 
-                nearest_interp=False,
-                device=batch[img_key].device,
-            )["logits"]
+            if invert:
+                out_logits = invert_fn(
+                    aug_batch, 
+                    out_key="logits", 
+                    nearest_interp=False,
+                    device=batch[img_key].device,
+                )["logits"]
+            else:
+                out_logits = aug_batch["logits"]
 
             # Online mean/variance update
             n += 1
             if mean is None:
-                mean = inv_logits.clone()
+                mean = out_logits.clone()
                 if return_std:
-                    m2 = torch.zeros_like(inv_logits)
+                    m2 = torch.zeros_like(out_logits)
             else:
-                delta = inv_logits - mean
+                delta = out_logits - mean
                 mean = mean + delta / n
                 if return_std:
-                    m2 = m2 + delta * (inv_logits - mean)
+                    m2 = m2 + delta * (out_logits - mean)
             
-            del aug_batch, inv_logits
+            del aug_batch, out_logits
 
         # Finalize
         output = cast(torch.Tensor, mean)

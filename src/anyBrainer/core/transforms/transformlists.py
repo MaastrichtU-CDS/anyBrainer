@@ -172,6 +172,7 @@ def get_predict_transforms(
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    sliding_window: bool = False,
     target_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
@@ -199,10 +200,13 @@ def get_predict_transforms(
         SpatialPadd(keys=keys, spatial_size=patch_size, mode='edge',
                     allow_missing_keys=allow_missing_keys),
     ])
-    if concat_img:
+    if sliding_window:
         transforms.extend([
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
+        ])
+    if concat_img:
+        transforms.extend([
             ConcatItemsd(keys=keys, name=target_key, dim=1,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)
@@ -216,6 +220,7 @@ def get_classification_train_transforms(
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    sliding_window: bool = False,
     target_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
@@ -277,7 +282,7 @@ def get_classification_train_transforms(
         ])
 
     # Match expected size
-    if not concat_img:
+    if not sliding_window:
         transforms.extend([
             SpatialPadd(keys=keys, spatial_size=patch_size, mode='edge', 
                         allow_missing_keys=allow_missing_keys),
@@ -288,7 +293,11 @@ def get_classification_train_transforms(
         transforms.extend([
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=keys, name=target_key, dim=1,
+        ])
+    if concat_img:
+        ch_dim = 1 if sliding_window else 0
+        transforms.extend([
+            ConcatItemsd(keys=keys, name=target_key, dim=ch_dim,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)
         ])
@@ -301,6 +310,7 @@ def get_regression_train_transforms(
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    sliding_window: bool = False,
     target_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
@@ -357,7 +367,7 @@ def get_regression_train_transforms(
             ], weights=[1.0, 1.0]),
         ])
     # Match expected size
-    if not concat_img:
+    if not sliding_window:
         transforms.extend([
             SpatialPadd(keys=keys, spatial_size=patch_size, mode='edge', 
                         allow_missing_keys=allow_missing_keys),
@@ -368,7 +378,11 @@ def get_regression_train_transforms(
         transforms.extend([
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=keys, name=target_key, dim=1,
+        ])
+    if concat_img:
+        ch_dim = 1 if sliding_window else 0
+        transforms.extend([
+            ConcatItemsd(keys=keys, name=target_key, dim=ch_dim,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)
         ])
@@ -380,15 +394,37 @@ def get_segmentation_train_transforms(
     keys: list[str] = OPEN_KEYS,
     choose_one_of: bool = True,
     seg_key: str = "seg",
+    create_empty_seg: bool = True,
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
     target_key: str = "img",
+    sliding_window: bool = False,
     n_patches: int | Sequence[int] = (2, 2, 2),
+    n_pos: int = 1,
+    n_neg: int = 2,
     overfit: bool = False,
 ) -> list[Callable]:
     """
     IO transforms + augmentations for segmentation tasks.
+
+    Args:
+        patch_size: Patch size.
+        keys: Keys to load.
+        choose_one_of: Whether to choose one of the keys randomly.
+        seg_key: Key to load the segmentation mask.
+        create_empty_seg: Whether to create empty segmentation masks when missing.
+        allow_missing_keys: Whether to allow missing keys.
+        is_nifti: Whether the data is in NIfTI format; if True, reorient and normalize.
+        concat_img: Whether to concatenate the images.
+        target_key: Key to use as the target when `concat_img` or `choose_one_of` is True.
+        sliding_window: Whether to stack sliding window patches along `0` dimension.
+        n_patches: Number of patches to extract from image.
+            - If `sliding_window` is True, this is the number of patches to extract from each image.
+            - If `sliding_window` is False, this is the number of random crops from `RandCropByPosNegLabeld`.
+        n_pos: Relative weight of positive crops when `concat_img` is False.
+        n_neg: Relative weight of negative crops when `concat_img` is False.
+        overfit: Whether to overfit.
     """
     all_keys = [seg_key] + keys.copy()
     img_keys = keys.copy()
@@ -411,17 +447,24 @@ def get_segmentation_train_transforms(
     interp_mode = ['nearest'] + ['bilinear'] * len(img_keys)
     
     # Load data; normalize and reorient if NIfTI
+    _allow_missing_keys = allow_missing_keys or create_empty_seg
     if not is_nifti:
         transforms.extend([
             LoadImaged(keys=all_keys, reader='NumpyReader', ensure_channel_first=True, 
-                       allow_missing_keys=allow_missing_keys),
+                       allow_missing_keys=_allow_missing_keys),
         ])
     else:
         transforms.extend([
             LoadImaged(keys=all_keys, reader='NibabelReader', ensure_channel_first=True, 
-                       allow_missing_keys=allow_missing_keys),
-            Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
-            NormalizeIntensityd(keys=img_keys, allow_missing_keys=allow_missing_keys),
+                       allow_missing_keys=_allow_missing_keys),
+            Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=_allow_missing_keys),
+            NormalizeIntensityd(keys=img_keys, allow_missing_keys=_allow_missing_keys),
+        ])
+    
+    # Ensure seg mask exists
+    if create_empty_seg:
+        transforms.extend([
+            CreateEmptyMaskd(keys=img_keys, mask_key=seg_key, allow_missing_keys=_allow_missing_keys),
         ])
 
     # Augmentations
@@ -470,21 +513,33 @@ def get_segmentation_train_transforms(
             ])
 
     # Match expected size
-    if not concat_img or choose_one_of:
-        n_pos, n_neg = (1, 2) if not overfit else (1, 0)
+    if not sliding_window:
+        if not isinstance(n_patches, int):
+            msg = f"`n_patches` must be an integer when `sliding_window` is False."
+            logger.error(msg)
+            raise ValueError(msg)
+                
+        if overfit:
+            n_pos, n_neg = (1, 0)
+
         transforms.extend([
             SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode_spatial, 
                         allow_missing_keys=allow_missing_keys),
             RandCropByPosNegLabeld(keys=all_keys, label_key=seg_key, 
                                    spatial_size=patch_size, 
-                                   pos=n_pos, neg=n_neg, num_samples=1,
+                                   pos=n_pos, neg=n_neg, num_samples=n_patches,
                                    allow_missing_keys=allow_missing_keys),
         ])
     else:
         transforms.extend([
             SlidingWindowPatchd(keys=all_keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=img_keys, name=target_key, dim=1,
+        ])
+    
+    if concat_img and not choose_one_of:
+        ch_dim = 1 if sliding_window else 0
+        transforms.extend([
+            ConcatItemsd(keys=img_keys, name=target_key, dim=ch_dim,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=img_keys)
         ])
@@ -497,6 +552,7 @@ def get_downstream_val_transforms(
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    sliding_window: bool = False,
     target_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
@@ -520,7 +576,7 @@ def get_downstream_val_transforms(
         ])
 
     # Match expected size
-    if not concat_img:
+    if not sliding_window:
         transforms.extend([
             SpatialPadd(keys=keys, spatial_size=patch_size, mode='edge', 
                         allow_missing_keys=allow_missing_keys),
@@ -529,7 +585,11 @@ def get_downstream_val_transforms(
         transforms.extend([
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=keys, name=target_key, dim=1,
+        ])
+    if concat_img:
+        ch_dim = 1 if sliding_window else 0
+        transforms.extend([
+            ConcatItemsd(keys=keys, name=target_key, dim=ch_dim,
                         allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=keys)
         ])
@@ -543,6 +603,7 @@ def get_segmentation_val_transforms(
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    sliding_window: bool = False,
     target_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
 ) -> list[Callable]:
@@ -567,9 +628,9 @@ def get_segmentation_val_transforms(
             Orientationd(keys=all_keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, allow_missing_keys=allow_missing_keys),
         ])
-
+    
     # Match expected size
-    if not concat_img:
+    if not sliding_window:
         transforms.extend([
             SpatialPadd(keys=all_keys, spatial_size=patch_size, mode=pad_mode, 
                         allow_missing_keys=allow_missing_keys),
@@ -578,8 +639,12 @@ def get_segmentation_val_transforms(
         transforms.extend([
             SlidingWindowPatchd(keys=all_keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
-            ConcatItemsd(keys=all_keys, name=target_key, dim=1,
-                         allow_missing_keys=allow_missing_keys),
+        ])
+    if concat_img:
+        ch_dim = 1 if sliding_window else 0
+        transforms.extend([
+            ConcatItemsd(keys=all_keys, name=target_key, dim=ch_dim,
+                        allow_missing_keys=allow_missing_keys),
             DeleteItemsd(keys=all_keys)
         ])
     return transforms

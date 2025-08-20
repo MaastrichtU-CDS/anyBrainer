@@ -55,6 +55,8 @@ from anyBrainer.core.engines.mixins import (
     HParamsMixin,
     InfererMixin,
 )
+from anyBrainer.core.inferers.classification import SlidingWindowClassificationInferer
+from anyBrainer.core.networks import Swinv2ClassifierMidFusion
 
 logger = logging.getLogger(__name__)
 
@@ -936,3 +938,169 @@ class SegmentationModel(BaseModel):
 
         out = cast(torch.Tensor, self.postprocess(mu)) if do_postprocess else mu
         return (out, std_pred) if return_std else out
+
+
+@register(RK.PL_MODULE)
+class ClassificationMidFusionModel(BaseModel):
+    """
+    Classification model that fuses multiple modalities using mid-fusion.
+    Assumes that a mid-fusion layer is present in the model.
+
+    Assumes that the model is a `Swinv2ClassifierMidFusion` class, which 
+    performs mid-fusion of multiple modalities, before aggregating the spatial
+    dimensions of the feature maps. 
+
+    Proceeds to perform patch-level classification.
+    """
+    def __init__(
+        self,
+        *,
+        metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
+                  Callable | str | dict[str, Any] | None) = None,
+        flat_labels: bool = False,
+        label_thres: int = 0,
+        **base_model_kwargs,
+    ):
+        """
+        Args:
+            metrics: Metrics to compute.
+            flat_labels: If True, use (B,) torch.long labels; required for 
+                some losses, including nn.CrossEntropyLoss.
+            label_thres: Threshold for binarizing labels.
+
+        See `BaseModel` for expected `base_model_kwargs`.
+        """
+        super().__init__(**base_model_kwargs)
+
+        if not isinstance(self.model, Swinv2ClassifierMidFusion):
+            msg = (f"[{self.__class__.__name__}] Model does not have a "
+                   f"`Swinv2ClassifierMidFusion` class; cannot use mid-fusion.")
+            logger.error(msg)
+            raise ValueError(msg)
+        self._fusion_w: torch.Tensor = cast(torch.Tensor, self.model.fusion_weights) # type: ignore[attr-defined]
+
+        if hasattr(self.model, "spatial_dims"):
+            self.spatial_dims = cast(int, self.model.spatial_dims)
+        else:
+            logger.warning(f"[{self.__class__.__name__}] Spatial dimensions not found in model; "
+                           f"assuming 3D.")
+            self.spatial_dims = 3
+
+        self.metrics: list[Callable] = []
+        if metrics is not None:
+            if isinstance(metrics, str):
+                metrics = [metrics]
+            elif isinstance(metrics, dict):
+                metrics = [metrics]
+            elif callable(metrics):
+                metrics = [metrics]
+            self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
+        
+        self.flat_labels = flat_labels
+
+        logger.info(f"[{self.__class__.__name__}] Initialized with "
+                    f"metrics={[callable_name(m) for m in self.metrics]}, "
+                    f"flat_labels={self.flat_labels}.")
+    
+    def on_after_batch_transfer(self, batch: dict, dataloader_idx: int) -> dict[str, Any]:
+        """
+        Get input tensor to appropriate shape and labels to device.
+
+        Expects batch to at least have: 
+        - img: (B, N, *spatial_dims)
+        - seg: (B, *spatial_dims)
+        """
+        # Reshape for late fusion support:(B, N, *spatial_dims) -> (B, N, C, *spatial_dims)
+        x = batch['img']
+        if x.ndim == self.spatial_dims + 2: # n_late_fusion in channel_dim
+            x = x.unsqueeze(2)
+        elif x.ndim == self.spatial_dims + 3: # channel_dim already in place
+            pass
+        else:
+            msg = (f"[{self.__class__.__name__}] Expected input shape to be "
+                    f"(B, N, *spatial_dims) or (B, N, C, *spatial_dims), "
+                    f"but got {x.shape}.")
+            logger.error(msg)
+            raise ValueError(msg)
+        batch['img'] = x
+
+        # Get labels tensor to appropriate format
+        sums = batch['seg'].sum(dim=tuple(range(-self.spatial_dims, 0)))
+        lbl = (sums > self.label_thres).to(dtype=torch.float32)
+        batch['label'] = lbl if not self.flat_labels else lbl.squeeze(-1).to(dtype=torch.long)
+
+        return batch
+    
+    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Computes loss; override for more complex behavior."""
+        return self.loss_fn(out, target) # type: ignore
+
+    @torch.no_grad()
+    def compute_metrics(self, out: torch.Tensor, target: torch.Tensor) -> dict[str, Any]:
+        """Computes metrics; ignores if a metric fails."""
+        stats = {}
+        for m in self.metrics:
+            name = getattr(m, "__name__", m.__class__.__name__)
+            try:
+                val = m(out, target)
+            except Exception:
+                logger.exception(f"[{self.__class__.__name__}] Failed to compute "
+                                 f"metric {name}; skipping.")
+                continue
+
+            if isinstance(m, CumulativeIterationMetric):
+                agg = m.aggregate(reduction="mean")
+                if isinstance(agg, torch.Tensor):
+                    stats[name] = agg.item()
+                elif isinstance(agg, list):
+                    for metric_name, val in zip(m.metric_name, agg): # type: ignore[attr-defined]
+                        stats[f"{name}_{metric_name}"] = val.item()
+                else:
+                    msg = (f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
+                           f"aggregation type: {type(agg)}")
+                    logger.error(msg)
+                    raise ValueError(msg)
+                m.reset()
+            else:
+                stats[name] = val.mean().item()
+        return stats
+    
+    def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
+        """Logs step statistics."""
+        on_step = step_name == "train"
+        self.log_dict({f"{step_name}/{k}": v for k, v in log_dict.items()}, 
+                      on_step=on_step, on_epoch=True, prog_bar=False, 
+                      sync_dist=sync_dist_safe(self))
+
+    def training_step(self, batch: dict, batch_idx: int):
+        """Training step; computes loss and metrics."""
+        out = self.model(batch["img"])
+        loss = self.compute_loss(out, batch["label"])
+        stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["label"])
+        stats["loss"] = loss.item()
+        self.log_step("train", stats)
+        return loss
+    
+    def validation_step(self, batch: dict, batch_idx: int):
+        """Validation step; performs inference and computes metrics."""
+        out, _ = self.predict(batch, invert=False)
+        stats = self.compute_metrics(cast(torch.Tensor, out), batch["label"])
+        self.log_step("val", stats)
+    
+    def test_step(self, batch: dict, batch_idx: int) -> None:
+        """Test step; performs inference and computes metrics."""
+        out, _ = self.predict(batch, invert=False)
+        stats = self.compute_metrics(cast(torch.Tensor, out), batch["label"])
+        self.log_step("test", stats)
+    
+    def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Predict step; performs inference."""
+        return cast(torch.Tensor, self.predict(batch, invert=False))
+    
+    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
+        """Logs modality weights."""
+        if self.global_step % 20 == 0:
+            w = torch.softmax(self._fusion_w.detach(), dim=0).to("cpu", non_blocking=True)
+            vals = {f"train/modality_{i}": v for i, v in enumerate(w.tolist())}
+            self.log_dict(vals, on_step=False, on_epoch=True, prog_bar=False,
+                        sync_dist=sync_dist_safe(self))

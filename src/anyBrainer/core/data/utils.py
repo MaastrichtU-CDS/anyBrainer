@@ -11,14 +11,14 @@ from anyBrainer.factories import UnitFactory
 
 logger = logging.getLogger(__name__)
 
-def parse_filename_nested_nifti(file_path: Path | str, ext: str = ".npy") -> dict:
+def parse_filename_nested_nifti(file_path: Path | str) -> dict:
     """
     Parse filename with pattern: root/sub_x/ses_y/ModalityName_CountIfMoreThanOne.npy
     """
     file_path = Path(file_path)
 
     file_name = file_path.name
-    modality = file_name.split(ext)[0].split('_')[0]
+    modality = file_name.split('.')[0].split('_')[0]
     ses_dir = file_path.parent
     sub_dir = ses_dir.parent
 

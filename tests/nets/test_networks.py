@@ -5,7 +5,11 @@ import torch
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
-from anyBrainer.core.networks import Swinv2CL, Swinv2Classifier
+from anyBrainer.core.networks import (
+    Swinv2CL, 
+    Swinv2Classifier,
+    Swinv2ClassifierMidFusion,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -150,3 +154,81 @@ class TestSwinv2Classifier:
         """Test that the model raises an error if the spatial dimensions are wrong."""
         with pytest.raises(ValueError):
             model_w_fusion(torch.randn(8, 4, 8, 1, 128, 128))
+
+
+class TestSwinv2ClassifierMidFusion:
+    @pytest.mark.parametrize("aggregator", ["noisy_or", "lse", "topk"])
+    def test_forward_different_aggregators(self, aggregator):
+        """Test that the model can forward pass."""
+        model = Swinv2ClassifierMidFusion(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            n_classes=2,
+            n_fusion=4,
+            aggregator=aggregator,
+        )
+        output = model(torch.randn(8, 4, 1, 128, 128, 128))
+        assert output.shape == (8, 2)
+    
+    @pytest.mark.parametrize("n_classes", [1, 2, 4, 8])
+    def test_forward_different_n_classes(self, n_classes):
+        """Test that the model can forward pass."""
+        model = Swinv2ClassifierMidFusion(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            n_classes=n_classes,
+            n_fusion=4,
+        )
+        output = model(torch.randn(8, 4, 1, 128, 128, 128))
+        assert output.shape == (8, n_classes)
+    
+    def test_wrong_n_fusion(self):
+        """Test that the model raises an error if the number of modalities is wrong."""
+        model = Swinv2ClassifierMidFusion(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            n_fusion=4,
+        )
+        with pytest.raises(ValueError):
+            model(torch.randn(8, 3, 1, 128, 128, 128))
+    
+    def test_wrong_in_channels(self):
+        """Test that the model raises an error if the number of input channels is wrong."""
+        model = Swinv2ClassifierMidFusion(
+            in_channels=3,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            n_fusion=4,
+        )
+        with pytest.raises(ValueError):
+            model(torch.randn(8, 4, 2, 128, 128, 128))
+    
+    def test_wrong_spatial_dims(self):
+        """Test that the model raises an error if the spatial dimensions are wrong."""
+        model = Swinv2ClassifierMidFusion(
+            in_channels=1,
+            depths=(2, 2, 6, 2),
+            num_heads=(3, 6, 12, 24),
+            window_size=7,
+            patch_size=2,
+            use_v2=True,
+            spatial_dims=3,
+            n_fusion=4,
+        )
+        with pytest.raises(ValueError):
+            model(torch.randn(8, 4, 1, 128, 128))

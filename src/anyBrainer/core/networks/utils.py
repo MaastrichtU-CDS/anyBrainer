@@ -4,6 +4,8 @@ from typing import Sequence, Any
 
 import logging
 
+import torch
+
 logger = logging.getLogger(__name__)
 
 

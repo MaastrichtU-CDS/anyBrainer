@@ -129,10 +129,10 @@ def test_get_total_norm(model_with_grads):
 
 def test_load_encoder_from_checkpoint(classification_model_w_encoder):
     """Test that the encoder is loaded correctly."""
-    model, stats = load_param_group_from_ckpt(
+    _, stats = load_param_group_from_ckpt(
         model_instance=classification_model_w_encoder,
         checkpoint_path=Path("test.pt"),
-        param_group_prefix="encoder",
+        select_prefixes="encoder",
     )
     print(stats)
     assert len(stats["loaded_keys"]) == 8

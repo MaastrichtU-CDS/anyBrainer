@@ -130,8 +130,7 @@ class BaseDataModule(pl.LightningDataModule):
         """
         super().__init__()
         self.data_dir = resolve_path(data_dir)
-        data_handler_kwargs = data_handler_kwargs or {}
-        self.data_handler_kwargs = data_handler_kwargs
+        self.data_handler_kwargs = data_handler_kwargs or {}
         extra_dataloader_kwargs = extra_dataloader_kwargs or {}
         self.extra_dataloader_kwargs = extra_dataloader_kwargs
         self.batch_size = batch_size
@@ -612,6 +611,9 @@ class ClassificationDataModule(BaseDataModule):
 
     The `labels_dir` should be either a directory with the same structure as `data_dir`
     or `data_dir` itself. The label is retrieved from `labels_filename`.
+
+    Optionally attaches segmentation masks to positive samples, if `get_seg_masks` is True.
+    The segmentation mask is retrieved from `seg_dir` and `seg_filename`.
     """
     def __init__(
         self,
@@ -621,6 +623,9 @@ class ClassificationDataModule(BaseDataModule):
         expected_labels: list[str] | list[int] = ['0', '1'],
         strict: bool = False,
         modalities: list[str] | None = None,
+        get_seg_masks: bool = False,
+        seg_dir: Path | str | None = None,
+        seg_filename: str = "seg.npy",
         **base_module_kwargs,
     ):
         """
@@ -633,13 +638,15 @@ class ClassificationDataModule(BaseDataModule):
         - strict: Whether to raise an error when label does not match expected labels. 
             If False, it skips the session; can be used for label filtering.
         - modalities: List of modalities to include. If None, all modalities are included.
-
+        - get_seg_masks: Whether to attach segmentation masks to positive samples.
+        - seg_dir: Directory containing segmentation masks with naming pattern 
+          any structure mirroring the data_dir.
+        - seg_filename: Name of the segmentation mask file
         See `BaseDataModule` for all initialization parameters.
         """
         super().__init__(**base_module_kwargs)
 
-        self.labels_dir = (resolve_path(labels_dir) 
-                           if labels_dir is not None else self.data_dir)
+        self.labels_dir = resolve_path(labels_dir) if labels_dir is not None else self.data_dir
         self.labels_filename = labels_filename
 
         if len(expected_labels) == 2 and all(isinstance(l, int) for l in expected_labels):
@@ -651,6 +658,10 @@ class ClassificationDataModule(BaseDataModule):
 
         self.strict = strict
         self.modalities = modalities
+        
+        self.get_seg_masks = get_seg_masks
+        self.seg_dir = resolve_path(seg_dir) if seg_dir is not None else self.data_dir
+        self.seg_filename = seg_filename
         
         # Will get populated in setup()
         self.train_label_mean: float | None = None
@@ -669,6 +680,7 @@ class ClassificationDataModule(BaseDataModule):
         used_sessions = set()
         used_modality_counts = Counter()
         label_counts = Counter()
+        seg_counts = Counter()
 
         for session, session_files in tqdm(grouped_data["grouped_data"].items(), 
                                   desc="Creating data list"):
@@ -709,10 +721,18 @@ class ClassificationDataModule(BaseDataModule):
                 'label': label,
             }
 
-            for i, f in enumerate(session_files):
-                session_entry[f"img_{i}"] = f['file_name']
-                session_entry[f"mod_{i}"] = f['modality']
+            for f in session_files:
+                session_entry[f"{f['modality']}"] = f['file_name']
                 used_modality_counts[f['modality']] += 1
+            
+            # Optionally get segmentation masks; allows missing
+            if self.get_seg_masks:
+                seg_path = (self.seg_dir / 
+                            file_metadata['file_name'].relative_to(self.data_dir).parent / 
+                            self.seg_filename)
+                if seg_path.exists():
+                    session_entry['seg'] = seg_path
+                    seg_counts[label] += 1
 
             used_subjects.add(file_metadata['sub_id'])
             used_sessions.add(f"{file_metadata['sub_id']}_{file_metadata['ses_id']}")
@@ -720,12 +740,18 @@ class ClassificationDataModule(BaseDataModule):
 
             list_of_dicts.append(session_entry)
 
-        logger.info(get_summary_msg_w_labels(
+        msg = get_summary_msg_w_labels(
             used_subjects,
             used_sessions,
             used_modality_counts,
             label_counts,
-        ))
+        )
+        if self.get_seg_masks:
+            msg += f"\n  - Segmentation mask counts:"
+            for label, count in seg_counts.items():
+                msg += f"\n    - {label}: {count} files "
+
+        logger.info(msg)
 
         return list_of_dicts
 
@@ -812,9 +838,8 @@ class SegmentationDataModule(BaseDataModule):
                 if self.seg_filename in cast(Path, f['file_name']).name:
                     session_files.pop(i)
 
-            for i, f in enumerate(session_files):
-                session_entry[f"img_{i}"] = f['file_name']
-                session_entry[f"mod_{i}"] = f['modality']
+            for f in session_files:
+                session_entry[f"{f['modality']}"] = f['file_name']
                 used_modality_counts[f['modality']] += 1
 
             used_subjects.add(file_metadata['sub_id'])

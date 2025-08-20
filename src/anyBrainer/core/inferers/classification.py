@@ -12,13 +12,15 @@ import torch.nn.functional as F
 from monai.inferers.inferer import (
     Inferer,
 )
-from monai.data.utils import dense_patch_slices
 
 from anyBrainer.core.inferers.utils import (
     get_patch_gaussian_weight,
 )
 from anyBrainer.core.utils import (
     ensure_tuple_dim,
+    noisy_or_bag_logits,
+    lse_bag_logits_from_instance_logits,
+    topk_mean_bag_logits,
 )
 from anyBrainer.core.transforms.unit_transforms import (
     SlidingWindowPatch,
@@ -35,16 +37,24 @@ class SlidingWindowClassificationInferer(Inferer):
     Collects classification predictions from a sliding window and 
     optionally assigns a single label. 
 
-    Predictions are then aggregated using a weighted average, based
-    on the gaussian distance from the center of the image. 
+    Predictions are then aggregated using standard voting schemes or MIL-based aggregation.
+    - `weighted`: weighted average, based on the gaussian distance from the center of the image.
+    - `mean`: mean of the predictions.
+    - `majority`: majority vote.
+    - `noisy_or`: noisy OR aggregation.
+    - `none`: no aggregation.
     """
     def __init__(
         self, 
         patch_size: int | Sequence[int],
         overlap: float | Sequence[float],
+        spatial_dims: int = 3,
         padding_mode: str = "constant",
-        aggregation_mode: Literal["weighted", "mean", "majority", "none"] = "weighted",
+        aggregation_mode: Literal["weighted", "mean", "majority", "none", "noisy_or", "lse", "topk"] = "noisy_or",
         apply_activation: bool = True,
+        *,
+        topk: int = 4,
+        tau: float = 2.0,
     ):
         """
         Args:
@@ -55,20 +65,24 @@ class SlidingWindowClassificationInferer(Inferer):
         - apply_activation: Whether to apply activation to the predictions;
             softmax for multiclass, sigmoid for binary.
         """
-        self.patch_size = patch_size
-        self.overlap = overlap
+        self.spatial_dims = spatial_dims
+        self.patch_size = ensure_tuple_dim(patch_size, self.spatial_dims)
+        self.overlap = ensure_tuple_dim(overlap, self.spatial_dims)
         self.padding_mode = padding_mode
-        if aggregation_mode not in ["weighted", "mean", "majority", "none"]:
+        if aggregation_mode not in ["weighted", "mean", "majority", "none", "noisy_or", "lse", "topk"]:
             msg = f"Invalid aggregation mode: {aggregation_mode}"
             raise ValueError(msg)
         self.aggregation_mode = aggregation_mode
         self.apply_activation = apply_activation
+        self.topk = int(topk)
+        self.tau = float(tau)
 
         logger.info(f"[{self.__class__.__name__}] Initialised with "
                     f"patch_size={patch_size}, overlap={overlap}, "
                     f"padding_mode={padding_mode}, "
                     f"aggregation_mode={aggregation_mode}, "
-                    f"apply_activation={apply_activation}")
+                    f"apply_activation={apply_activation}, "
+                    f"topk={topk}, tau={tau}")
     
     def __call__(self, 
         inputs: torch.Tensor, 
@@ -79,75 +93,85 @@ class SlidingWindowClassificationInferer(Inferer):
         - inputs: The input tensor.
         - network: The network to use for inference.
         """
-        try:
-            B, C, *spatial = inputs.shape
-        except ValueError:
-            logger.exception(f"Inputs must have at least B, C, *spatial dimensions, "
-                             f"got {inputs.shape}")
-            raise
+        if inputs.ndim != self.spatial_dims + 2: # (B, C, *spatial_dims)
+            msg = f"Inputs must have {self.spatial_dims + 2} dimensions, " \
+                  f"got {inputs.ndim}"
+            logger.error(msg)
+            raise ValueError(msg)
+        
+        B, C, *spatial = inputs.shape
         
         device = inputs.device
-        n_dim = len(spatial)
-        patch_size = ensure_tuple_dim(self.patch_size, n_dim)
-        overlap = ensure_tuple_dim(self.overlap, n_dim)
 
         # Get slices for patches
         slice_extractor = SlidingWindowPatch(
-            patch_size=patch_size,
-            overlap=overlap,
+            patch_size=self.patch_size,
+            overlap=self.overlap,
             padding_mode=self.padding_mode,
             spatial_dims=len(spatial),
         )
         slice_extractor(inputs)
         slices = slice_extractor.slices
+        P = len(slices)
 
-        img_center = [(s - 1) / 2.0 for s in spatial]
-        sigma = [ps / 2.0 for ps in patch_size]
-        weights: list[float] = []
-
-        if self.aggregation_mode == "weighted":
-            for slc in slices:
-                start_idxs = [s.start for s in slc]
-                center = [start + ps / 2.0 for start, ps in zip(start_idxs, patch_size)]
-                weights.append(get_patch_gaussian_weight(center, img_center, sigma))
-        elif self.aggregation_mode == "mean":
-            weights = [1.0] * len(slices)
-
-        weight_tensor = torch.tensor(weights, device=device) # (N_patches,)
-        weight_tensor = weight_tensor / weight_tensor.sum() # normalise
-
-        # Get predictions per patch
-        prob_lists: list[torch.Tensor] = [] # (N_patches, B, num_classes)
+        logits_list: list[torch.Tensor] = []
         for slc in slices:
-            patch = inputs[(slice(None), slice(None)) + slc] # (B, C, *patch_size)
-            logits = network(patch) # (B, num_classes)
-            if self.apply_activation:
-                if logits.shape[1] == 1:
-                    probs = torch.sigmoid(logits) # (B, 1)
-                else:
-                    probs = torch.softmax(logits, dim=1) # (B, num_classes)
-            else:
-                probs = logits # raw logits
-            prob_lists.append(probs)
-        
-        probs_all = torch.stack(prob_lists, dim=0).permute(1, 0, 2) # (B, N_patches, num_classes)
+            patch = inputs[(slice(None), slice(None)) + slc]  # (B, C, *patch_size)
+            logits = network(patch)  # (B, num_classes)
+            logits_list.append(logits)
+        logits_all = torch.stack(logits_list, dim=1) # (B, P, n_classes)
 
         # Aggregate predictions
-        num_classes = probs_all.shape[-1]
+        if self.aggregation_mode == "topk":
+            z = logits_all.transpose(1, 2) # (B, n_classes, P)
+            logits = topk_mean_bag_logits(z, dims=(-1,), k=self.topk) # (B, n_classes)
 
-        if self.aggregation_mode == "none":
-            return probs_all
+        elif self.aggregation_mode == "lse":
+            z = logits_all.transpose(1, 2) # (B, n_classes, P)
+            logits = lse_bag_logits_from_instance_logits(z, dims=(-1,), tau=self.tau)
 
-        if self.aggregation_mode == "majority":
-            if num_classes == 1:
-                # Binary: vote on sigmoid output ≥ 0.5
-                patch_preds = (probs_all >= 0.5).long().squeeze(-1)  # (B, N_patches)
-                majority_vote = torch.mode(patch_preds, dim=1).values  # (B,)
-                return majority_vote.unsqueeze(1).float()  # (B, 1)
-            else:
-                # Multi-class: vote on argmax
-                patch_preds = probs_all.argmax(dim=2)  # (B, N_patches)
-                majority_vote = torch.mode(patch_preds, dim=1).values  # (B,)
-                return F.one_hot(majority_vote, num_classes).float()  # (B, num_classes)
+        elif self.aggregation_mode == "noisy_or":
+            z = logits_all.transpose(1, 2) # (B, n_classes, P)
+            logits = noisy_or_bag_logits(z, dims=(-1,))
+            
+        elif self.aggregation_mode == "mean":
+            logits = logits_all.mean(dim=1)
 
-        return (probs_all * weight_tensor.view(1, -1, 1)).sum(dim=1) # (B, n_classes)
+        elif self.aggregation_mode == "weighted":
+            img_center = [(s - 1) / 2.0 for s in spatial]
+            sigma = [ps / 2.0 for ps in self.patch_size]
+            weights = []
+            for slc in slices:
+                start_idxs = [s.start for s in slc]
+                center = [start + ps / 2.0 for start, ps in zip(start_idxs, self.patch_size)]
+                weights.append(get_patch_gaussian_weight(center, img_center, sigma))
+            w = torch.as_tensor(weights, device=device, dtype=logits_all.dtype) # (P,)
+            w = w / (w.sum() + 1e-12)
+            logits = (logits_all * w.view(1, -1, 1)).sum(dim=1) # (B, n_classes)
+
+        elif self.aggregation_mode == "majority":
+            probs_all = (torch.sigmoid(logits_all) if logits_all.shape[1] == 1
+                         else torch.softmax(logits_all, dim=-1))
+            preds = probs_all.argmax(dim=2) # (B, P)
+            votes = torch.mode(preds, dim=1).values # (B,)
+            return F.one_hot(votes, probs_all.shape[-1]).float() # (B, n_classes)
+
+        elif self.aggregation_mode == "none":
+            # return all per-patch logits/probs
+            if self.apply_activation:
+                if logits_all.shape[-1] == 1:
+                    return torch.sigmoid(logits_all) # (B, P, 1)
+                return torch.softmax(logits_all, dim=-1) # (B, P, n_classes)
+            return logits_all # (B, P, n_classes)
+
+        else:
+            msg = f"Unknown aggregation mode: {self.aggregation_mode}"
+            logger.error(msg)
+            raise ValueError(msg)
+
+        # Final activation
+        if self.apply_activation and self.aggregation_mode not in ("majority"):
+            if logits.shape[1] == 1:
+                return torch.sigmoid(logits) # (B, 1)
+            return torch.softmax(logits, dim=1) # (B, n_classes)
+        return logits # (B, n_classes)
