@@ -569,14 +569,14 @@ class ClassificationModel(BaseModel):
         """Training step; computes loss and metrics."""
         out = self.model(batch["img"])
         loss = self.compute_loss(out, batch["label"])
-        stats = self.compute_metrics(out, batch["label"])
+        stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["label"])
         stats["loss"] = loss.item()
         self.log_step("train", stats)
         return loss
     
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
-        out = self.inferer(batch["img"], self.model)
+        out = cast(torch.Tensor, self.predict(batch, invert=False))
         loss = self.compute_loss(out, batch["label"])
         stats = self.compute_metrics(out, batch["label"])
         stats["loss"] = loss.item()
@@ -585,13 +585,13 @@ class ClassificationModel(BaseModel):
     
     def test_step(self, batch: dict, batch_idx: int) -> None:
         """Test step; performs inference and computes metrics."""
-        out = self.inferer(batch["img"], self.model)
+        out = cast(torch.Tensor, self.predict(batch, invert=False))
         stats = self.compute_metrics(out, batch["label"])
         self.log_step("test", stats)
     
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Predict step; performs sliding window inference."""
-        out = self.inferer(batch["img"], self.model)
+        out = cast(torch.Tensor, self.predict(batch, invert=False))
         return out
     
     def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
