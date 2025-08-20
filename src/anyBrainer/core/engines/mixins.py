@@ -1,6 +1,7 @@
 """Mixin classes for Pytorch Lightning modules."""
 
 from __future__ import annotations
+from os import ttyname
 
 __all__ = [
     "ModelInitMixin",
@@ -21,7 +22,7 @@ from monai.inferers.inferer import Inferer
 #pyright: reportPrivateImportUsage=false
 from monai.transforms import (
     Compose,
-    InvertibleTransform,
+    Identity,
     Transform,
 )
 
@@ -452,20 +453,34 @@ class InfererMixin(PLModuleMixin):
             self.postprocess = Compose(postprocess)
         elif callable(postprocess):
             self.postprocess = postprocess
+        elif postprocess is None:
+            self.postprocess = Identity()
         else:
             msg = (f"[{self.__class__.__name__}] `postprocess` transforms must be a list of "
-                   f"transforms or a callable object, got {type(postprocess).__name__}.")
+                   f"transforms or a callable object, or None, got {type(postprocess).__name__}.")
             logger.error(msg)
             raise TypeError(msg)
         
-        self.tta = cast(list[Compose], resolve_transform(inference_settings.get("tta")))
+        tta = resolve_transform(inference_settings.get("tta"))
+        if isinstance(tta, list):
+            self.tta = cast(list[Compose], tta)
+        elif callable(tta):
+            self.tta = [tta]
+        elif tta is None:
+            self.tta = None
+        else:
+            msg = (f"[{self.__class__.__name__}] `tta` must be a list of transforms, "
+                   f"a callable object, or None, got {type(tta).__name__}.")
+            logger.error(msg)
+            raise TypeError(msg)
+        
         self.inferer = UnitFactory.get_inferer_instance_from_kwargs(
             inference_settings.get("inferer_kwargs", {"name": "SimpleInferer"})
         )
 
         logger.info(f"[InfererMixin] Instantiated inferer: {self.inferer.__class__.__name__}, "
                     f"postprocess transforms: {callable_name(postprocess)}, "
-                    f"TTA transforms: {len(self.tta)}.")
+                    f"TTA transforms: {callable_name(tta)}.")
 
     @torch.no_grad()
     def predict(
