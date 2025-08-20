@@ -30,7 +30,7 @@ def top1_accuracy(
     logits: torch.Tensor,
     targets: torch.Tensor,
     is_one_hot: bool = False,
-    is_logits: bool = True,
+    is_logits: bool = False,
     threshold: float = 0.5,
 ) -> torch.Tensor:
     """
