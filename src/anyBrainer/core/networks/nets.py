@@ -282,11 +282,11 @@ class Swinv2ClassifierMidFusion(nn.Module):
         feature_size: int = 48,
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
-        spatial_dims: int = 3,
 
         # Head / fusion
         n_classes: int = 1,
         n_fusion: int = 1,
+        spatial_dims: int = 3,
         share_encoder: bool = True,
         aggregator: Literal["noisy_or", "lse", "topk"] = "noisy_or",
         tau: float = 2.0,

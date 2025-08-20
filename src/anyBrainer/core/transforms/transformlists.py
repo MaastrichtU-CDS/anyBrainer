@@ -392,15 +392,15 @@ def get_regression_train_transforms(
 def get_segmentation_train_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128),
     keys: list[str] = OPEN_KEYS,
-    choose_one_of: bool = True,
     seg_key: str = "seg",
     create_empty_seg: bool = True,
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    choose_one_of: bool = False,
     target_key: str = "img",
     sliding_window: bool = False,
-    n_patches: int | Sequence[int] = (2, 2, 2),
+    n_patches: int | Sequence[int] = 1,
     n_pos: int = 1,
     n_neg: int = 2,
     overfit: bool = False,
@@ -610,6 +610,9 @@ def get_segmentation_val_transforms(
 ) -> list[Callable]:
     """
     IO transforms for segmentation tasks.
+
+    See `get_segmentation_train_transforms` for parameter documentation.
+    Here `n_samples` is used only when `sliding_window` is True.
     """
     img_keys = keys.copy()
     all_keys = [seg_key] + img_keys
