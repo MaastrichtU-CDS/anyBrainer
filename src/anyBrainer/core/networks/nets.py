@@ -260,6 +260,7 @@ class Swinv2Classifier(nn.Module):
         return self.classification_head(feats)
 
 
+@register(RK.NETWORK)
 class Swinv2ClassifierMidFusion(nn.Module):
     """
     Swin ViT V2 classifier with mid-level fusion.
