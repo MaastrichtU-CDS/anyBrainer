@@ -972,8 +972,6 @@ class ClassificationMidFusionModel(BaseModel):
         """
         super().__init__(**base_model_kwargs)
 
-        logger.info(self.summarize())
-
         if not isinstance(self.model, Swinv2ClassifierMidFusion):
             msg = (f"[{self.__class__.__name__}] Model does not have a "
                    f"`Swinv2ClassifierMidFusion` class; cannot use mid-fusion.")

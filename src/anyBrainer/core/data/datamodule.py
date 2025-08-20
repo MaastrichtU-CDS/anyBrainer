@@ -646,8 +646,6 @@ class ClassificationDataModule(BaseDataModule):
         """
         super().__init__(**base_module_kwargs)
 
-        print(self.train_transforms)
-
         self.labels_dir = resolve_path(labels_dir) if labels_dir is not None else self.data_dir
         self.labels_filename = labels_filename
 
