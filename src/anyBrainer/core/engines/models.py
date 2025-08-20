@@ -972,6 +972,8 @@ class ClassificationMidFusionModel(BaseModel):
         """
         super().__init__(**base_model_kwargs)
 
+        self.summarize()
+
         if not isinstance(self.model, Swinv2ClassifierMidFusion):
             msg = (f"[{self.__class__.__name__}] Model does not have a "
                    f"`Swinv2ClassifierMidFusion` class; cannot use mid-fusion.")
@@ -1010,6 +1012,7 @@ class ClassificationMidFusionModel(BaseModel):
         - img: (B, N, *spatial_dims)
         - seg: (B, *spatial_dims)
         """
+        print(batch)
         # Reshape for late fusion support:(B, N, *spatial_dims) -> (B, N, C, *spatial_dims)
         x = batch['img']
         if x.ndim == self.spatial_dims + 2: # n_late_fusion in channel_dim
