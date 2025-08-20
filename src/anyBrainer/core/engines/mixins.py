@@ -447,14 +447,25 @@ class InfererMixin(PLModuleMixin):
         inference_settings = deepcopy(inference_settings)
 
         # Resolve postprocess, tta, and inferer
-        self.postprocess = Compose(resolve_transform(inference_settings.get("postprocess")))
+        postprocess = resolve_transform(inference_settings.get("postprocess"))
+        if isinstance(postprocess, list):
+            self.postprocess = Compose(postprocess)
+        elif callable(postprocess):
+            self.postprocess = postprocess
+        else:
+            msg = (f"[{self.__class__.__name__}] `postprocess` transforms must be a list of "
+                   f"transforms or a callable object, got {type(postprocess).__name__}.")
+            logger.error(msg)
+            raise TypeError(msg)
+        
         self.tta = cast(list[Compose], resolve_transform(inference_settings.get("tta")))
         self.inferer = UnitFactory.get_inferer_instance_from_kwargs(
             inference_settings.get("inferer_kwargs", {"name": "SimpleInferer"})
         )
 
         logger.info(f"[InfererMixin] Instantiated inferer: {self.inferer.__class__.__name__}, "
-                    f"postprocess transforms: {callable_name(self.postprocess)}.")
+                    f"postprocess transforms: {callable_name(postprocess)}, "
+                    f"TTA transforms: {len(self.tta)}.")
 
     @torch.no_grad()
     def predict(
