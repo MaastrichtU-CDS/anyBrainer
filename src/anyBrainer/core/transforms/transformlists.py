@@ -654,9 +654,9 @@ def get_segmentation_val_transforms(
     if concat_img:
         ch_dim = 1 if sliding_window else 0
         transforms.extend([
-            ConcatItemsd(keys=all_keys, name=target_key, dim=ch_dim,
+            ConcatItemsd(keys=img_keys, name=target_key, dim=ch_dim,
                         allow_missing_keys=allow_missing_keys),
-            DeleteItemsd(keys=all_keys)
+            DeleteItemsd(keys=img_keys)
         ])
     return transforms
 
