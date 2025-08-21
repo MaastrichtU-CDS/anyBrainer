@@ -9,6 +9,8 @@ from anyBrainer.core.networks import (
     Swinv2CL, 
     Swinv2Classifier,
     Swinv2ClassifierMidFusion,
+    Swinv2LateFusionFPNDecoder,
+    FPNLightDecoder3D,
 )
 
 
@@ -22,10 +24,27 @@ def mock_swin_vit(monkeypatch):
     def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
         gen = torch.Generator().manual_seed(42)
-        x = [torch.rand((8, 768, 4, 4, 4), dtype=torch.float32, generator=gen)]
+        x = [   
+                torch.rand((8, 48, 64, 64, 64), dtype=torch.float32, generator=gen),
+                torch.rand((8, 96, 32, 32, 32), dtype=torch.float32, generator=gen),
+                torch.rand((8, 192, 16, 16, 16), dtype=torch.float32, generator=gen),
+                torch.rand((8, 384, 8, 8, 8), dtype=torch.float32, generator=gen),
+                torch.rand((8, 768, 4, 4, 4), dtype=torch.float32, generator=gen),
+            ]
         return x
 
     monkeypatch.setattr(SwinViT, "forward", _dummy_call, raising=True)
+
+@pytest.fixture(autouse=True)
+def mock_fpn_decoder(monkeypatch):
+    """
+    Mock FPN decoder to yield batch size of 8, 2 channels, and spatial dimensions of 128.
+    """
+    def _dummy_call(self, *args, **kwargs):
+        # Create data with the shape the pipeline expects
+        gen = torch.Generator().manual_seed(42)
+        return torch.rand((8, 2, 128, 128, 128), dtype=torch.float32, generator=gen)
+    monkeypatch.setattr(FPNLightDecoder3D, "forward", _dummy_call, raising=True)
 
 
 class TestSwinv2CL:
@@ -237,18 +256,32 @@ class TestSwinv2ClassifierMidFusion:
         )
         with pytest.raises(ValueError):
             model(torch.randn(8, 4, 2, 128, 128, 128))
-    
-    def test_wrong_spatial_dims(self):
-        """Test that the model raises an error if the spatial dimensions are wrong."""
-        model = Swinv2ClassifierMidFusion(
+
+
+class TestSwinv2LateFusionFPNDecoder:
+    @pytest.fixture
+    def model(self):
+        return Swinv2LateFusionFPNDecoder(
+            n_late_fusion=4,
             in_channels=1,
-            depths=(2, 2, 6, 2),
-            num_heads=(3, 6, 12, 24),
-            window_size=7,
-            patch_size=2,
-            use_v2=True,
-            spatial_dims=3,
-            n_fusion=4,
+            out_channels=2,
         )
+
+    def test_initialization(self, model):
+        """Test that the model initializes correctly."""
+        assert model.fusion_weights.size() == (6, 4)
+    
+    def test_forward(self, model):
+        """Test that the model can forward pass."""
+        output = model(torch.randn(8, 4, 1, 128, 128, 128))
+        assert output.shape == (8, 2, 128, 128, 128)
+    
+    @pytest.mark.parametrize("in_shape", [
+        (8, 3, 128, 128, 128),
+        (8, 4, 2, 128, 128, 128),
+        (8, 4, 128, 128),
+    ])
+    def test_wrong_in_shape(self, model, in_shape):
+        """Test that the model raises an error if the input shape is wrong."""
         with pytest.raises(ValueError):
-            model(torch.randn(8, 4, 1, 128, 128))
+            model(torch.randn(*in_shape))
