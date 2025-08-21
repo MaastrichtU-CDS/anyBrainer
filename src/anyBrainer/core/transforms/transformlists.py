@@ -22,6 +22,7 @@ from monai.transforms import (
     Compose,
     OneOf,
     DeleteItemsd,
+    ClipIntensityPercentilesd,
     ConcatItemsd,
     Orientationd,
     NormalizeIntensityd,
@@ -330,6 +331,8 @@ def get_regression_train_transforms(
             LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
+            ClipIntensityPercentilesd(keys=keys, lower=0.5, upper=99.5, 
+                       allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys),
         ])
     
