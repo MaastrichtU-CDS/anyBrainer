@@ -786,7 +786,7 @@ class SegmentationModel(BaseModel):
     
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
-        out_no_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=False))
+        out_no_tta = cast(torch.Tensor, self.predict(batch, do_tta=False))
         
         # Non-TTA stats; regular val/
         loss = self.compute_loss(out_no_tta, batch["seg"])
@@ -796,7 +796,7 @@ class SegmentationModel(BaseModel):
 
         # TTA stats; log mean and std
         if self.tta:
-            out_tta = cast(torch.Tensor, self._shared_inference(batch, do_tta=True))
+            out_tta = cast(torch.Tensor, self.predict(batch, do_tta=True))
             stats = self.compute_metrics(out_tta, batch["seg"])
             stats["loss"] = loss.item()
             self.log_step("val_tta", stats)
@@ -805,7 +805,7 @@ class SegmentationModel(BaseModel):
         
     def test_step(self, batch: dict, batch_idx: int) -> None:
         """Test step; performs inference and computes metrics."""
-        mean = cast(torch.Tensor, self._shared_inference(batch))
+        mean = cast(torch.Tensor, self.predict(batch))
         stats = self.compute_metrics(mean, batch["seg"])
         self.log_step("test", stats)
     
@@ -813,7 +813,7 @@ class SegmentationModel(BaseModel):
         """Predict step; performs sliding window inference."""
         return cast(
             torch.Tensor, 
-            self._shared_inference(batch, return_std=self.get_uncertainty)
+            self.predict(batch, return_std=self.get_uncertainty)
         )
 
     def _shared_inference(
@@ -834,6 +834,8 @@ class SegmentationModel(BaseModel):
         Fuse segmentation logits across multiple images (img_*) using uncertainty weights.
         Works for shapes (B, C, H, W, D) or (B, 1, ...). Averages in logit space based on
         the standard deviation of the TTA outputs.
+
+        Uses same API with `predict` method, but with additional arguments.
         """
         infer_keys = [k for k in batch if k.startswith("img_")]
         if not infer_keys:
