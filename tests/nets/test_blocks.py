@@ -7,6 +7,7 @@ from anyBrainer.core.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
     FusionHead,
+    FPNLightDecoder3D,
 )
 
 @pytest.fixture(scope="module")
@@ -146,3 +147,35 @@ class TestFusionHead:
         with pytest.raises(ValueError):
             fusion_head = FusionHead(n_fusion=4, mod_only=True)
             fusion_head(torch.randn(4, 3, 768)) # type: ignore
+
+
+class TestFPNLightDecoder3D:
+    """Test FPNLightDecoder3D in terms of shape, and error handling."""
+    @pytest.fixture
+    def decoder(self):
+        return FPNLightDecoder3D(in_feats=[48, 96, 192, 384, 768], in_chans=1, out_channels=2)
+    
+    @pytest.mark.slow
+    def test_forward(self, decoder):
+        output = decoder(
+            torch.randn(4, 1, 64, 64, 64),
+            [
+                torch.randn(4, 48, 32, 32, 32),
+                torch.randn(4, 96, 16, 16, 16),
+                torch.randn(4, 192, 8, 8, 8),
+                torch.randn(4, 384, 4, 4, 4),
+                torch.randn(4, 768, 2, 2, 2),
+            ]
+        )
+        assert output.shape == (4, 2, 64, 64, 64)
+    
+    def test_wrong_shape_feats(self, decoder):
+        with pytest.raises(ValueError):
+            decoder(
+                torch.randn(4, 1, 64, 64, 64), 
+                [
+                    torch.randn(4, 48, 32, 32, 32),
+                    torch.randn(4, 96, 16, 16, 16),
+                    torch.randn(4, 192, 8, 8, 8),
+                ]
+            )

@@ -109,6 +109,9 @@ class TestSwinv2Classifier:
             mlp_activation_kwargs={"negative_slope": 0.1},
         )
         output = model(input_tensor)
+        enc_out = model.encoder(input_tensor)
+        for i, e in enumerate(enc_out):
+            print(f"enc_out[{i}].shape: {e.shape}")
         assert output.shape == (8, mlp_num_classes)
 
     @pytest.mark.slow

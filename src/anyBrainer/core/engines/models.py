@@ -579,7 +579,7 @@ class ClassificationModel(BaseModel):
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
         # patch-level
-        out = self.model(batch["img"])
+        out = self.inferer(batch["img"], self.model)
         loss = self.compute_loss(out, batch["label"])
         stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["label"])
         stats["loss"] = loss.item()

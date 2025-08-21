@@ -6,6 +6,8 @@ __all__ = [
     'ProjectionHead',
     'ClassificationHead',
     'FusionHead',
+    'ConvBNAct3d',
+    'FPNLightDecoder3D',
 ]
 
 import logging
@@ -222,26 +224,31 @@ class FPNLightDecoder3D(nn.Module):
     width: lateral width (e.g., 32 or 64)
     """
     def __init__(
-        self, 
-        in_chans: Sequence[int], 
-        out_channels: int, 
-        width: int = 32, 
+        self,
+        in_feats: Sequence[int],
+        in_chans: int,
+        out_channels: int,
+        width: int = 32,
         norm: str = "instance"
     ):
         super().__init__()
-        assert len(in_chans) == 5, "Need 5 scales [f1..f5]"
-        c1,c2,c3,c4,c5 = in_chans
-        self.lat1 = nn.Conv3d(c1, width, kernel_size=1, bias=False)
-        self.lat2 = nn.Conv3d(c2, width, kernel_size=1, bias=False)
-        self.lat3 = nn.Conv3d(c3, width, kernel_size=1, bias=False)
-        self.lat4 = nn.Conv3d(c4, width, kernel_size=1, bias=False)
-        self.lat5 = nn.Conv3d(c5, width, kernel_size=1, bias=False)
+        assert len(in_feats) == 5, "Need 5 scales [f1..f5]"
+        f1,f2,f3,f4,f5 = in_feats
+
+        self.in_stem = ConvBNAct3d(in_chans, width, k=3, p=1, norm=norm)
+
+        self.lat1 = nn.Conv3d(f1, width, kernel_size=1, bias=False)
+        self.lat2 = nn.Conv3d(f2, width, kernel_size=1, bias=False)
+        self.lat3 = nn.Conv3d(f3, width, kernel_size=1, bias=False)
+        self.lat4 = nn.Conv3d(f4, width, kernel_size=1, bias=False)
+        self.lat5 = nn.Conv3d(f5, width, kernel_size=1, bias=False)
 
         # one light smooth per pyramid level after lateral+topdown add
         self.smooth4 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
         self.smooth3 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
         self.smooth2 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
         self.smooth1 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
+        self.smooth0 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
 
         # head on the finest map (keeps params tiny)
         self.head = nn.Conv3d(width, out_channels, kernel_size=1)
@@ -249,12 +256,19 @@ class FPNLightDecoder3D(nn.Module):
     def _upsample_to(self, x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
         return F.interpolate(x, size=ref.shape[-3:], mode="trilinear", align_corners=False)
 
-    def forward(self, feats: list[torch.Tensor]) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, feats: list[torch.Tensor]) -> torch.Tensor:
         # feats: [f1,f2,f3,f4,f5] high->low res
+        if len(feats) != 5:
+            msg = (f"[{self.__class__.__name__}] Expected 5 features, "
+                   f"got {len(feats)}.")
+            logger.error(msg)
+            raise ValueError(msg)
+        
         f1,f2,f3,f4,f5 = feats
         p5 = self.lat5(f5) # bottleneck
         p4 = self.smooth4(self.lat4(f4) + self._upsample_to(p5, f4))
         p3 = self.smooth3(self.lat3(f3) + self._upsample_to(p4, f3))
         p2 = self.smooth2(self.lat2(f2) + self._upsample_to(p3, f2))
         p1 = self.smooth1(self.lat1(f1) + self._upsample_to(p2, f1))
-        return self.head(p1) # logits at full res
+        p0 = self.smooth0(self.in_stem(x) + self._upsample_to(p1, x))
+        return self.head(p0) # logits at full res

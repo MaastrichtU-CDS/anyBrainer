@@ -6,6 +6,7 @@ __all__ = [
     'Swinv2CL',
     'Swinv2Classifier',
     'Swinv2ClassifierMidFusion',
+    'Swinv2FPNDecoder',
 ]
 
 import logging
@@ -28,6 +29,7 @@ from anyBrainer.core.networks.blocks import (
     ProjectionHead,
     ClassificationHead,
     FusionHead,
+    FPNLightDecoder3D,
 )
 
 logger = logging.getLogger(__name__)
@@ -310,13 +312,13 @@ class Swinv2ClassifierMidFusion(nn.Module):
         feature_size: int = 48,
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
+        spatial_dims: int = 3,
 
         # classification head
         use_proj_head: bool = True,
         proj_dim: int = 64,
         n_classes: int = 1,
         n_fusion: int = 1,
-        spatial_dims: int = 3,
         share_encoder: bool = True,
         aggregator: Literal["noisy_or", "lse", "topk"] = "noisy_or",
         tau: float = 2.0,
@@ -482,3 +484,68 @@ class Swinv2ClassifierMidFusion(nn.Module):
 
         # MIL pooling to bag logits
         return self._bag_logits(fused) # (B, n_classes)
+
+
+@register(RK.NETWORK)
+class Swinv2FPNDecoder(nn.Module):
+    """
+    SwinViT v2 with lightweight FPN decoder.
+    """
+    def __init__(self,
+        *,
+        # SwinViT encoder args
+        in_channels: int = 1,
+        patch_size: int | Sequence[int] = 2,
+        depths: Sequence[int] = (2, 2, 6, 2),
+        num_heads: Sequence[int] = (3, 6, 12, 24),
+        window_size: Sequence[int] | int = 7,
+        feature_size: int = 48,
+        use_v2: bool = True,
+        extra_swin_kwargs: dict[str, Any] | None = None,
+        spatial_dims: int = 3,
+
+        # FPN decoder args
+        in_feats: Sequence[int],
+        out_channels: int,
+        width: int = 32,
+        norm: str = "instance",
+    ):
+        super().__init__()
+
+        extra_swin_kwargs = extra_swin_kwargs or {}
+
+        self.encoder = SwinViT(
+            in_chans=in_channels,
+            embed_dim=feature_size,
+            depths=depths,
+            num_heads=num_heads,
+            window_size=ensure_tuple_dim(window_size, spatial_dims),
+            patch_size=ensure_tuple_dim(patch_size, spatial_dims),
+            use_v2=use_v2,
+            **extra_swin_kwargs,
+        )
+
+        self.decoder = FPNLightDecoder3D(
+            in_feats=in_feats,
+            in_chans=in_channels,
+            out_channels=out_channels,
+            width=width,
+            norm=norm,
+        )
+
+        logger.info(f"[Swinv2FPNDecoder] Encoder initialized with in_channels={in_channels}, "
+                    f"depths={depths}, num_heads={num_heads}, window_size={window_size}, "
+                    f"patch_size={patch_size}, feature_size={feature_size}, use_v2={use_v2}, "
+                    f"extra_swin_kwargs={extra_swin_kwargs}. Decoder initialized with in_feats={in_feats}, "
+                    f"out_channels={out_channels}, width={width}, norm={norm}.")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Input tensor of shape (B, C, *spatial_dims).
+        
+        Returns:
+            torch.Tensor: Raw logits of shape (B, num_classes).
+        """
+        feats = self.encoder(x)
+        return self.decoder(x, feats)
