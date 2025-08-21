@@ -154,6 +154,23 @@ class TestSwinv2Classifier:
         """Test that the model raises an error if the spatial dimensions are wrong."""
         with pytest.raises(ValueError):
             model_w_fusion(torch.randn(8, 4, 8, 1, 128, 128))
+    
+    def test_late_fusion_no_expect_patch_dim(self, model_w_fusion):
+        """Test that the model can forward pass."""
+        model_w_fusion.expect_patch_dim = False
+        output = model_w_fusion(torch.randn(8, 4, 1, 128, 128, 128))
+        assert output.shape == (8, 2)
+    
+    def test_late_fusion_wrong_expect_patch_dim(self, model_w_fusion):
+        """Test that the model raises an error if the number of modalities is wrong."""
+        with pytest.raises(ValueError):
+            model_w_fusion(torch.randn(8, 4, 1, 128, 128, 128))
+    
+    def test_late_fusion_minimum_input(self, model_w_fusion):
+        """Test that the model can forward pass."""
+        model_w_fusion.expect_patch_dim = False
+        output = model_w_fusion(torch.randn(8, 4, 128, 128, 128))
+        assert output.shape == (8, 2)
 
 
 class TestSwinv2ClassifierMidFusion:

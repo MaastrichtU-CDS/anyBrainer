@@ -448,6 +448,9 @@ class ClassificationModel(BaseModel):
         metrics: (list[Callable] | list[str] | list[dict[str, Any]] | 
                   Callable | str | dict[str, Any] | None) = ['top1_accuracy'],
         flat_labels: bool = False,
+        get_label_from_seg: bool = False, # if True, get label from segmentation mask
+        seg_key: str = "seg", # key to get segmentation mask from batch
+        seg_label_thres: float = 0, # threshold to binarize segmentation mask
         **base_model_kwargs,
     ):
         super().__init__(**base_model_kwargs)
@@ -482,45 +485,44 @@ class ClassificationModel(BaseModel):
         
         self.flat_labels = flat_labels
 
-        logger.info(f"[{self.__class__.__name__}] Initialized with "
+        self.get_label_from_seg = get_label_from_seg
+        self.seg_key = seg_key
+        self.seg_label_thres = seg_label_thres
+
+        msg = (f"[{self.__class__.__name__}] Initialized with "
                     f"metrics={[callable_name(m) for m in self.metrics]}, "
-                    f"flat_labels={self.flat_labels}.")
+                    f"flat_labels={self.flat_labels}")
+        if self.get_label_from_seg:
+            msg += f", get_label_from_seg={self.get_label_from_seg}, "
+            msg += f"seg_key={self.seg_key}, "
+            msg += f"seg_label_thres={self.seg_label_thres}."
+
+        logger.info(msg)
 
     def on_after_batch_transfer(self, batch: dict, dataloader_idx: int):
-        """Get input tensor to appropriate shape and labels to device."""
-        # Reshape for late fusion support:(B, P, N, *spatial_dims) -> (B, N, P, C, *spatial_dims)
-        if self.late_fusion:
-            x = batch['img']
-            if x.ndim == self.spatial_dims + 3: # n_late_fusion in channel_dim
-                x = x.unsqueeze(3)
-                x = x.permute(0, 2, 1, 3, *range(4, x.ndim))
-            elif x.ndim == self.spatial_dims + 4: # channel_dim already in place
-                pass
-            else:
-                msg = (f"[{self.__class__.__name__}] Expected input shape to be "
-                       f"(B, P, N, *spatial_dims) or (B, N, P, C, *spatial_dims), "
-                       f"but got {x.shape}.")
-                logger.error(msg)
-                raise ValueError(msg)
-            batch['img'] = x
-        
+        """Get labels to device."""
         # Get labels tensor to appropriate format
         if dataloader_idx != 3:  # not for prediction
-            lbl = batch["label"]
-            if torch.is_tensor(lbl):
-                lbl = lbl.to(device=batch["img"].device)
+            if self.get_label_from_seg:
+                sums = batch[self.seg_key].sum(dim=tuple(range(-self.spatial_dims, 0)))
+                lbl = (sums > self.seg_label_thres).to(dtype=torch.float32)
+                batch['label'] = lbl if not self.flat_labels else lbl.squeeze(-1).to(dtype=torch.long)
             else:
-                lbl = torch.as_tensor(lbl, device=batch["img"].device)
+                lbl = batch["label"]
+                if torch.is_tensor(lbl):
+                    lbl = lbl.to(device=batch["img"].device)
+                else:
+                    lbl = torch.as_tensor(lbl, device=batch["img"].device)
 
-            if self.flat_labels: # For nn.CrossEntropyLoss, etc.: (B,) long
-                if lbl.ndim > 1:
-                    lbl = lbl.squeeze(-1)
-                lbl = lbl.to(dtype=torch.long)
-            else: # Default/regression/BCE style: (B,1) float
-                lbl = lbl.to(dtype=torch.float32)
-                if lbl.ndim == 1:
-                    lbl = lbl.unsqueeze(1)
-            batch["label"] = lbl
+                if self.flat_labels: # For nn.CrossEntropyLoss, etc.: (B,) long
+                    if lbl.ndim > 1:
+                        lbl = lbl.squeeze(-1)
+                    lbl = lbl.to(dtype=torch.long)
+                else: # Default/regression/BCE style: (B,1) float
+                    lbl = lbl.to(dtype=torch.float32)
+                    if lbl.ndim == 1:
+                        lbl = lbl.unsqueeze(1)
+                batch["label"] = lbl
             
         return batch
     

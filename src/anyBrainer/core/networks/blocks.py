@@ -136,7 +136,7 @@ class FusionHead(nn.Module):
     Output shape: (B, n_features)
     """
     def __init__(
-        self, 
+        self,
         n_fusion: int,
         mod_only: bool = False,
     ):
@@ -152,7 +152,7 @@ class FusionHead(nn.Module):
         if not self.mod_only: # Fuse everything
             if x.dim() == 7: # (B, n_fusion, n_patches, n_features, D, H, W)
                 pass
-            elif x.dim() == 6: # (B, n_patches, n_features, D, H, W)
+            elif x.dim() == 6:  # (B, n_fusion (or n_patches), n_features, D, H, W)
                 x = x.unsqueeze(1)
             elif x.dim() == 5: # (B, n_features, D, H, W)
                 x = x.unsqueeze(1).unsqueeze(2)
@@ -178,3 +178,83 @@ class FusionHead(nn.Module):
         weights = torch.softmax(self.fusion_weights, dim=0)  # (n_fusion,)
         x = (x * weights.view(1, -1, 1)).sum(dim=1) # (B, n_features)
         return x
+
+
+class ConvBNAct3d(nn.Module):
+    """
+    Convolutional block with normalization and activation.
+    """
+    def __init__(
+        self,
+        in_ch: int,
+        out_ch: int,
+        k: int = 3,
+        s: int = 1,
+        p: int = 1,
+        norm: str = "instance",
+        act: str = "SiLU",
+        *,
+        act_kwargs: dict[str, Any] | None = None,
+    ):
+        if act_kwargs is None:
+            act_kwargs = {}
+
+        super().__init__()
+        if norm == "instance":
+            Norm = nn.InstanceNorm3d
+        elif norm == "group":
+            Norm = lambda c: nn.GroupNorm(num_groups=min(8, c), num_channels=c)
+        else:
+            Norm = nn.BatchNorm3d
+
+        self.block = nn.Sequential(
+            nn.Conv3d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
+            Norm(out_ch),
+            UnitFactory.get_activation_from_kwargs({'name': act, **act_kwargs}),
+        )
+    def forward(self, x): return self.block(x)
+
+
+class FPNLightDecoder3D(nn.Module):
+    """
+    Top-down FPN with narrow width and one 3x3 smooth per level.
+    in_chans: channels of encoder features [c1,c2,c3,c4,c5] (f1 highest res)
+    width: lateral width (e.g., 32 or 64)
+    """
+    def __init__(
+        self, 
+        in_chans: Sequence[int], 
+        out_channels: int, 
+        width: int = 32, 
+        norm: str = "instance"
+    ):
+        super().__init__()
+        assert len(in_chans) == 5, "Need 5 scales [f1..f5]"
+        c1,c2,c3,c4,c5 = in_chans
+        self.lat1 = nn.Conv3d(c1, width, kernel_size=1, bias=False)
+        self.lat2 = nn.Conv3d(c2, width, kernel_size=1, bias=False)
+        self.lat3 = nn.Conv3d(c3, width, kernel_size=1, bias=False)
+        self.lat4 = nn.Conv3d(c4, width, kernel_size=1, bias=False)
+        self.lat5 = nn.Conv3d(c5, width, kernel_size=1, bias=False)
+
+        # one light smooth per pyramid level after lateral+topdown add
+        self.smooth4 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
+        self.smooth3 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
+        self.smooth2 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
+        self.smooth1 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
+
+        # head on the finest map (keeps params tiny)
+        self.head = nn.Conv3d(width, out_channels, kernel_size=1)
+
+    def _upsample_to(self, x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+        return F.interpolate(x, size=ref.shape[-3:], mode="trilinear", align_corners=False)
+
+    def forward(self, feats: list[torch.Tensor]) -> torch.Tensor:
+        # feats: [f1,f2,f3,f4,f5] high->low res
+        f1,f2,f3,f4,f5 = feats
+        p5 = self.lat5(f5) # bottleneck
+        p4 = self.smooth4(self.lat4(f4) + self._upsample_to(p5, f4))
+        p3 = self.smooth3(self.lat3(f3) + self._upsample_to(p4, f3))
+        p2 = self.smooth2(self.lat2(f2) + self._upsample_to(p3, f2))
+        p1 = self.smooth1(self.lat1(f1) + self._upsample_to(p2, f1))
+        return self.head(p1) # logits at full res

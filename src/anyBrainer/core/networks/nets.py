@@ -159,6 +159,7 @@ class Swinv2Classifier(nn.Module):
         mlp_activation_kwargs: dict[str, Any] | Sequence[dict[str, Any]] | None = None,
 
         # Aggregate inputs
+        expect_patch_dim: bool = True,
         late_fusion: bool = False,
         n_late_fusion: int = 1,
     ):
@@ -202,24 +203,50 @@ class Swinv2Classifier(nn.Module):
                 n_fusion=self.n_late_fusion,
                 mod_only=True,
             )
+        self.expect_patch_dim = expect_patch_dim
+    
+    def _reshape_input(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Reshape input to required shape for late fusion.
+        
+        Args:
+            x: (B, n_late_fusion, [n_patches, ]C, *spatial_dims) or
+                (B, [n_patches, ]n_late_fusion, *spatial_dims)
+        
+        Returns:
+            torch.Tensor: (B, n_late_fusion, n_patches, C, *spatial_dims)
+        """
+        # Create n_patches dim if it doesn't exist
+        if (x.ndim == 2 + int(self.expect_patch_dim) + self.spatial_dims):
+            # (B, [n_patches, ]n_late_fusion, *spatial_dims)
+            if not self.expect_patch_dim: # (B, n_late_fusion, *spatial_dims)
+                x = x.unsqueeze(1) # (B, 1, n_late_fusion, *spatial_dims)
+            x = x.unsqueeze(3) # (B, n_patches, n_late_fusion, 1, *spatial_dims)
+            x = x.permute(0, 2, 1, 3, *range(4, x.ndim)) # (B, n_late_fusion, n_patches, 1, *spatial_dims)
+        elif x.ndim == 3 + int(self.expect_patch_dim) + self.spatial_dims:
+            # (B, n_late_fusion, [n_patches, ]C, *spatial_dims)
+            if not self.expect_patch_dim: # (B, n_late_fusion, C, *spatial_dims)
+                x = x.unsqueeze(2) # (B, n_late_fusion, 1, C, *spatial_dims)
+        else:
+            msg = (f"[{self.__class__.__name__}] Expected input shape to be "
+                    f"(B, [n_patches, ]n_late_fusion, *spatial_dims) or "
+                    f"(B, n_late_fusion, [n_patches, ]C, *spatial_dims), "
+                    f"but got {x.shape}.")
+            logger.error(msg)
+            raise ValueError(msg)
+        return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Input tensor of shape (B, n_late_fusion, n_patches, C, *spatial_dims).
+            x: Input tensor of shape (B, n_mods, [n_patches, ], C, *spatial_dims) or
+               (B, [n_patches, ]n_mods, *spatial_dims).
         
         Returns:
             torch.Tensor: Raw logits of shape (B, num_classes).
-        """
+        """        
         if self.late_fusion:
-            if x.ndim != 4 + self.spatial_dims:
-                msg = (f"[Swinv2Classifier] late_fusion=True expects input with "
-                       f"{4 + self.spatial_dims} dims "
-                       f"(B, n_late_fusion, n_patches, C, *spatial_dims); "
-                       f"got {tuple(x.shape)}")
-                logger.error(msg)
-                raise ValueError(msg)
-            
+            x = self._reshape_input(x)
             B, n_late_fusion, n_patches, C, *spatial = x.shape
 
             if n_late_fusion != self.n_late_fusion:
