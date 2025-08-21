@@ -578,11 +578,18 @@ class ClassificationModel(BaseModel):
     
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
-        out = cast(torch.Tensor, self.predict(batch, invert=False))
+        # patch-level
+        out = self.model(batch["img"])
         loss = self.compute_loss(out, batch["label"])
-        stats = self.compute_metrics(out, batch["label"])
+        stats = self.compute_metrics(cast(torch.Tensor, self.postprocess(out)), batch["label"])
         stats["loss"] = loss.item()
         self.log_step("val", stats)
+
+        # session-level
+        out = cast(torch.Tensor, self.predict(batch, invert=False))
+        stats = self.compute_metrics(out, batch["label"])
+        self.log_step("val_infer", stats)
+
         return loss
     
     def test_step(self, batch: dict, batch_idx: int) -> None:
