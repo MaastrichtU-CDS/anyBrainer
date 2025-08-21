@@ -505,8 +505,7 @@ class Swinv2FPNDecoder(nn.Module):
         spatial_dims: int = 3,
 
         # FPN decoder args
-        in_feats: Sequence[int],
-        out_channels: int,
+        out_channels: int = 1,
         width: int = 32,
         norm: str = "instance",
     ):
@@ -524,6 +523,9 @@ class Swinv2FPNDecoder(nn.Module):
             use_v2=use_v2,
             **extra_swin_kwargs,
         )
+
+        # MONAI's `SwinTransformer` returns input after patch_embed and 4-level feature maps
+        in_feats = [feature_size * 2**i for i in range(len(depths)+1)]
 
         self.decoder = FPNLightDecoder3D(
             in_feats=in_feats,
