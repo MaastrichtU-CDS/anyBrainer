@@ -12,6 +12,10 @@ The model is responsible for:
 
 __all__ = [
     "CLwAuxModel",  
+    "ClassificationModel",
+    "RegressionModel",
+    "SegmentationModel",
+    "ClassificationMidFusionModel",
 ]
 
 import logging

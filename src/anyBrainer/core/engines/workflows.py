@@ -485,6 +485,13 @@ class CVWorkflow(Workflow):
         self.aggregate_metrics = val_settings.get("aggregate_metrics", "")
         self.run_test = val_settings.get("run_test", False)
         self.train_workflow_kwargs = train_workflow_kwargs
+        self.seeds = val_settings.get("seeds")
+        if self.seeds is not None:
+            if not isinstance(self.seeds, list) or len(self.seeds) != self.n_splits:
+                msg = (f"[CVWorkflow] seeds must be a list of length {self.n_splits}; "
+                       f"got {type(self.seeds)}")
+                logging.error(msg)
+                raise ValueError(msg)
 
         self.aggregate_cb = UnitFactory.get_pl_callback_instances_from_kwargs(
             callback_kwargs=[{"name": "MetricAggregator", "prefix": self.aggregate_metrics}]
@@ -511,6 +518,8 @@ class CVWorkflow(Workflow):
         workflow.settings.n_splits = self.n_splits
         workflow.settings.current_split = split_idx
         workflow.settings.pl_callback_kwargs.append(self.aggregate_cb) # type: ignore
+        if self.seeds is not None:
+            workflow.settings.seed = self.seeds[split_idx]
 
         # Run, test (optionally), and close
         workflow.fit()
