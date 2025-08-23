@@ -385,11 +385,11 @@ class OptimConfigMixin(PLModuleMixin):
                         no_weight_decay_prefixes=extra_nd_prefixes,
                     )
                     # duplicate group: same hparams, but WD=0 for the no-decay subset
-                    base = {k: v for k, v in cfg.items() if k not in ("params", "name")}  # keep lr, weight_decay, etc.
+                    base = {k: v for k, v in group_cfg.items() if k not in ("params", "name")}  # keep lr, weight_decay, etc.
                     if no_wd_params:
                         resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
                     if wd_params:
-                        resolved_groups.append({**group_cfg, "params": wd_params})
+                        resolved_groups.append({**base, "params": wd_params})
             else:
                 # Single parameter group
                 prefix = cfg.pop("param_group_prefix", None)
@@ -400,7 +400,7 @@ class OptimConfigMixin(PLModuleMixin):
                     self.model, named_params, auto_no_weight_decay=auto_no_wd, # type: ignore[attr-defined]
                     no_weight_decay_prefixes=extra_nd_prefixes,
                 )
-                base = {k: v for k, v in cfg.items() if k != "params" and k != "name"} # entry contains optimizer name
+                base = {k: v for k, v in cfg.items() if k not in ("params", "name")} # entry contains optimizer name
                 if no_wd_params:
                     resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
                 if wd_params: 
