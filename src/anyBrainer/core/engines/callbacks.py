@@ -10,10 +10,11 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, cast, TYPE_CHECKING
+from typing import Any, cast
 from collections import defaultdict
 
 import torch
+import torch.nn as nn
 import lightning.pytorch as pl
 from lightning.pytorch.utilities import rank_zero_only
 import torch.optim as optim
@@ -30,9 +31,6 @@ from anyBrainer.core.engines.utils import (
     sync_dist_safe,
     get_ckpt_callback,
 )
-
-if TYPE_CHECKING:
-    import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
