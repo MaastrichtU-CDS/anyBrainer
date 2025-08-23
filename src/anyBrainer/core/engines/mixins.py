@@ -363,6 +363,7 @@ class OptimConfigMixin(PLModuleMixin):
                 extra_nd_prefixes = [extra_nd_prefixes]
             
             resolved_groups: list[dict[str, Any]] = []
+            no_wd_indices: list[int] = []
             if "param_groups" in cfg:
                 # Multiple parameter groups inside this optimizer
                 if not isinstance(cfg["param_groups"], list):
@@ -375,7 +376,7 @@ class OptimConfigMixin(PLModuleMixin):
                     logger.warning(f"[{self.__class__.__name__}] `lr` and `weight_decay` are provided at the"
                                    "top-level of the optimizer config; will get passed to subsequent sub-groups.")
 
-                for group_cfg in cfg.pop("param_groups"):
+                for i, group_cfg in enumerate(cfg.pop("param_groups")):
                     named_params = cast(list[tuple[str, nn.Parameter]], get_parameter_groups_from_prefixes(
                         self.model, group_cfg.pop("param_group_prefix", None), # type: ignore[attr-defined]
                         return_named=True,
@@ -386,10 +387,11 @@ class OptimConfigMixin(PLModuleMixin):
                     )
                     # duplicate group: same hparams, but WD=0 for the no-decay subset
                     base = {k: v for k, v in group_cfg.items() if k not in ("params", "name")}  # keep lr, weight_decay, etc.
-                    if no_wd_params:
-                        resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
                     if wd_params:
                         resolved_groups.append({**base, "params": wd_params})
+                    if no_wd_params:
+                        resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
+                        no_wd_indices.append(i)
             else:
                 # Single parameter group
                 prefix = cfg.pop("param_group_prefix", None)
@@ -401,13 +403,39 @@ class OptimConfigMixin(PLModuleMixin):
                     no_weight_decay_prefixes=extra_nd_prefixes,
                 )
                 base = {k: v for k, v in cfg.items() if k not in ("params", "name")} # entry contains optimizer name
-                if no_wd_params:
-                    resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
                 if wd_params: 
                     resolved_groups.append({**base, "params": wd_params})
+                if no_wd_params:
+                    resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
+                    no_wd_indices.append(0)
             
             cfg["params"] = resolved_groups
-            
+
+            # Track newly introduced param groups to duplicate scheduler settings
+            def _dup_by_indices(vals: list, dup_idxs: list[int]) -> list:
+                dup = set(dup_idxs or [])
+                out = []
+                for idx, v in enumerate(vals):
+                    out.append(v)
+                    if idx in dup:
+                        out.append(v)  # duplicate this entr
+                print(dup_idxs, out)
+                return out
+
+            if isinstance(lr_scheduler_kwargs, list):
+                # per-optimizer scheduler config
+                for k, v in list(lr_scheduler_kwargs[i].items()):
+                    if isinstance(v, list):
+                        lr_scheduler_kwargs[i][k] = _dup_by_indices(v, no_wd_indices)
+                    else:
+                        lr_scheduler_kwargs[i][k] = v
+            elif isinstance(lr_scheduler_kwargs, dict):
+                # single scheduler dict
+                for k, v in list(lr_scheduler_kwargs.items()):
+                    if isinstance(v, list):
+                        lr_scheduler_kwargs[k] = _dup_by_indices(v, no_wd_indices)
+                    else:
+                        lr_scheduler_kwargs[k] = v
 
         # Return to original format if only one optimizer
         self.optimizer_kwargs = (optimizer_kwargs if len(optimizer_kwargs) > 1 
