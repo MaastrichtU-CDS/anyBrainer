@@ -59,3 +59,10 @@ def get_pads_from_bbox(
     pz = lr(sz, Z)  # (left, right) along Z
 
     return {"x": px, "y": py, "z": pz}
+
+def write_probability(output_path: Path, prob: float):
+    """Write single probability (float) to a .txt file."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(f"{float(prob):.6f}\n")  # six decimal places, trailing newline

@@ -302,7 +302,8 @@ class MetricAggregator(pl.Callback):
     ) -> None:
         # Add best checkpoint metric--if any--to current run.
         ckpt_cb = get_ckpt_callback(trainer)
-        if ckpt_cb is not None and ckpt_cb.best_model_path:
+        if (ckpt_cb is not None and ckpt_cb.best_model_path and 
+            ckpt_cb.best_model_score is not None):
             best_score = ckpt_cb.best_model_score.item() # pyright: ignore
             best_metric = ckpt_cb.monitor
             self._current_run[f"best_{best_metric}"] = best_score

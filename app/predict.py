@@ -12,6 +12,7 @@ from monai.transforms.compose import Compose
 from monai.data.utils import list_data_collate
 
 from .preprocess import preprocess_inputs
+from .utils import write_probability
 
 from anyBrainer.core.engines import (
     ClassificationModel,
@@ -34,13 +35,11 @@ task_1_config = {
         "name": "get_postprocess_classification_transforms",
     },
     "model_ckpts": [
-        "ckpts/task1/best_model.ckpt",
-        "ckpts/task1/best_model_swa.ckpt",
-        "ckpts/task1/best_model_swa_avg.ckpt",
-        "ckpts/task1/best_model_swa_avg_avg.ckpt",
-        "ckpts/task1/best_model_swa_avg_avg_avg.ckpt",
-        "ckpts/task1/best_model_swa_avg_avg_avg_avg.ckpt",
-        "ckpts/task1/best_model_swa_avg_avg_avg_avg_avg.ckpt",
+        "ckpts/task1/split_0/last.ckpt",
+        "ckpts/task1/split_1/last.ckpt",
+        "ckpts/task1/split_2/last.ckpt",
+        "ckpts/task1/split_3/last.ckpt",
+        "ckpts/task1/split_4/last.ckpt",
     ]
 }
 
@@ -79,8 +78,8 @@ def predict_task_1():
 
     input_dict = {
         "flair": work_dir / "inputs" / args.flair.name,
+        "dwi": work_dir / "inputs" / args.dwi_b1000.name,
         "adc": work_dir / "inputs" / args.adc.name,
-        "dwi_b1000": work_dir / "inputs" / args.dwi_b1000.name,
         opt_mod_key: opt_mod_path,
     }
 
@@ -108,16 +107,12 @@ def predict_task_1():
             mean_logits = mean_logits + w * cast(
                 torch.Tensor, model.predict(curr_input, img_key="img", do_postprocess=False, invert=False)
             )
-    out = postprocess_transforms(mean_logits)
+    out = cast(torch.Tensor, postprocess_transforms(mean_logits))
 
     # Save
-    
+    write_probability(args.output, out.item())
 
-    # TODO:
-    # 1. Get predict transforms and apply to input paths. 
-    # 2. Load model weights; do when instantiating pl_module
-    # 3. Predict; single pass.
-    # 4. Save predictions to output_dir. 
+
 
 
 
