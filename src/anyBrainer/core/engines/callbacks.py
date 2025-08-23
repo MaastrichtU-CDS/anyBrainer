@@ -10,7 +10,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any, cast, TYPE_CHECKING
 from collections import defaultdict
 
 import torch
@@ -157,12 +157,12 @@ class FreezeParamGroups(pl.Callback):
     
     def setup(self, trainer, pl_module, stage: str | None = None):
         self._param_groups = [
-            get_parameter_groups_from_prefixes(
+            cast(list[nn.Parameter], get_parameter_groups_from_prefixes(
                 model=pl_module.model, # type: ignore[attr-defined]
                 prefixes=pref,
                 trainable_only=False,
                 silent=True,
-            )
+            ))
             for pref in self.prefixes
         ]
         self._are_frozen = [False] * len(self._param_groups)

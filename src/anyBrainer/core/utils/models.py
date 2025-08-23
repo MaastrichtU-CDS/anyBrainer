@@ -5,6 +5,7 @@ __all__ = [
     "summarize_model_params",
     "get_total_grad_norm",
     "init_swin_v2",
+    "get_optimizer_lr",
     "get_parameter_groups_from_prefixes",
     "split_decay_groups_from_params",
 ]
