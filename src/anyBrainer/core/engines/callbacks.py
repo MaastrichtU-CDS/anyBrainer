@@ -12,7 +12,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, cast
+from typing import Any, Literal, cast
 from collections import defaultdict
 
 import torch
@@ -344,7 +344,12 @@ class SWAAvgOnly(pl.Callback):
         clamp_lr: if not None, set every param-group's LR to this value at start.
         update_on: "epoch" (default) or "step" if you prefer finer averaging.
     """
-    def __init__(self, start_epoch: int = 40, clamp_lr: float | None = None, update_on: str = "epoch"):
+    def __init__(
+        self, 
+        start_epoch: int = 40, 
+        clamp_lr: float | None = None, 
+        update_on: Literal["epoch", "step"] = "epoch",
+    ) -> None:
         super().__init__()
         assert update_on in {"epoch", "step"}
         self.start_epoch = start_epoch
@@ -355,28 +360,50 @@ class SWAAvgOnly(pl.Callback):
 
         logger.info(f"[SWAAvgOnly] SWA averaging-only callback initialized with start_epoch={start_epoch}, "
                     f"clamp_lr={clamp_lr}, update_on={update_on}.")
+    
+    @staticmethod
+    def _maybe_unwrap(trainer: pl.Trainer, module: pl.LightningModule) -> nn.Module:
+        """Return the base nn.Module across SingleDevice/DDP/etc."""
+        unwrap = getattr(trainer.strategy, "unwrap_module", None) or getattr(
+            trainer.strategy, "unwrap_model", None
+        )
+        return unwrap(module) if callable(unwrap) else module  # type: ignore[no-any-return]
 
     def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        base = trainer.strategy.unwrap_model(pl_module) # type: ignore[attr-defined]
+        base = self._maybe_unwrap(trainer, pl_module)
+        # Keep averages on the same device as `base`
         self._avg = AveragedModel(base)
 
     def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         if trainer.current_epoch == self.start_epoch:
             self._active = True
             if self.clamp_lr is not None:
-                for pg in trainer.optimizers[0].param_groups:
+                opt = trainer.optimizers[0]
+                for pg in opt.param_groups:
                     pg["lr"] = float(self.clamp_lr)
-            logger.info(f"[SWAAvgOnly] SWA averaging activated at epoch {trainer.current_epoch}")
+            logger.info(f"[SWAAvgOnly] activated at epoch {trainer.current_epoch}")
 
-    def on_train_batch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule, 
-                           outputs: Any, batch: Any, batch_idx: int) -> None:
-        if self.update_on == "step" and self._active:
-            self._avg.update_parameters(trainer.strategy.unwrap_model(pl_module)) # type: ignore[attr-defined]
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+    ) -> None:
+        if self.update_on == "step" and self._active and self._avg is not None:
+            base = self._maybe_unwrap(trainer, pl_module)
+            self._avg.update_parameters(base)
 
     def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        if self.update_on == "epoch" and self._active:
-            self._avg.update_parameters(trainer.strategy.unwrap_model(pl_module)) # type: ignore[attr-defined]
+        if self.update_on == "epoch" and self._active and self._avg is not None:
+            base = self._maybe_unwrap(trainer, pl_module)
+            self._avg.update_parameters(base)
 
     def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        if self._avg is None:
+            logger.warning("[SWAAvgOnly] on_fit_end called but averaging never initialized.")
+            return
         # swap averaged weights in
-        trainer.strategy.unwrap_model(pl_module).load_state_dict(self._avg.module.state_dict()) # type: ignore[attr-defined]
+        base = self._maybe_unwrap(trainer, pl_module)
+        base.load_state_dict(self._avg.module.state_dict())
