@@ -37,3 +37,25 @@ def download_templates(
             logging.info(f"Successfully saved to {dest}")
         except Exception as e:
             logging.info(f"Failed to download {fname}: {e}")
+
+def get_pads_from_bbox(
+    crop_slices: tuple[slice, slice, slice],
+    orig_shape_xyz: tuple[int, int, int],
+) -> dict[str, tuple[int, int]]:
+    """
+    Returns:
+      dict with target pads {"x": (left, right), "y": (left, right), "z": (left, right)}
+    """
+    sx, sy, sz = crop_slices
+    X, Y, Z = orig_shape_xyz
+
+    def lr(s: slice, dim: int) -> tuple[int, int]:
+        start = 0 if s.start is None else int(s.start)
+        stop  = dim if s.stop  is None else int(s.stop)
+        return start, dim - stop
+
+    px = lr(sx, X)  # (left, right) along X
+    py = lr(sy, Y)  # (left, right) along Y
+    pz = lr(sz, Z)  # (left, right) along Z
+
+    return {"x": px, "y": py, "z": pz}

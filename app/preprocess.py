@@ -1,7 +1,7 @@
 """Preprocess input images for FOMO25 inference."""
 
 import logging
-from typing import Any, Literal, cast
+from typing import Literal, cast
 from pathlib import Path
 import subprocess
 import os
@@ -11,6 +11,8 @@ import ants
 import yaml
 
 Task = Literal["task1", "task2", "task3"]
+
+from .utils import get_pads_from_bbox
 
 class PreprocessError(RuntimeError):
     pass
@@ -173,12 +175,8 @@ def preprocess_inputs(
     resampled_mask_arr = _resample(mask_img_reg, spacing=(1, 1, 1)).numpy()
     crop_slices = _bbox_from_mask(resampled_mask_arr)
 
-    bbox_xyz = {
-        "x": [int(crop_slices[0].start or 0), int(crop_slices[0].stop or resampled_mask_arr.shape[0])],
-        "y": [int(crop_slices[1].start or 0), int(crop_slices[1].stop or resampled_mask_arr.shape[1])],
-        "z": [int(crop_slices[2].start or 0), int(crop_slices[2].stop or resampled_mask_arr.shape[2])],
-    }
-    with open(pad_dir / "bbox.yaml", 'w') as file:
+    bbox_xyz = get_pads_from_bbox(crop_slices, resampled_mask_arr.shape)
+    with open(pad_dir / "pad.yaml", 'w') as file:
         yaml.dump(bbox_xyz, file, default_flow_style=False)
 
     # Preprocess all inputs
