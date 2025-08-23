@@ -419,7 +419,6 @@ class OptimConfigMixin(PLModuleMixin):
                     out.append(v)
                     if idx in dup:
                         out.append(v)  # duplicate this entr
-                print(dup_idxs, out)
                 return out
 
             if isinstance(lr_scheduler_kwargs, list):

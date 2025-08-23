@@ -7,6 +7,8 @@ __all__ = [
     "LogLR",
     "LogGradNorm",
     "FreezeParamGroups",
+    "MetricAggregator",
+    "SWAAvgOnly",
 ]
 
 import logging
@@ -15,10 +17,11 @@ from collections import defaultdict
 
 import torch
 import torch.nn as nn
-import lightning.pytorch as pl
-from lightning.pytorch.utilities import rank_zero_only
+from torch.optim.swa_utils import AveragedModel
 import torch.optim as optim
 from torch.nn.modules.batchnorm import _BatchNorm
+import lightning.pytorch as pl
+from lightning.pytorch.utilities import rank_zero_only
 
 
 from anyBrainer.registry import register, RegistryKind as RK
@@ -323,3 +326,57 @@ class MetricAggregator(pl.Callback):
         for k, means in self._all_runs.items():
             t = torch.tensor(means)
             logger.info(f"{k}: {t.mean().item():.4f} ± {t.std().item():.4f}")
+
+
+@register(RK.CALLBACK)
+class SWAAvgOnly(pl.Callback):
+    """
+    SWA-based averaging of model weights from `start_epoch` to the end, without LR annealing
+    or BN updates. Optionally clamps LR to a constant at `start_epoch`.
+
+    - No LR scheduler interference (unless `clamp_lr` is set).
+    - No SWALR / annealing.
+    - Safe with discriminative per-group LRs and custom schedulers.
+    - Good fit for LayerNorm-based models (e.g., Swin); BN updates are omitted.
+
+    Args:
+        start_epoch: first epoch to start averaging.
+        clamp_lr: if not None, set every param-group's LR to this value at start.
+        update_on: "epoch" (default) or "step" if you prefer finer averaging.
+    """
+    def __init__(self, start_epoch: int = 40, clamp_lr: float | None = None, update_on: str = "epoch"):
+        super().__init__()
+        assert update_on in {"epoch", "step"}
+        self.start_epoch = start_epoch
+        self.clamp_lr = clamp_lr
+        self.update_on = update_on
+        self._avg = None
+        self._active = False
+
+        logger.info(f"[SWAAvgOnly] SWA averaging-only callback initialized with start_epoch={start_epoch}, "
+                    f"clamp_lr={clamp_lr}, update_on={update_on}.")
+
+    def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        base = trainer.strategy.unwrap_model(pl_module) # type: ignore[attr-defined]
+        self._avg = AveragedModel(base)
+
+    def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        if trainer.current_epoch == self.start_epoch:
+            self._active = True
+            if self.clamp_lr is not None:
+                for pg in trainer.optimizers[0].param_groups:
+                    pg["lr"] = float(self.clamp_lr)
+            logger.info(f"[SWAAvgOnly] SWA averaging activated at epoch {trainer.current_epoch}")
+
+    def on_train_batch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule, 
+                           outputs: Any, batch: Any, batch_idx: int) -> None:
+        if self.update_on == "step" and self._active:
+            self._avg.update_parameters(trainer.strategy.unwrap_model(pl_module)) # type: ignore[attr-defined]
+
+    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        if self.update_on == "epoch" and self._active:
+            self._avg.update_parameters(trainer.strategy.unwrap_model(pl_module)) # type: ignore[attr-defined]
+
+    def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        # swap averaged weights in
+        trainer.strategy.unwrap_model(pl_module).load_state_dict(self._avg.module.state_dict()) # type: ignore[attr-defined]
