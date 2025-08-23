@@ -484,6 +484,7 @@ class CVWorkflow(Workflow):
         self.aggregate_metrics = val_settings.get("aggregate_metrics", "")
         self.run_test = val_settings.get("run_test", False)
         self.train_workflow_kwargs = train_workflow_kwargs
+        self.start_idx = val_settings.get("start_idx", 0)
         self.seeds = val_settings.get("seeds")
         if self.seeds is not None:
             if not isinstance(self.seeds, list) or len(self.seeds) != self.n_splits:
@@ -502,7 +503,7 @@ class CVWorkflow(Workflow):
     
     def __call__(self):
         """Runs the cross-validation workflow."""
-        for split_idx in range(self.n_splits):
+        for split_idx in range(self.start_idx, self.n_splits):
             logging.info(f"[CVWorkflow] Starting split {split_idx+1}/{self.n_splits}")
             self.run_split(split_idx)
 
