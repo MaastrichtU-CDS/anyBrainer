@@ -246,8 +246,10 @@ def get_classification_train_transforms(
     
     # Augmentations
     transforms.extend([
-        RandFlipd(keys=keys, spatial_axis=(0, 1), prob=0.3, 
-                  allow_missing_keys=allow_missing_keys),
+        RandFlipd(keys=keys, spatial_axis=0, prob=0.5, 
+                    allow_missing_keys=allow_missing_keys),
+        RandFlipd(keys=keys, spatial_axis=1, prob=0.5, 
+                allow_missing_keys=allow_missing_keys),
         RandAffined(keys=keys, rotate_range=(0.1, 0.1, 0.1),
                     scale_range=(0.1, 0.1, 0.1), shear_range=(0.1, 0.1, 0.1),
                     mode='bilinear', padding_mode='border', prob=0.5,
@@ -715,7 +717,7 @@ def get_postprocess_segmentation_transforms(
     return transforms
 
 @register(RK.TRANSFORM)
-def get_segmentation_tta(
+def get_flip_tta(
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
 ) -> list[Callable]:
