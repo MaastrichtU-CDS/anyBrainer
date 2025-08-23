@@ -151,6 +151,11 @@ class TrainWorkflow(Workflow):
 
         Also creates the target save directories. 
         """
+        create_save_dirs(
+            exp_dir=self.settings.exp_dir,
+            new_version=self.settings.new_version,
+            create_ckpt_dir=True,
+        )
         self.configure_environment()
         try:
             self.logging_manager, self.main_logger, self.wandb_logger = self.setup_logging()
@@ -181,12 +186,6 @@ class TrainWorkflow(Workflow):
 
         if self.wandb_logger is not None and self.settings.wandb_watch_enable:
             self.wandb_logger.watch(self.model, **(self.settings.wandb_watch_kwargs or {}))
-
-        create_save_dirs(
-            exp_dir=self.settings.exp_dir,
-            new_version=self.settings.new_version,
-            create_ckpt_dir=True,
-        )
     
     def configure_environment(self):
         """

@@ -1,13 +1,14 @@
 """Preprocess input images for FOMO25 inference."""
 
 import logging
-from typing import Literal
+from typing import Any, Literal, cast
 from pathlib import Path
 import subprocess
 import os
 
 import numpy as np
 import ants
+import yaml
 
 Task = Literal["task1", "task2", "task3"]
 
@@ -87,7 +88,7 @@ def _numpy_to_ants(arr, target_img=None):
     return new_img
 
 def preprocess_inputs(
-    inputs: list[Path],
+    inputs: list[Path] | list[Path | None],
     mods: list[str],
     task: Task,
     work_dir: Path| None = None,
@@ -122,7 +123,7 @@ def preprocess_inputs(
     
     # Skip optional inputs/mods
     mods = [m for m, p in zip(mods, inputs) if p is not None]
-    inputs = [Path(p) for p in inputs if p is not None]
+    inputs = cast(list[Path], [Path(p) for p in inputs if p is not None])
 
     if len(inputs) == 0:
         raise ValueError("No inputs to preprocess.")
@@ -136,6 +137,7 @@ def preprocess_inputs(
     in_dir = _ensure_dir(work_dir / "inputs")
     mask_dir = _ensure_dir(work_dir / "masks")
     reg_dir = _ensure_dir(work_dir / "reg")
+    pad_dir = _ensure_dir(work_dir / "pad")
 
     # Map modalities to input paths
     mod2path: dict[str, Path] = {m.lower(): Path(p) for m, p in zip(mods, inputs)}
@@ -168,8 +170,16 @@ def preprocess_inputs(
 
     # Get crop slices
     mask_img_reg = _apply_transforms(mask_img, tmpl_img, fwd)
-    resampled_mask = _resample(mask_img_reg, spacing=(1, 1, 1))
-    crop_slices = _bbox_from_mask(resampled_mask.numpy())
+    resampled_mask_arr = _resample(mask_img_reg, spacing=(1, 1, 1)).numpy()
+    crop_slices = _bbox_from_mask(resampled_mask_arr)
+
+    bbox_xyz = {
+        "x": [int(crop_slices[0].start or 0), int(crop_slices[0].stop or resampled_mask_arr.shape[0])],
+        "y": [int(crop_slices[1].start or 0), int(crop_slices[1].stop or resampled_mask_arr.shape[1])],
+        "z": [int(crop_slices[2].start or 0), int(crop_slices[2].stop or resampled_mask_arr.shape[2])],
+    }
+    with open(pad_dir / "bbox.yaml", 'w') as file:
+        yaml.dump(bbox_xyz, file, default_flow_style=False)
 
     # Preprocess all inputs
     for img_path in inputs:
