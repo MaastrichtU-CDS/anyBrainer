@@ -4,13 +4,14 @@ __all__ = [
     "count_model_params",
     "summarize_model_params",
     "get_total_grad_norm",
-    "get_optimizer_lr",
     "init_swin_v2",
     "get_parameter_groups_from_prefixes",
+    "split_decay_groups_from_params",
 ]
 
 import logging
 import math
+from typing import Sequence
 
 import torch
 import torch.nn as nn
@@ -20,6 +21,20 @@ from anyBrainer.registry import register, RegistryKind as RK
 
 logger = logging.getLogger(__name__)
 
+_NO_DECAY_NORM_TYPES = (
+    nn.LayerNorm, nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+    nn.GroupNorm, nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+)
+
+# Common Swin/ViT params that should not decay
+_NO_DECAY_NAME_KEYWORDS = {
+    "pos_embed",                       # ViT / Swin absolute pos embed
+    "absolute_pos_embed",              # some impls
+    "relative_position_bias_table",    # Swin v1/v2
+    "rel_pos_bias",                    # alt naming
+    "logit_scale",                     # sometimes present in CLIP-like heads
+    "gamma", "beta",                   # norm-style params in some impls
+}
 
 def count_model_params(model: nn.Module, trainable: bool = False):
     """Count model parameters."""
@@ -55,39 +70,6 @@ def get_total_grad_norm(model: nn.Module) -> torch.Tensor:
         ]), p=2,
     )
     return total_norm
-
-def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
-    """Get optimizer learning rates."""
-    return {
-        f"train/lr/opt{i}_group{j}": group["lr"]
-        for i, opt in enumerate(optimizers)
-        for j, group in enumerate(opt.param_groups)
-    }
-
-def get_parameter_groups_from_prefixes(
-    model: nn.Module,
-    prefixes: str | list[str] | None = None,
-    *,
-    trainable_only: bool = True,
-    silent: bool = False,
-) -> list[nn.Parameter]:
-    if prefixes is None:
-        return [p for p in model.parameters() if p.requires_grad or not trainable_only]
-
-    if isinstance(prefixes, str):
-        prefixes = [prefixes]
-
-    params = [
-        p for n, p in model.named_parameters()
-        if any(n.startswith(pref) for pref in prefixes)
-        and (p.requires_grad or not trainable_only)
-    ]
-    if not silent and not params:
-        msg = f"No parameters found for prefixes: {prefixes}"
-        logger.error(msg)
-        raise ValueError(msg)
-    
-    return params
 
 def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,
                    a: float = -2., b: float = 2.) -> torch.Tensor:
@@ -161,3 +143,103 @@ def init_swin_v2(model: nn.Module,
                             nn.BatchNorm2d, nn.BatchNorm3d)):
             nn.init.ones_(m.weight)
             nn.init.zeros_(m.bias)
+
+def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
+    """Get optimizer learning rates."""
+    return {
+        f"train/lr/opt{i}_group{j}": group["lr"]
+        for i, opt in enumerate(optimizers)
+        for j, group in enumerate(opt.param_groups)
+    }
+
+def get_parameter_groups_from_prefixes(
+    model: nn.Module,
+    prefixes: str | list[str] | None = None,
+    *,
+    trainable_only: bool = True,
+    silent: bool = False,
+    return_named: bool = False,
+) -> list[tuple[str, nn.Parameter]] | list[nn.Parameter]:
+    if prefixes is None:
+        named = [
+            (n, p) for n, p in model.named_parameters()
+            if (p.requires_grad or not trainable_only)
+        ]
+    else:
+        if isinstance(prefixes, str):
+            prefixes = [prefixes]
+        named = [
+            (n, p) for n, p in model.named_parameters()
+            if any(n.startswith(pref) for pref in prefixes)
+            and (p.requires_grad or not trainable_only)
+        ]
+    if not silent and not named:
+        msg = f"No parameters found for prefixes: {prefixes}"
+        logger.error(msg)
+        raise ValueError(msg)
+
+    return named if return_named else [p for _, p in named]
+
+def is_no_decay_param(
+    name: str,
+    module: nn.Module | None,
+    *,
+    extra_prefixes: Sequence[str] | None,
+    auto_no_weight_decay: bool,
+) -> bool:
+    """
+    Determine if a parameter should not receive weight decay.
+
+    Args:
+        name: The name of the parameter.
+        module: The module instance of the parameter.
+        extra_prefixes: Extra prefixes to check.
+        auto_no_weight_decay: If True, weight decay is set to 0 for all parameters
+        that are not explicitly listed in `no_weight_decay_prefixes`.
+    """
+    # Normalize names
+    name = name.lower()
+    extra_prefixes = tuple(p.lower() for p in extra_prefixes) if extra_prefixes else None
+    
+    if extra_prefixes and name.startswith(extra_prefixes):
+        return True
+
+    if not auto_no_weight_decay:
+        return False
+
+    # module-type rule: any Norm* module's params -> no decay
+    if module is not None and isinstance(module, _NO_DECAY_NORM_TYPES):
+        return True
+
+    # bias parameters
+    if name.endswith(".bias"):
+        return True
+
+    # name-based rules
+    if any(kw in name for kw in _NO_DECAY_NAME_KEYWORDS):
+        return True
+
+    return False
+
+def split_decay_groups_from_params(
+    model: nn.Module,
+    params: list[tuple[str, nn.Parameter]],
+    *,
+    auto_no_weight_decay: bool,
+    no_weight_decay_prefixes: list[str] | None,
+) -> tuple[list[nn.Parameter], list[nn.Parameter]]:
+    """Return (decay_params, no_decay_params) from a flat named param list."""
+    if not auto_no_weight_decay and not no_weight_decay_prefixes:
+        return [p for _, p in params], []
+
+    decay: list[nn.Parameter] = []
+    no_decay: list[nn.Parameter] = []
+    for name, p in params:
+        mod_name = name.rsplit(".", 1)[0] if "." in name else ""
+        module = model.get_submodule(mod_name) if mod_name else model
+        if is_no_decay_param(name, module, extra_prefixes=no_weight_decay_prefixes, 
+                             auto_no_weight_decay=auto_no_weight_decay):
+            no_decay.append(p)   # append the Parameter
+        else:
+            decay.append(p)
+    return decay, no_decay

@@ -17,6 +17,7 @@ from typing import Any, Callable, TYPE_CHECKING, cast
 from copy import deepcopy
 
 import torch
+import torch.nn as nn
 from lightning.pytorch import LightningModule as plModule
 from monai.inferers.inferer import Inferer
 #pyright: reportPrivateImportUsage=false
@@ -27,10 +28,11 @@ from monai.transforms import (
 )
 
 from anyBrainer.core.utils import (
-    get_parameter_groups_from_prefixes,
     load_param_group_from_ckpt,
     resolve_path,
     callable_name,
+    get_parameter_groups_from_prefixes,
+    split_decay_groups_from_params,
     apply_tta_monai_batch,
 )
 from anyBrainer.config import resolve_fn, resolve_transform
@@ -278,6 +280,32 @@ class OptimConfigMixin(PLModuleMixin):
     """
     Adds support for configuring optimizers and LR schedulers for 
     Pytorch Lightning modules.
+
+    Optimizer kwargs are expected to have the following format:
+    ```
+        optimizer_kwargs:
+            {
+            "name": "AdamW",
+            "auto_no_weight_decay": true,
+            "param_groups": [
+                {
+                "param_group_prefix": "encoder",
+                "lr": 1e-3,
+                "weight_decay": 1e-3
+                }
+            ]
+            }
+
+        # or single-group:
+        optimizer_kwargs:
+            {
+            "name": "AdamW",
+            "auto_no_weight_decay": true,
+            "param_group_prefix": "encoder",
+            "lr": 1e-3,
+            "weight_decay": 1e-3
+            }
+    ```
     """
     optimizer_kwargs: dict[str, Any] | list[dict[str, Any]]
     lr_scheduler_kwargs: dict[str, Any] | list[dict[str, Any]] | None
@@ -293,6 +321,12 @@ class OptimConfigMixin(PLModuleMixin):
         
         Retrieves requested parameter groups from pl.LightningModule.model and 
         parses them into optimizer_kwargs. 
+
+        Filters out parameters that should not receive weight decay--defined per optimizer:
+        - If `auto_no_weight_decay` is True, weight decay is set to 0 for parameters that
+        are not typically decayed, such as bias parameters, normalization parameters, etc.
+        - If `no_weight_decay_prefixes` is provided, it is used to determine which parameters
+        should not decay.
         """
         if not isinstance(optimizer_kwargs, (dict, list)):
             msg = (f"[{self.__class__.__name__}] `optimizer_kwargs` must be a dict, "
@@ -306,23 +340,29 @@ class OptimConfigMixin(PLModuleMixin):
             logger.error(msg)
             raise TypeError(msg)    
 
-        optimizer_kwargs = deepcopy(optimizer_kwargs)
-        lr_scheduler_kwargs = deepcopy(lr_scheduler_kwargs) if lr_scheduler_kwargs else None
-
         if not hasattr(self, "model"):
             msg = (f"[{self.__class__.__name__}] Expected attribute 'model' "
                    "before calling OptimConfigMixin.setup_mixin().")
             logger.error(msg)
             raise ValueError(msg)
 
-        if not isinstance(optimizer_kwargs, list):
+        optimizer_kwargs = deepcopy(optimizer_kwargs)
+        lr_scheduler_kwargs = deepcopy(lr_scheduler_kwargs) if lr_scheduler_kwargs else None
+
+        if not isinstance(optimizer_kwargs, list): # single optimizer
             optimizer_kwargs = [optimizer_kwargs]
 
         for cfg in optimizer_kwargs:
             if "param_groups" in cfg and "param_group_prefix" in cfg:
                 logger.warning(f"[{self.__class__.__name__}] `param_groups` and `param_group_prefix` "
                                "used together, `param_group_prefix` will be ignored.")
+            # Weight decay settings
+            auto_no_wd = bool(cfg.pop("auto_no_weight_decay", False))
+            extra_nd_prefixes = cfg.pop("no_weight_decay_prefixes", None)
+            if isinstance(extra_nd_prefixes, str):
+                extra_nd_prefixes = [extra_nd_prefixes]
             
+            resolved_groups: list[dict[str, Any]] = []
             if "param_groups" in cfg:
                 # Multiple parameter groups inside this optimizer
                 if not isinstance(cfg["param_groups"], list):
@@ -330,18 +370,44 @@ class OptimConfigMixin(PLModuleMixin):
                            f"got {type(cfg['param_groups']).__name__}.")
                     logger.error(msg)
                     raise TypeError(msg)
+                
+                if "lr" in cfg or "weight_decay" in cfg:
+                    logger.warning(f"[{self.__class__.__name__}] `lr` and `weight_decay` are provided at the"
+                                   "top-level of the optimizer config; will get passed to subsequent sub-groups.")
 
-                resolved_groups = []
                 for group_cfg in cfg.pop("param_groups"):
-                    group_cfg["params"] = get_parameter_groups_from_prefixes(
-                        self.model, group_cfg.pop("param_group_prefix", None) # type: ignore[attr-defined]
+                    named_params = cast(list[tuple[str, nn.Parameter]], get_parameter_groups_from_prefixes(
+                        self.model, group_cfg.pop("param_group_prefix", None), # type: ignore[attr-defined]
+                        return_named=True,
+                    ))
+                    wd_params, no_wd_params = split_decay_groups_from_params(
+                        self.model, named_params, auto_no_weight_decay=auto_no_wd, # type: ignore[attr-defined]
+                        no_weight_decay_prefixes=extra_nd_prefixes,
                     )
-                    resolved_groups.append(group_cfg)
-                cfg["params"] = resolved_groups
+                    # duplicate group: same hparams, but WD=0 for the no-decay subset
+                    base = {k: v for k, v in cfg.items() if k not in ("params", "name")}  # keep lr, weight_decay, etc.
+                    if no_wd_params:
+                        resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
+                    if wd_params:
+                        resolved_groups.append({**group_cfg, "params": wd_params})
             else:
                 # Single parameter group
                 prefix = cfg.pop("param_group_prefix", None)
-                cfg["params"] = get_parameter_groups_from_prefixes(self.model, prefix) # type: ignore[attr-defined]
+                named_params = cast(list[tuple[str, nn.Parameter]], get_parameter_groups_from_prefixes(
+                    self.model, prefix, return_named=True, # type: ignore[attr-defined]
+                ))
+                wd_params, no_wd_params = split_decay_groups_from_params(
+                    self.model, named_params, auto_no_weight_decay=auto_no_wd, # type: ignore[attr-defined]
+                    no_weight_decay_prefixes=extra_nd_prefixes,
+                )
+                base = {k: v for k, v in cfg.items() if k != "params" and k != "name"} # entry contains optimizer name
+                if no_wd_params:
+                    resolved_groups.append({**base, "params": no_wd_params, "weight_decay": 0.0})
+                if wd_params: 
+                    resolved_groups.append({**base, "params": wd_params})
+            
+            cfg["params"] = resolved_groups
+            
 
         # Return to original format if only one optimizer
         self.optimizer_kwargs = (optimizer_kwargs if len(optimizer_kwargs) > 1 
