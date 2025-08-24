@@ -1,6 +1,5 @@
 """Preprocess input images for FOMO25 inference."""
 
-import logging
 from typing import Literal, cast
 from pathlib import Path
 import subprocess
@@ -9,10 +8,10 @@ import os
 import numpy as np
 import ants
 import yaml
+import torch
+from monai.utils.type_conversion import convert_to_numpy
 
 Task = Literal["task1", "task2", "task3"]
-
-from .utils import get_pads_from_bbox
 
 class PreprocessError(RuntimeError):
     pass
@@ -30,24 +29,6 @@ def _save_nifti(data: ants.ANTsImage, out_path: Path) -> None:
 
 def _has_cmd(cmd: str) -> bool:
     return subprocess.call(["bash", "-lc", f"command -v {cmd} >/dev/null 2>&1"]) == 0
-
-def _bbox_from_mask(mask: np.ndarray, margin: int = 4) -> tuple[slice, slice, slice]:
-    idx = np.argwhere(mask > 0)
-    if idx.size == 0:
-        # Fallback to full volume if mask is empty (shouldn’t happen with HD-BET)
-        return (slice(0, mask.shape[0]), slice(0, mask.shape[1]), slice(0, mask.shape[2]))
-    mins = idx.min(0)
-    maxs = idx.max(0) + 1
-    mins = np.maximum(mins - margin, 0)
-    maxs = np.minimum(maxs + margin, mask.shape)
-    return (slice(mins[0], maxs[0]), slice(mins[1], maxs[1]), slice(mins[2], maxs[2]))
-
-def _resample(
-    image: ants.ANTsImage, 
-    interp: str = "linear",
-    spacing: tuple[float, float, float] = (1, 1, 1),
-) -> ants.ANTsImage:
-    return ants.resample_image(image, resample_params=spacing, interp_type=interp) # type: ignore
 
 def _get_reg_transforms(
     moving: ants.ANTsImage, 
@@ -88,6 +69,18 @@ def _numpy_to_ants(arr, target_img=None):
         new_img.set_origin(target_img.origin)
         new_img.set_direction(target_img.direction)
     return new_img
+
+def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
+    a = convert_to_numpy(pred, dtype=np.float32)  # preserves shape
+    # drop batch
+    if a.ndim == 5:  # (B,C,D,H,W)
+        a = a[0]
+    # drop channel
+    if a.ndim == 4:  # (C,D,H,W)
+        # expect C==1
+        a = a[0]
+    # now (D,H,W)
+    return (a >= threshold).astype(np.uint8)
 
 def preprocess_inputs(
     inputs: list[Path] | list[Path | None],
@@ -135,11 +128,10 @@ def preprocess_inputs(
             raise FileNotFoundError(p)
 
     # Setup working dirs
-    work_dir = work_dir or Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
+    work_dir = Path(work_dir or os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
     in_dir = _ensure_dir(work_dir / "inputs")
     mask_dir = _ensure_dir(work_dir / "masks")
     reg_dir = _ensure_dir(work_dir / "reg")
-    pad_dir = _ensure_dir(work_dir / "pad")
 
     # Map modalities to input paths
     mod2path: dict[str, Path] = {m.lower(): Path(p) for m, p in zip(mods, inputs)}
@@ -172,20 +164,58 @@ def preprocess_inputs(
 
     # Get crop slices
     mask_img_reg = _apply_transforms(mask_img, tmpl_img, fwd)
-    resampled_mask_arr = _resample(mask_img_reg, spacing=(1, 1, 1)).numpy()
-    crop_slices = _bbox_from_mask(resampled_mask_arr)
-
-    bbox_xyz = get_pads_from_bbox(crop_slices, resampled_mask_arr.shape)
-    with open(pad_dir / "pad.yaml", 'w') as file:
-        yaml.dump(bbox_xyz, file, default_flow_style=False)
 
     # Preprocess all inputs
     for img_path in inputs:
         try:
             img = _load_nifti(img_path)
             img_reg = _apply_transforms(img, tmpl_img, fwd)
-            img_resampled = _resample(img_reg, spacing=(1, 1, 1))
-            img_cropped = img_resampled.numpy()[crop_slices]
-            _save_nifti(_numpy_to_ants(img_cropped), in_dir / img_path.name)
+            _save_nifti(_numpy_to_ants(img_reg), in_dir / img_path.name)
         except Exception as e:
             raise PreprocessError(f"Failed to preprocess {img_path}: {e}")
+
+def revert_preprocess(
+    pred: torch.Tensor,
+    orig_img: ants.ANTsImage,
+    work_dir: Path| None = None,
+) -> ants.ANTsImage:
+    """
+    Revert preprocessing on predicted segmentation masks for FOMO25 tasks.
+
+    Assumes that following `predict_transforms` are already reversed:
+    - Padding
+    - Cropping
+    - Resampling
+    - Orientation (flipping)
+
+    For now assumes that it is used only for task 2 that contains FLAIR (template is T2w).
+    
+    Steps: 
+    1) Convert to uint8 numpy array
+    2) Load fwd/inv transforms from reg.mat
+    3) Apply transforms to pred
+
+    Args:
+        pred: Predicted segmentation mask as torch.Tensor.
+        orig_img: Original image as ants.ANTsImage.
+        work_dir: Optional target directory for preprocessed images.
+
+    Returns:
+        Reversed segmentation mask as ants.ANTsImage.
+    """
+    work_dir = Path(work_dir or os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
+
+    inv_tansform = work_dir / "reg" / "inv.mat"
+    if not inv_tansform.exists():
+        raise FileNotFoundError(f"Inverse transform not found: {inv_tansform}")
+    
+    tmpl_path = Path("icbm_mni152_t2_09a_asym_bet.nii.gz")
+    if not tmpl_path.exists():
+        raise FileNotFoundError(f"Template not found: {tmpl_path}")
+    tmpl_img = _load_nifti(tmpl_path)
+
+    pred_arr = _tensor_to_3d_mask_binary(pred)
+    pred_img = _numpy_to_ants(pred_arr, tmpl_img)
+
+    return _apply_transforms(pred_img, orig_img, [str(inv_tansform)])
+    

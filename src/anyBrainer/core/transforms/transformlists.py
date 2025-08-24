@@ -23,6 +23,7 @@ from monai.transforms import (
     OneOf,
     DeleteItemsd,
     ClipIntensityPercentilesd,
+    CropForegroundd,
     ConcatItemsd,
     Orientationd,
     NormalizeIntensityd,
@@ -40,6 +41,7 @@ from monai.transforms import (
     RandGibbsNoised, 
     RandAdjustContrastd,
     RandCropByPosNegLabeld,
+    Spacingd,
     Activations,
     AsDiscrete,
     RemoveSmallObjects,
@@ -47,7 +49,6 @@ from monai.transforms import (
     EnsureType,
     Flipd, 
 )
-import torch
 
 from .unit_transforms import (
     SaveReconstructionTargetd,
@@ -168,11 +169,13 @@ def get_contrastive_val_transforms(
 
 @register(RK.TRANSFORM)
 def get_predict_transforms(
-    patch_size: int | Sequence[int] = (128, 128, 128), 
+    patch_size: int | Sequence[int] = (128, 128, 128),
+    spacing: tuple[float, float, float] = (1, 1, 1),
     keys: list[str] = OPEN_KEYS,
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
+    delete_orig: bool = True, # when concat_img is True
     sliding_window: bool = False,
     target_key: str = "img",
     n_patches: int | Sequence[int] = (2, 2, 2),
@@ -193,6 +196,8 @@ def get_predict_transforms(
             LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
+            Spacingd(keys=keys, pixdim=spacing, allow_missing_keys=allow_missing_keys),
+            CropForegroundd(keys=keys, source_key=keys[0], allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys),
         ])
 
@@ -210,8 +215,11 @@ def get_predict_transforms(
         transforms.extend([
             ConcatItemsd(keys=keys, name=target_key, dim=1,
                         allow_missing_keys=allow_missing_keys),
-            DeleteItemsd(keys=keys)
         ])
+        if delete_orig:
+            transforms.extend([
+                DeleteItemsd(keys=keys)
+            ])
     return transforms
 
 @register(RK.TRANSFORM)

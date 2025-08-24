@@ -7,6 +7,7 @@ import pytest
 from anyBrainer.core.transforms import (
     get_mae_train_transforms, 
     get_contrastive_train_transforms,
+    get_predict_transforms,
 )
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import Compose
@@ -47,6 +48,29 @@ contrastive_settings = {
     }
 }
 
+predict_settings = {
+    'data': {
+        "flair": 'tests/examples/flair.nii.gz',
+    },
+    'settings': {
+        'transforms': get_predict_transforms(
+            patch_size=(128, 128, 128),
+            spacing=(1, 1, 1),
+            keys=['flair'],
+            allow_missing_keys=False,
+            is_nifti=True,
+            concat_img=False,
+            sliding_window=False,
+        ),
+        'keys': ['flair'],
+        'stage': None,
+        'master_seed': 12345,
+        'slice_indices': [30, 50, 70],
+        'axis': 2,
+        'channel': 0,
+        'save_path': None,
+    }
+}
 
 @pytest.mark.viz
 def test_visualize_mae_transforms():
@@ -81,3 +105,20 @@ def test_visualize_contrastive_transforms():
         axis=contrastive_settings['settings']['axis'],
         channel=contrastive_settings['settings']['channel'],
         save_path=contrastive_settings['settings']['save_path'])
+
+@pytest.mark.viz
+def test_visualize_predict_transforms():
+    """Visualize the reference transforms"""
+    transforms = Compose(
+        predict_settings['settings']['transforms']
+    ).set_random_state(seed=predict_settings['settings']['master_seed'])
+    
+    visualize_transform_stage(
+        pipeline=transforms,
+        sample=predict_settings['data'],
+        keys=predict_settings['settings']['keys'],
+        stage=predict_settings['settings']['stage'],
+        slice_indices=predict_settings['settings']['slice_indices'],
+        axis=predict_settings['settings']['axis'],
+        channel=predict_settings['settings']['channel'],
+        save_path=predict_settings['settings']['save_path'])
