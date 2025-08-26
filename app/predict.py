@@ -15,7 +15,6 @@ from monai.data.utils import list_data_collate, decollate_batch
 from .preprocess import preprocess_inputs, revert_preprocess
 from .utils import (
     write_probability, 
-    download_templates,
     move_batch_to_device,
     get_device,
 )
@@ -43,11 +42,11 @@ TASK_1_CONFIG = {
         "name": "get_postprocess_classification_transforms",
     },
     "model_ckpts": [
-        "ckpts/task1/split_0_last.ckpt",
-        "ckpts/task1/split_1_last.ckpt",
-        "ckpts/task1/split_2_last.ckpt",
-        "ckpts/task1/split_3_last.ckpt",
-        "ckpts/task1/split_4_last.ckpt",
+        "ckpts/task1/split_0.ckpt",
+        "ckpts/task1/split_1.ckpt",
+        "ckpts/task1/split_2.ckpt",
+        "ckpts/task1/split_3.ckpt",
+        "ckpts/task1/split_4.ckpt",
     ]
 }
 
@@ -66,10 +65,10 @@ TASK_2_CONFIG = {
         "name": "get_postprocess_segmentation_transforms",
     },
     "model_ckpts": [
-        "ckpts/task2/split_0_last.ckpt",
-        "ckpts/task2/split_1_last.ckpt",
-        "ckpts/task2/split_2_last.ckpt",
-        "ckpts/task2/split_3_last.ckpt",
+        "ckpts/task2/split_0.ckpt",
+        "ckpts/task2/split_1.ckpt",
+        "ckpts/task2/split_2.ckpt",
+        "ckpts/task2/split_3.ckpt",
         "ckpts/task2/split_4_last.ckpt",
     ]
 }
@@ -85,11 +84,11 @@ TASK_3_CONFIG = {
         "target_key": "img"
     },
     "model_ckpts": [
-        "ckpts/task3/split_0_last.ckpt",
-        "ckpts/task3/split_1_last.ckpt",
-        "ckpts/task3/split_2_last.ckpt",
-        "ckpts/task3/split_3_last.ckpt",
-        "ckpts/task3/split_4_last.ckpt",
+        "ckpts/task3/split_0.ckpt",
+        "ckpts/task3/split_1.ckpt",
+        "ckpts/task3/split_2.ckpt",
+        "ckpts/task3/split_3.ckpt",
+        "ckpts/task3/split_4.ckpt",
     ]
 }
 
@@ -362,19 +361,11 @@ def main():
     """
     Main function to run the inference pipeline.
     """
-    task: Task = "task1"
     torch.set_num_threads(1)
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    if task == "task1":
-        predict_task_1()
-    elif task == "task2":
-        predict_task_2()
-    elif task == "task3":
-        predict_task_3()
-    else:
-        raise ValueError(f"Invalid task: {task}")
+    predict_task_1()
 
 if __name__ == "__main__":
     main()
