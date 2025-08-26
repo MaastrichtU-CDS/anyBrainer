@@ -22,7 +22,6 @@ from monai.transforms import (
     Compose,
     OneOf,
     DeleteItemsd,
-    ClipIntensityPercentilesd,
     CropForegroundd,
     ConcatItemsd,
     Orientationd,
@@ -251,7 +250,8 @@ def get_classification_train_transforms(
             LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='RAS', allow_missing_keys=allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.9, allow_missing_keys=allow_missing_keys),
+            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.9, 
+                       allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, nonzero=True, allow_missing_keys=allow_missing_keys),
         ])
     

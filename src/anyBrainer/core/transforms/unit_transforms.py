@@ -452,7 +452,7 @@ class ClipNonzeroPercentilesd(MapTransform):
 
     def __call__(self, data):
         d = dict(data)
-        for k in self.keys:
+        for k in self.key_iterator(d):
             x = d[k]  # (C, ...), torch.Tensor or MetaTensor
             if not torch.is_tensor(x):
                 x = torch.as_tensor(x)
