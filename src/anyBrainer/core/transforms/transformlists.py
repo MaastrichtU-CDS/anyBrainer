@@ -35,6 +35,7 @@ from monai.transforms import (
     RandSimulateLowResolutiond,
     RandScaleIntensityFixedMeand, 
     RandRicianNoised,
+    RandGaussianNoised,
     RandGaussianSmoothd,
     RandBiasFieldd, 
     RandGibbsNoised, 
@@ -270,8 +271,7 @@ def get_classification_train_transforms(
         transforms.extend([
             RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                          allow_missing_keys=allow_missing_keys),
-            RandRicianNoised(keys=key, std=0.01, prob=0.3, 
-                               allow_missing_keys=allow_missing_keys),
+            RandGaussianNoised(keys=key, std=0.01, prob=0.3, allow_missing_keys=allow_missing_keys),
         ])
         # Simulate artefacts
         transforms.extend([
@@ -359,8 +359,7 @@ def get_regression_train_transforms(
         transforms.extend([
             RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                          allow_missing_keys=allow_missing_keys),
-            RandRicianNoised(keys=key, std=0.01, prob=0.3, 
-                               allow_missing_keys=allow_missing_keys),
+            RandGaussianNoised(keys=key, std=0.01, prob=0.3, allow_missing_keys=allow_missing_keys),
         ])
         # Simulate artifacts
         transforms.extend([
@@ -506,7 +505,7 @@ def get_segmentation_train_transforms(
             transforms.extend([
                 RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8, 
                                             allow_missing_keys=allow_missing_keys),
-                RandRicianNoised(keys=key, std=0.01, prob=0.3, 
+                RandGaussianNoised(keys=key, std=0.01, prob=0.3, 
                                 allow_missing_keys=allow_missing_keys),
             ])
             # Simulate artifacts

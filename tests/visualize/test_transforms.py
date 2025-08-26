@@ -54,7 +54,7 @@ predict_settings = {
         "flair": 'tests/examples/flair.nii.gz',
     },
     'settings': {
-        'transforms': get_predict_transforms(
+        'transforms': get_classification_train_transforms(
             patch_size=(128, 128, 128),
             keys=['flair'],
             allow_missing_keys=False,
@@ -64,7 +64,7 @@ predict_settings = {
         ),
         'keys': ['flair'],
         'stage': None,
-        'master_seed': 3,
+        'master_seed': 234,
         'slice_indices': [30, 50, 70],
         'axis': 2,
         'channel': 0,
