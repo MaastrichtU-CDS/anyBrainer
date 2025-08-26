@@ -56,14 +56,14 @@ contrastive_settings = {
 
 predict_settings = {
     'data': {
-        "flair": 'tests/examples/flair.nii.gz',
+        "flair": 'tests/examples/flair.npy',
     },
     'settings': {
         'transforms': get_predict_transforms(
             patch_size=(128, 128, 128),
             keys=['flair'],
             allow_missing_keys=False,
-            is_nifti=True,
+            is_nifti=False,
             concat_img=False,
             sliding_window=False,
         ),

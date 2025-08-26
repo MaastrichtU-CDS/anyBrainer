@@ -199,7 +199,7 @@ def get_predict_transforms(
             Orientationd(keys=keys, axcodes='LPI', allow_missing_keys=allow_missing_keys),
             Spacingd(keys=keys, pixdim=spacing, allow_missing_keys=allow_missing_keys),
             CropForegroundd(keys=keys, source_key=keys[0], allow_missing_keys=allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.9, allow_missing_keys=allow_missing_keys),
+            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.5, allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys, nonzero=True),
         ])
 
@@ -251,7 +251,7 @@ def get_classification_train_transforms(
             LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='LPI', allow_missing_keys=allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.9, 
+            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.5, 
                        allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, nonzero=True, allow_missing_keys=allow_missing_keys),
         ])
@@ -344,7 +344,7 @@ def get_regression_train_transforms(
             LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='LPI', allow_missing_keys=allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.9, 
+            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.5, 
                        allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, nonzero=True, allow_missing_keys=allow_missing_keys),
         ])
@@ -473,7 +473,7 @@ def get_segmentation_train_transforms(
             LoadImaged(keys=all_keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=_allow_missing_keys),
             Orientationd(keys=all_keys, axcodes='LPI', allow_missing_keys=_allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=img_keys, lower=0.5, upper=99.9, 
+            ClipNonzeroPercentilesd(keys=img_keys, lower=0.5, upper=99.5, 
                                     allow_missing_keys=_allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, nonzero=True, allow_missing_keys=_allow_missing_keys),
         ])
@@ -589,7 +589,7 @@ def get_downstream_val_transforms(
             LoadImaged(keys=keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='LPI', allow_missing_keys=allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.9, 
+            ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.5, 
                                     allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, nonzero=True, allow_missing_keys=allow_missing_keys),
         ])
@@ -650,7 +650,7 @@ def get_segmentation_val_transforms(
             LoadImaged(keys=all_keys, reader='NibabelReader', ensure_channel_first=True, 
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=all_keys, axcodes='LPI', allow_missing_keys=allow_missing_keys),
-            ClipNonzeroPercentilesd(keys=img_keys, lower=0.5, upper=99.9, 
+            ClipNonzeroPercentilesd(keys=img_keys, lower=0.5, upper=99.5, 
                                     allow_missing_keys=_allow_missing_keys),
             NormalizeIntensityd(keys=img_keys, nonzero=True, allow_missing_keys=_allow_missing_keys),
         ])
