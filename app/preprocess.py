@@ -4,10 +4,10 @@ from typing import Literal, cast
 from pathlib import Path
 import subprocess
 import os
+import shutil
 
 import numpy as np
 import ants
-import yaml
 import torch
 from monai.utils.type_conversion import convert_to_numpy
 
@@ -21,7 +21,7 @@ def _ensure_dir(p: Path) -> Path:
     return p
 
 def _load_nifti(path: Path) -> ants.ANTsImage:
-    return ants.image_read(str(path), reorient='RAS') # type: ignore
+    return ants.image_read(str(path))
 
 def _save_nifti(data: ants.ANTsImage, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +82,10 @@ def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
     # now (D,H,W)
     return (a >= threshold).astype(np.uint8)
 
+def _collect_inv_transforms(reg_dir: Path) -> list[str]:
+    items = sorted(reg_dir.glob("inv_*"), key=lambda p: int(p.stem.split("_")[1]))
+    return [str(p) for p in items]
+
 def preprocess_inputs(
     inputs: list[Path] | list[Path | None],
     mods: list[str],
@@ -90,6 +94,8 @@ def preprocess_inputs(
     ) -> None:
     """
     Preprocess input images for FOMO25 tasks.
+
+    Assumes all modalities are co-registered and on the same grid. 
 
     Steps:
       1) Choose extraction reference (FLAIR for tasks 1/2, T1w for task 3).
@@ -139,10 +145,10 @@ def preprocess_inputs(
     # Choose reference modality for computing brain mask & registration fields
     if task in ("task1", "task2"):
         ref_mod = "flair" if "flair" in mod2path else next(iter(mod2path.keys()))
-        tmpl_path = Path("icbm_mni152_t2_09a_asym_bet.nii.gz")
+        tmpl_path = Path("templates/icbm_mni152_t2_09a_asym_bet.nii.gz")
     else:
         ref_mod = "t1" if "t1" in mod2path else next(iter(mod2path.keys()))
-        tmpl_path = Path("icbm_mni152_t1_09a_asym_bet.nii.gz")
+        tmpl_path = Path("templates/icbm_mni152_t1_09a_asym_bet.nii.gz")
     
     if not tmpl_path.exists():
         raise FileNotFoundError(f"Template not found: {tmpl_path}")
@@ -152,31 +158,35 @@ def preprocess_inputs(
 
     # Skull-stripping via HD-BET
     mask_path = mask_dir / "brain_mask.nii.gz"
-    _run_hdbet_cli(ref_path, mask_path)
+    use_gpu = torch.cuda.is_available()
+    _run_hdbet_cli(ref_path, mask_path, device="cuda" if use_gpu else "cpu")
     mask_img = _load_nifti(mask_path)
 
     # Registration to template
     tmpl_img = _load_nifti(tmpl_path)
     fwd, inv = _get_reg_transforms(_apply_mask(ref_img, mask_img), tmpl_img)
-    ants.read_transform(fwd[0], precision='float')
-    ants.write_transform(ants.read_transform(fwd[0], precision='float'), str(reg_dir / "fwd.mat"))
-    ants.write_transform(ants.read_transform(inv[0], precision='float'), str(reg_dir / "inv.mat"))
-
-    # Get crop slices
-    mask_img_reg = _apply_transforms(mask_img, tmpl_img, fwd)
+    for i, t in enumerate(fwd):
+        shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
+    for i, t in enumerate(inv):
+        shutil.copy2(t, reg_dir / f"inv_{i}{Path(t).suffix}")
 
     # Preprocess all inputs
+    ref_spacing = ref_img.spacing
     for img_path in inputs:
         try:
             img = _load_nifti(img_path)
-            img_reg = _apply_transforms(img, tmpl_img, fwd)
-            _save_nifti(_numpy_to_ants(img_reg), in_dir / img_path.name)
+            if ref_spacing != img.spacing:
+                raise ValueError(f"Mismatched spacing: {ref_spacing} != {img.spacing} "
+                                 f"between modalities")
+            img_masked = _apply_mask(img, mask_img)
+            img_reg = _apply_transforms(img_masked, tmpl_img, fwd)
+            _save_nifti(img_reg, in_dir / img_path.name)
         except Exception as e:
             raise PreprocessError(f"Failed to preprocess {img_path}: {e}")
 
 def revert_preprocess(
     pred: torch.Tensor,
-    orig_img: ants.ANTsImage,
+    orig: str | Path,
     work_dir: Path| None = None,
 ) -> ants.ANTsImage:
     """
@@ -189,7 +199,7 @@ def revert_preprocess(
     - Orientation (flipping)
 
     For now assumes that it is used only for task 2 that contains FLAIR (template is T2w).
-    
+
     Steps: 
     1) Convert to uint8 numpy array
     2) Load fwd/inv transforms from reg.mat
@@ -197,7 +207,7 @@ def revert_preprocess(
 
     Args:
         pred: Predicted segmentation mask as torch.Tensor.
-        orig_img: Original image as ants.ANTsImage.
+        orig_img: Original image as str or Path.
         work_dir: Optional target directory for preprocessed images.
 
     Returns:
@@ -205,17 +215,22 @@ def revert_preprocess(
     """
     work_dir = Path(work_dir or os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
-    inv_tansform = work_dir / "reg" / "inv.mat"
-    if not inv_tansform.exists():
-        raise FileNotFoundError(f"Inverse transform not found: {inv_tansform}")
+    inv_transforms = _collect_inv_transforms(work_dir / "reg")
+    if len(inv_transforms) == 0:
+        raise FileNotFoundError("Inverse transforms not found.")
     
     tmpl_path = Path("icbm_mni152_t2_09a_asym_bet.nii.gz")
     if not tmpl_path.exists():
         raise FileNotFoundError(f"Template not found: {tmpl_path}")
     tmpl_img = _load_nifti(tmpl_path)
 
+    orig_path = Path(orig)
+    if not orig_path.exists():
+        raise FileNotFoundError(f"Original image not found: {orig_path}")
+    orig_img = _load_nifti(orig_path)
+
     pred_arr = _tensor_to_3d_mask_binary(pred)
     pred_img = _numpy_to_ants(pred_arr, tmpl_img)
 
-    return _apply_transforms(pred_img, orig_img, [str(inv_tansform)])
+    return _apply_transforms(pred_img, orig_img, inv_transforms, interp='nearestNeighbor')
     

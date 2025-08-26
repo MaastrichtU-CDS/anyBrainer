@@ -30,9 +30,10 @@ build/
 dist/
 *.egg-info/
 
-# Ignore custom template folder
+# Ignore folders
 config_files/
 examples/
+templates/
 
 # Extras
 TODOS.md

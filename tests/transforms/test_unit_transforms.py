@@ -7,6 +7,7 @@ import math
 import pytest
 import torch
 import torch.nn.functional as F
+from monai.data.meta_tensor import MetaTensor
 
 from anyBrainer.core.transforms.unit_transforms import (
     CreateRandomMaskd,
@@ -15,6 +16,7 @@ from anyBrainer.core.transforms.unit_transforms import (
     GetKeyQueryd,
     SlidingWindowPatch,
     RandImgKeyd,
+    ClipNonzeroPercentilesd,
 )
 
 @pytest.mark.parametrize("mask_ratio,mask_patch_size", [
@@ -291,3 +293,23 @@ class TestRandImgKeyd:
         assert out.get("img_0") is not None
         assert out.get("img_1") is not None
         assert out.get("img") is None
+
+
+class TestClipNonzeroPercentilesd:
+    def test_output_keys(self, mae_sample_data):
+        out = ClipNonzeroPercentilesd(keys=["img"])(mae_sample_data)
+        # All original keys should remain
+        assert set(out.keys()) == {"img", "brain_mask", "sub_id", "ses_id", "mod"}
+
+    def test_shapes(self, mae_sample_data):
+        out = ClipNonzeroPercentilesd(keys=["img"])(mae_sample_data)
+        assert out["img"].shape == mae_sample_data["img"].shape
+
+    def test_type_and_device_preserved(self, mae_sample_data):
+        out = ClipNonzeroPercentilesd(keys=["img"])(mae_sample_data)
+        # stays a torch tensor (MetaTensor if that’s what you passed)
+        assert isinstance(out["img"], torch.Tensor)
+        assert out["img"].device == mae_sample_data["img"].device
+        # if MetaTensor, metadata should still be there
+        if isinstance(mae_sample_data["img"], MetaTensor):
+            assert out["img"].meta == mae_sample_data["img"].meta # type: ignore[attr-defined]

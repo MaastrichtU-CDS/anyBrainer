@@ -10,6 +10,7 @@ __all__ = [
     "SlidingWindowPatch",
     "SlidingWindowPatchd",
     "RandImgKeyd",
+    "ClipNonzeroPercentilesd",
 ]
 
 from typing import Literal, Sequence
@@ -434,4 +435,36 @@ class RandImgKeyd(MapTransform, Randomizable):
 
         chosen_key = self.randomize(candidates)
         d[self.new_key] = deepcopy(d[chosen_key])
+        return d
+
+
+class ClipNonzeroPercentilesd(MapTransform):
+    """
+    Clip values per-channel to [lower, upper] percentiles computed over nonzero voxels.
+    Works with torch.Tensor and monai.data.MetaTensor on any device.
+    """
+    backend = [TransformBackends.TORCH]
+
+    def __init__(self, keys, lower=0.5, upper=99.9, allow_missing_keys=False):
+        super().__init__(keys, allow_missing_keys)
+        assert 0 <= lower < upper <= 100
+        self.q = (lower / 100.0, upper / 100.0)
+
+    def __call__(self, data):
+        d = dict(data)
+        for k in self.keys:
+            x = d[k]  # (C, ...), torch.Tensor or MetaTensor
+            if not torch.is_tensor(x):
+                x = torch.as_tensor(x)
+            # per-channel
+            for c in range(x.shape[0]):
+                xc = x[c]
+                nz = xc != 0
+                if nz.any():
+                    # work in float for quantiles; keep device/meta
+                    vals = xc[nz].to(dtype=torch.float32)
+                    lo, hi = torch.quantile(vals, torch.tensor(self.q, device=vals.device))
+                    # in-place clamp only on nonzeros
+                    xc[nz] = torch.clamp(xc[nz], min=lo.item(), max=hi.item())
+            d[k] = x  # same object; MetaTensor meta preserved
         return d

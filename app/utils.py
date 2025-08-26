@@ -4,6 +4,8 @@ import logging
 import urllib.request
 from pathlib import Path
 
+import torch
+
 def download_templates(
         target_dir: Path | str = "templates", 
         template: str | None = None,
@@ -66,3 +68,13 @@ def write_probability(output_path: Path, prob: float):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
         f.write(f"{float(prob):.6f}\n")  # six decimal places, trailing newline
+
+def get_device() -> torch.device:
+    # allow override via env/flag later if you want
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def move_batch_to_device(batch: dict, device: torch.device) -> dict:
+    # move just the image tensor; meta dicts/lists stay on CPU
+    if "img" in batch and isinstance(batch["img"], torch.Tensor):
+        batch["img"] = batch["img"].to(device, non_blocking=True)
+    return batch

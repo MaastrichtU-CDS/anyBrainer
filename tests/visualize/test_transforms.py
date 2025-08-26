@@ -8,6 +8,7 @@ from anyBrainer.core.transforms import (
     get_mae_train_transforms, 
     get_contrastive_train_transforms,
     get_predict_transforms,
+    get_classification_train_transforms,
 )
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import Compose
@@ -55,7 +56,6 @@ predict_settings = {
     'settings': {
         'transforms': get_predict_transforms(
             patch_size=(128, 128, 128),
-            spacing=(1, 1, 1),
             keys=['flair'],
             allow_missing_keys=False,
             is_nifti=True,
@@ -64,7 +64,7 @@ predict_settings = {
         ),
         'keys': ['flair'],
         'stage': None,
-        'master_seed': 12345,
+        'master_seed': 3,
         'slice_indices': [30, 50, 70],
         'axis': 2,
         'channel': 0,

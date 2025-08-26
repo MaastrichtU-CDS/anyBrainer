@@ -13,10 +13,17 @@ from monai.transforms.post.dictionary import Invertd
 from monai.data.utils import list_data_collate, decollate_batch
 
 from .preprocess import preprocess_inputs, revert_preprocess
-from .utils import write_probability, download_templates
+from .utils import (
+    write_probability, 
+    download_templates,
+    move_batch_to_device,
+    get_device,
+)
 
 from anyBrainer.core.engines import (
     ClassificationModel,
+    RegressionModel,
+    SegmentationModel,
 )
 from anyBrainer.factories import UnitFactory
 
@@ -105,13 +112,13 @@ def predict_task_1():
         logging.warning("Both SWI and T2* modalities provided; using SWI only.")
         args.t2s = None
         opt_mod_key = "swi"
-        opt_mod_path = work_dir / "inputs" / args.swi.name
+        opt_mod_path = work_dir / "inputs" / Path(args.swi).name
     elif args.swi is not None and args.t2s is None:
         opt_mod_key = "swi"
-        opt_mod_path = work_dir / "inputs" / args.swi.name
+        opt_mod_path = work_dir / "inputs" / Path(args.swi).name
     elif args.swi is None and args.t2s is not None:
         opt_mod_key = "t2s"
-        opt_mod_path = work_dir / "inputs" / args.t2s.name
+        opt_mod_path = work_dir / "inputs" / Path(args.t2s).name
     else:
         raise ValueError("Either SWI or T2* modality must be provided.")
 
@@ -123,9 +130,9 @@ def predict_task_1():
     )
 
     input_dict = {
-        "flair": work_dir / "inputs" / args.flair.name,
-        "dwi": work_dir / "inputs" / args.dwi_b1000.name,
-        "adc": work_dir / "inputs" / args.adc.name,
+        "flair": work_dir / "inputs" / Path(args.flair).name,
+        "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
+        "adc": work_dir / "inputs" / Path(args.adc).name,
         opt_mod_key: opt_mod_path,
     }
 
@@ -152,19 +159,27 @@ def predict_task_1():
     logging.info(f"Loaded {len(models)} models for task 1.")
 
     # Predict (mean logits)
+    device = get_device()
+    mean_logits = None
+    w = 1.0 / max(1, len(models))
+    cpu_batch = list_data_collate([predict_transforms(input_dict)])
     with torch.no_grad():
-        batch = list_data_collate([predict_transforms(input_dict)])  # dict->batched dict
-        mean_logits: torch.Tensor | None = None
-        w = 1.0 / max(1, len(models))
         for m in models:
-            curr_input = cast(dict[str, torch.Tensor], deepcopy(batch))
-            logits = cast(
-                torch.Tensor,
-                m.predict(curr_input, img_key="img", do_postprocess=False, invert=False),
-            )
-            mean_logits = logits * w if mean_logits is None else mean_logits + logits * w
+            m = m.to(device).eval()
+            try:
+                m.freeze()
+            except Exception:
+                pass
+            curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
+            logits = m.predict(curr, img_key="img", do_postprocess=False, invert=False)
+            logits_cpu = logits.detach().float().cpu()
 
-        # Optional postprocess; assume it returns a scalar probability tensor
+            mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+
+            m = m.to("cpu")
+            torch.cuda.empty_cache()
+
+        # Postprocess
         out = cast(torch.Tensor, postprocess_transforms(mean_logits))
         prob = float(out.item())
 
@@ -189,13 +204,13 @@ def predict_task_2():
         logging.warning("Both SWI and T2* modalities provided; using SWI only.")
         args.t2s = None
         opt_mod_key = "swi"
-        opt_mod_path = work_dir / "inputs" / args.swi.name
+        opt_mod_path = work_dir / "inputs" / Path(args.swi).name
     elif args.swi is not None and args.t2s is None:
         opt_mod_key = "swi"
-        opt_mod_path = work_dir / "inputs" / args.swi.name
+        opt_mod_path = work_dir / "inputs" / Path(args.swi).name
     elif args.swi is None and args.t2s is not None:
         opt_mod_key = "t2s"
-        opt_mod_path = work_dir / "inputs" / args.t2s.name
+        opt_mod_path = work_dir / "inputs" / Path(args.t2s).name
     else:
         raise ValueError("Either SWI or T2* modality must be provided.")
 
@@ -207,8 +222,8 @@ def predict_task_2():
     )
 
     input_dict = {
-        "dwi": work_dir / "inputs" / args.dwi_b1000.name,
-        "flair": work_dir / "inputs" / args.flair.name,
+        "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
+        "flair": work_dir / "inputs" / Path(args.flair).name,
         opt_mod_key: opt_mod_path,
     }
 
@@ -224,7 +239,7 @@ def predict_task_2():
     # Load ensemble
     models = []
     for ck in TASK_2_CONFIG["model_ckpts"]:
-        m = ClassificationModel.load_from_checkpoint(ck, map_location="cpu")
+        m = SegmentationModel.load_from_checkpoint(ck, map_location="cpu")
         m.eval()
         try:
             m.freeze()  # if LightningModule
@@ -234,28 +249,40 @@ def predict_task_2():
     logging.info(f"Loaded {len(models)} models for task 2.")
 
     # Predict (mean logits)
+    device = get_device()
+    mean_logits = None
+    w = 1.0 / max(1, len(models))
+    cpu_batch = cast(dict[str, torch.Tensor], list_data_collate([predict_transforms(input_dict)]))
     with torch.no_grad():
-        batch = cast(dict[str, torch.Tensor], list_data_collate([predict_transforms([input_dict])]))
-        mean_logits: torch.Tensor | None = None
-        w = 1.0 / max(1, len(models))
         for m in models:
-            curr_input = cast(dict[str, torch.Tensor], deepcopy(batch))
-            logits = cast(
-                torch.Tensor,
-                m.predict(curr_input, img_key="img", do_postprocess=False, invert=True),
-            )
-            mean_logits = logits * w if mean_logits is None else mean_logits + logits * w
+            m = m.to(device).eval()
+            try:
+                m.freeze()
+            except Exception:
+                pass
+            curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
+            logits = m.predict(curr, img_key="img", do_postprocess=False, invert=True)
+            logits_cpu = logits.detach().float().cpu()
+            mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
 
-        # Optional postprocess; assume it returns a scalar probability tensor
-        batch['pred'] = cast(torch.Tensor, postprocess_transforms(mean_logits))
+            m = m.to("cpu")
+            torch.cuda.empty_cache()
+    
+    # Postprocess
+    cpu_batch['pred'] = cast(torch.Tensor, postprocess_transforms(mean_logits))
 
     # Revert prediction
-    inv = Invertd(keys=["pred"], orig_keys=["flair"], transform=predict_transforms)
+    inv = Invertd(
+        keys="pred", 
+        orig_keys="flair", 
+        transform=predict_transforms, 
+        nearest_interp=True,
+    )
     inv_batch = cast(
         dict[str, torch.Tensor],
-        list_data_collate([inv(d) for d in cast(list[dict], decollate_batch(batch))])
+        list_data_collate([inv(d) for d in cast(list[dict], decollate_batch(cpu_batch))])
     )
-    pred_img = revert_preprocess(inv_batch['pred'], input_dict['flair'], work_dir)
+    pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir)
 
     # Save
     pred_img.to_file(args.output)
@@ -280,8 +307,8 @@ def predict_task_3():
     )
 
     input_dict = {
-        "t1": work_dir / "inputs" / args.t1.name,
-        "t2": work_dir / "inputs" / args.t2.name,
+        "t1": work_dir / "inputs" / Path(args.t1).name,
+        "t2": work_dir / "inputs" / Path(args.t2).name,
     }
 
     for p in input_dict.values():
@@ -295,7 +322,7 @@ def predict_task_3():
     # Load ensemble
     models = []
     for ck in TASK_3_CONFIG["model_ckpts"]:
-        m = ClassificationModel.load_from_checkpoint(ck, map_location="cpu")
+        m = RegressionModel.load_from_checkpoint(ck, map_location="cpu")
         m.eval()
         try:
             m.freeze()  # if LightningModule
@@ -305,17 +332,25 @@ def predict_task_3():
     logging.info(f"Loaded {len(models)} models for task 3.")
 
     # Predict (mean logits)
+    device = get_device()
+    mean_logits = None
+    w = 1.0 / max(1, len(models))
+    cpu_batch = list_data_collate([predict_transforms(input_dict)])
     with torch.no_grad():
-        batch = list_data_collate([predict_transforms(input_dict)])  # dict->batched dict
-        mean_logits: torch.Tensor | None = None
-        w = 1.0 / max(1, len(models))
         for m in models:
-            curr_input = cast(dict[str, torch.Tensor], deepcopy(batch))
-            logits = cast(
-                torch.Tensor,
-                m.predict(curr_input, img_key="img", do_postprocess=False, invert=False),
-            )
-            mean_logits = logits * w if mean_logits is None else mean_logits + logits * w
+            m = m.to(device).eval()
+            try:
+                m.freeze()
+            except Exception:
+                pass
+            curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
+            logits = m.predict(curr, img_key="img", do_postprocess=False, invert=False)
+            logits_cpu = logits.detach().float().cpu()
+
+            mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+
+            m = m.to("cpu")
+            torch.cuda.empty_cache()
 
         # Optional postprocess; assume it returns a scalar probability tensor
         out = float(cast(torch.Tensor, mean_logits).item())
@@ -323,6 +358,23 @@ def predict_task_3():
     # Save
     write_probability(args.output, out)
 
+def main():
+    """
+    Main function to run the inference pipeline.
+    """
+    task: Task = "task1"
+    torch.set_num_threads(1)
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
+    if task == "task1":
+        predict_task_1()
+    elif task == "task2":
+        predict_task_2()
+    elif task == "task3":
+        predict_task_3()
+    else:
+        raise ValueError(f"Invalid task: {task}")
+
 if __name__ == "__main__":
-    download_templates()
-    predict_task_1()
+    main()
