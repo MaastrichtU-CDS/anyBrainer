@@ -34,14 +34,19 @@ mae_settings = {
 
 contrastive_settings = {
     'data': {
-        "key": 'tests/examples/t1.npy',
-        "query": 'tests/examples/t1.npy',
+        "img_0": 'tests/examples/t1.npy',
+        "img_1": 'tests/examples/t1.npy',
+        "mod_0": 't1',
+        "mod_1": 't1',
+        "sub_id": 0,
+        "ses_id": 0,
+        "count": 2
     }, 
     'settings': {
         'transforms': get_contrastive_train_transforms(),
-        'keys': ['key', 'query'],
+        'keys': ['query', 'key'],
         'stage': None,
-        'master_seed': 12345,
+        'master_seed': 40,
         'slice_indices': [30, 50, 70],
         'axis': 2,
         'channel': 0,
@@ -54,7 +59,7 @@ predict_settings = {
         "flair": 'tests/examples/flair.nii.gz',
     },
     'settings': {
-        'transforms': get_classification_train_transforms(
+        'transforms': get_predict_transforms(
             patch_size=(128, 128, 128),
             keys=['flair'],
             allow_missing_keys=False,
@@ -64,7 +69,7 @@ predict_settings = {
         ),
         'keys': ['flair'],
         'stage': None,
-        'master_seed': 234,
+        'master_seed': 12,
         'slice_indices': [30, 50, 70],
         'axis': 2,
         'channel': 0,
