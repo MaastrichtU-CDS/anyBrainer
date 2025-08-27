@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import os
 import shutil
+import logging
+import uuid
 
 import numpy as np
 import ants
@@ -51,40 +53,53 @@ def _apply_mask(image: ants.ANTsImage, mask: ants.ANTsImage) -> ants.ANTsImage:
     return ants.mask_image(image, mask)
 
 def _resolve_hdbet() -> str:
-    """Prefer the container’s hd-bet; fall back to PATH."""
-    env_bin = os.environ.get("HDBET_BIN")
-    if env_bin and Path(env_bin).exists():
-        return env_bin
+    p = os.environ.get("HDBET_BIN")
+    if p and Path(p).exists():
+        return p
     for cand in ("/usr/local/bin/hd-bet", "/usr/bin/hd-bet"):
         if Path(cand).exists():
             return cand
     found = shutil.which("hd-bet")
     if found:
         return found
-    raise PreprocessError("hd-bet CLI not found in container.")
-
+    raise PreprocessError("hd-bet CLI not found in container PATH.")
 
 def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool = False):
     """
-    hd-bet 2.x invocation:
-      - use --disable_tta to turn TTA off
-      - -o expects an output directory
-      - use --save_bet_mask and --no_bet_image to only emit mask
+    hd-bet 2.x with single-input:
+      - `-o` MUST be a filename (not a directory).
+      - mask file is created by appending `_mask` to the base of `-o`.
+      - We pass a unique temp filename, then rename the produced mask to `out_mask`.
     """
     bin_path = _resolve_hdbet()
+    image = Path(image)
+    out_mask = Path(out_mask)
+    out_mask.parent.mkdir(parents=True, exist_ok=True)
+
+    # unique temp base filename (hd-bet will append `_mask`)
+    tag = uuid.uuid4().hex
+    tmp_base = out_mask.parent / f"hdbet_{tag}.nii.gz"
 
     cmd = [
         bin_path,
         "-i", str(image),
-        "-o", str(out_mask),
+        "-o", str(tmp_base),
         "-device", device,
         "--save_bet_mask",
         "--no_bet_image",
+        "--verbose",
     ]
     if not tta:
         cmd.append("--disable_tta")
 
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # Show logs even on success
+    logging.info("[hd-bet] cmd: %s", " ".join(cmd))
+    if proc.stdout.strip():
+        logging.info("[hd-bet] stdout:\n%s", proc.stdout.strip())
+    if proc.stderr.strip():
+        logging.info("[hd-bet] stderr:\n%s", proc.stderr.strip())
+
     if proc.returncode != 0:
         raise PreprocessError(
             f"hd-bet failed (rc={proc.returncode}).\n"
@@ -92,6 +107,32 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
             f"stdout:\n{proc.stdout}\n"
             f"stderr:\n{proc.stderr}"
         )
+
+    # hd-bet will have written something like hdbet_<tag>_mask.nii.gz next to tmp_base
+    mask_candidates = sorted(out_mask.parent.glob(f"hdbet_{tag}*mask*.nii.gz"))
+    if not mask_candidates:
+        # Fallback: look for any mask produced next to tmp_base
+        mask_candidates = sorted(out_mask.parent.glob("*mask*.nii.gz"))
+
+    if not mask_candidates:
+        files = [p.name for p in out_mask.parent.iterdir()]
+        raise PreprocessError(
+            f"hd-bet completed but no mask file found near {tmp_base}. "
+            f"Directory listing: {files}"
+        )
+
+    # Take the first candidate and move/rename to the requested path
+    produced_mask = mask_candidates[0]
+    if out_mask.exists() and out_mask.is_dir():
+        shutil.rmtree(out_mask, ignore_errors=True)
+    shutil.move(str(produced_mask), str(out_mask))
+
+    # Clean up tmp base if hd-bet wrote any companion file with that exact name
+    try:
+        if tmp_base.exists():
+            tmp_base.unlink()
+    except Exception:
+        pass
 
 def _numpy_to_ants(arr, target_img=None):
     """Create an ANTs image from a numpy array with specific properties"""
@@ -186,7 +227,7 @@ def preprocess_inputs(
     # Skull-stripping via HD-BET
     mask_path = mask_dir / "brain_mask.nii.gz"
     use_gpu = torch.cuda.is_available()
-    _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=False)
+    _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=True)
     mask_img = _load_nifti(mask_path)
 
     # Registration to template
