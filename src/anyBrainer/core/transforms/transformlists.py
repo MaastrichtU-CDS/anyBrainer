@@ -58,6 +58,7 @@ from .unit_transforms import (
     SlidingWindowPatchd,
     RandImgKeyd,
     ClipNonzeroPercentilesd,
+    UnscalePredsIfNeeded,
 )
 
 from anyBrainer.registry import register, RegistryKind as RK
@@ -731,6 +732,15 @@ def get_postprocess_segmentation_transforms(
     if remove_small_objects:
         transforms.append(RemoveSmallObjects(**remove_small_objects_kwargs))
     return transforms
+
+def get_postprocess_regression_transforms(
+    center: float | None = None,
+    scale_range: tuple[float, float] | None = None,
+) -> list[Callable]:
+    """Postprocess regression outputs; scaling+offset."""
+    return [
+        UnscalePredsIfNeeded(center=center, scale_range=scale_range),
+    ]
 
 @register(RK.TRANSFORM)
 def get_flip_tta(

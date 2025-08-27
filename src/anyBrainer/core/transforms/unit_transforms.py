@@ -11,9 +11,10 @@ __all__ = [
     "SlidingWindowPatchd",
     "RandImgKeyd",
     "ClipNonzeroPercentilesd",
+    "UnscalePredsIfNeeded",
 ]
 
-from typing import Literal, Sequence
+from typing import Literal, Sequence, Any
 from collections.abc import Hashable
 import logging
 import math
@@ -468,3 +469,47 @@ class ClipNonzeroPercentilesd(MapTransform):
                     xc[nz] = torch.clamp(xc[nz], min=lo.item(), max=hi.item())
             d[k] = x  # same object; MetaTensor meta preserved
         return d
+
+
+class UnscalePredsIfNeeded(Transform):
+    """
+    Array transform to reverse scaling and centering applied to regression predictions.
+
+    Usage (array):
+        t = UnscalePredsIfNeeded(meta={"scale_range": (min_val, max_val), "center": center})
+        unscaled = t(preds)
+
+    You can also call with a `meta` override:
+        unscaled = t(preds, meta=meta_for_this_batch)
+    """
+
+    def __init__(self, scale_range: tuple[Any, Any] | None = None, center: int | float | None = None):
+        """
+        Args:
+            scale_range: (min_val, max_val) for scaling preds to [-1, 1]
+            center: offset to add to preds to center them around 0
+        """
+        self.scale_range = scale_range
+        self.center = center
+
+    def __call__(self, pred: torch.Tensor) -> torch.Tensor:
+        if not isinstance(pred, torch.Tensor):
+            raise TypeError(f"`preds` must be a torch.Tensor, got {type(preds)}")
+
+        out = pred
+
+        # Unscale
+        if self.scale_range is not None:
+            min_val, max_val = self.scale_range
+            # keep device/dtype consistent and allow per-element tensors
+            min_t = torch.as_tensor(min_val, dtype=out.dtype, device=out.device)
+            max_t = torch.as_tensor(max_val, dtype=out.dtype, device=out.device)
+            scale = (max_t - min_t) / 2
+            out = out * scale
+
+        # Uncenter
+        if self.center is not None:
+            center_t = torch.as_tensor(self.center, dtype=out.dtype, device=out.device)
+            out = out + center_t
+
+        return out

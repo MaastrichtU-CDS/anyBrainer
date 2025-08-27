@@ -17,6 +17,7 @@ from anyBrainer.core.transforms.unit_transforms import (
     SlidingWindowPatch,
     RandImgKeyd,
     ClipNonzeroPercentilesd,
+    UnscalePredsIfNeeded,
 )
 
 @pytest.mark.parametrize("mask_ratio,mask_patch_size", [
@@ -313,3 +314,40 @@ class TestClipNonzeroPercentilesd:
         # if MetaTensor, metadata should still be there
         if isinstance(mae_sample_data["img"], MetaTensor):
             assert out["img"].meta == mae_sample_data["img"].meta # type: ignore[attr-defined]
+
+
+class TestUnscalePredsIfNeeded:
+    @pytest.mark.parametrize("pred", [
+        torch.tensor([-25]),
+        torch.tensor([-15]),
+        torch.tensor([-5]),
+        torch.tensor([5]),
+        torch.tensor([15]),
+        torch.tensor([25]),
+    ])
+    def test_offset(self, pred):
+        out = UnscalePredsIfNeeded(center=65)(pred)
+        assert out == pred + 65
+    
+    @pytest.mark.parametrize("pred", [
+        torch.tensor([-1.0]),
+        torch.tensor([-0.5]),
+        torch.tensor([0]),
+        torch.tensor([0.5]),
+        torch.tensor([1.0]),
+    ])
+    def test_scale(self, pred):
+        out = UnscalePredsIfNeeded(scale_range=(20, 90))(pred)
+        assert out == pred * 35
+    
+    @pytest.mark.parametrize("pred", [
+        torch.tensor([-1.0]),
+        torch.tensor([-0.5]),
+        torch.tensor([0]),
+        torch.tensor([0.5]),
+        torch.tensor([1.0]),
+    ])
+    def test_scale_and_offset(self, pred):
+        out = UnscalePredsIfNeeded(scale_range=(20, 90), center=65)(pred)
+        assert 30 <= out <= 100
+        assert out == pred * 35 + 65
