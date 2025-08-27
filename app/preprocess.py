@@ -108,13 +108,9 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
             f"stderr:\n{proc.stderr}"
         )
 
-    # hd-bet will have written something like hdbet_<tag>_mask.nii.gz next to tmp_base
-    mask_candidates = sorted(out_mask.parent.glob(f"hdbet_{tag}*mask*.nii.gz"))
-    if not mask_candidates:
-        # Fallback: look for any mask produced next to tmp_base
-        mask_candidates = sorted(out_mask.parent.glob("*mask*.nii.gz"))
-
-    if not mask_candidates:
+    # hd-bet will have written hdbet_<tag>_bet.nii.gz next to tmp_base
+    expected_mask_path = out_mask.parent / f"hdbet_{tag}_bet.nii.gz"
+    if not expected_mask_path.exists():
         files = [p.name for p in out_mask.parent.iterdir()]
         raise PreprocessError(
             f"hd-bet completed but no mask file found near {tmp_base}. "
@@ -122,10 +118,9 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
         )
 
     # Take the first candidate and move/rename to the requested path
-    produced_mask = mask_candidates[0]
     if out_mask.exists() and out_mask.is_dir():
         shutil.rmtree(out_mask, ignore_errors=True)
-    shutil.move(str(produced_mask), str(out_mask))
+    shutil.move(str(expected_mask_path), str(out_mask))
 
     # Clean up tmp base if hd-bet wrote any companion file with that exact name
     try:
