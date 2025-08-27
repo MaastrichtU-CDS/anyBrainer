@@ -45,11 +45,11 @@ TASK_1_CONFIG = {
         "name": "get_postprocess_classification_transforms",
     },
     "model_ckpts": [
-        "task1/run_0.ckpt",
-        "task1/run_1.ckpt",
-        "task1/run_2.ckpt",
-        "task1/run_3.ckpt",
-        "task1/run_4.ckpt",
+        "run_0.ckpt",
+        "run_1.ckpt",
+        "run_2.ckpt",
+        "run_3.ckpt",
+        "run_4.ckpt",
     ]
 }
 
@@ -68,11 +68,11 @@ TASK_2_CONFIG = {
         "name": "get_postprocess_segmentation_transforms",
     },
     "model_ckpts": [
-        "task2/run_0.ckpt",
-        "task2/run_1.ckpt",
-        "task2/run_2.ckpt",
-        "task2/run_3.ckpt",
-        "task2/run_4.ckpt",
+        "run_0.ckpt",
+        "run_1.ckpt",
+        "run_2.ckpt",
+        "run_3.ckpt",
+        "run_4.ckpt",
     ]
 }
 
@@ -87,11 +87,11 @@ TASK_3_CONFIG = {
         "target_key": "img"
     },
     "model_ckpts": [
-        "task3/run_0.ckpt",
-        "task3/run_1.ckpt",
-        "task3/run_2.ckpt",
-        "task3/run_3.ckpt",
-        "task3/run_4.ckpt",
+        "run_0.ckpt",
+        "run_1.ckpt",
+        "run_2.ckpt",
+        "run_3.ckpt",
+        "run_4.ckpt",
     ]
 }
 
