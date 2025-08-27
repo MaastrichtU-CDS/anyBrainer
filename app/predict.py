@@ -12,8 +12,8 @@ from monai.transforms.compose import Compose
 from monai.transforms.post.dictionary import Invertd
 from monai.data.utils import list_data_collate, decollate_batch
 
-from .preprocess import preprocess_inputs, revert_preprocess
-from .utils import (
+from preprocess import preprocess_inputs, revert_preprocess
+from utils import (
     write_probability, 
     move_batch_to_device,
     get_device,
@@ -42,11 +42,11 @@ TASK_1_CONFIG = {
         "name": "get_postprocess_classification_transforms",
     },
     "model_ckpts": [
-        "ckpts/task1/split_0.ckpt",
-        "ckpts/task1/split_1.ckpt",
-        "ckpts/task1/split_2.ckpt",
-        "ckpts/task1/split_3.ckpt",
-        "ckpts/task1/split_4.ckpt",
+        "ckpts/task1/run_0.ckpt",
+        "ckpts/task1/run_1.ckpt",
+        "ckpts/task1/run_2.ckpt",
+        "ckpts/task1/run_3.ckpt",
+        "ckpts/task1/run_4.ckpt",
     ]
 }
 
@@ -65,11 +65,11 @@ TASK_2_CONFIG = {
         "name": "get_postprocess_segmentation_transforms",
     },
     "model_ckpts": [
-        "ckpts/task2/split_0.ckpt",
-        "ckpts/task2/split_1.ckpt",
-        "ckpts/task2/split_2.ckpt",
-        "ckpts/task2/split_3.ckpt",
-        "ckpts/task2/split_4_last.ckpt",
+        "ckpts/task2/run_0.ckpt",
+        "ckpts/task2/run_1.ckpt",
+        "ckpts/task2/run_2.ckpt",
+        "ckpts/task2/run_3.ckpt",
+        "ckpts/task2/run_4.ckpt",
     ]
 }
 
@@ -84,11 +84,11 @@ TASK_3_CONFIG = {
         "target_key": "img"
     },
     "model_ckpts": [
-        "ckpts/task3/split_0.ckpt",
-        "ckpts/task3/split_1.ckpt",
-        "ckpts/task3/split_2.ckpt",
-        "ckpts/task3/split_3.ckpt",
-        "ckpts/task3/split_4.ckpt",
+        "ckpts/task3/run_0.ckpt",
+        "ckpts/task3/run_1.ckpt",
+        "ckpts/task3/run_2.ckpt",
+        "ckpts/task3/run_3.ckpt",
+        "ckpts/task3/run_4.ckpt",
     ]
 }
 
