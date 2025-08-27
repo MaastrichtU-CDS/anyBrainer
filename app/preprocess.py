@@ -27,9 +27,6 @@ def _save_nifti(data: ants.ANTsImage, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     data.to_file(out_path)
 
-def _has_cmd(cmd: str) -> bool:
-    return subprocess.call(["bash", "-lc", f"command -v {cmd} >/dev/null 2>&1"]) == 0
-
 def _get_reg_transforms(
     moving: ants.ANTsImage, 
     template: ants.ANTsImage, 
@@ -54,43 +51,61 @@ def _apply_mask(image: ants.ANTsImage, mask: ants.ANTsImage) -> ants.ANTsImage:
     return ants.mask_image(image, mask)
 
 def _resolve_hdbet() -> str:
-    """
-    Prefer the container's hd-bet binary. Fall back to PATH if needed.
-    """
+    """Prefer the container’s hd-bet; fall back to PATH."""
     env_bin = os.environ.get("HDBET_BIN")
     if env_bin and Path(env_bin).exists():
         return env_bin
-
-    # prefer standard container locations
     for cand in ("/usr/local/bin/hd-bet", "/usr/bin/hd-bet"):
         if Path(cand).exists():
             return cand
-
-    # last resort: PATH (may see host ~/.local/bin if not guarded)
     found = shutil.which("hd-bet")
     if found:
         return found
+    raise PreprocessError("hd-bet CLI not found in container.")
 
-    raise PreprocessError(
-        f"hd-bet CLI not found. Checked HDBET_BIN={env_bin!r}, "
-        "/usr/local/bin/hd-bet, /usr/bin/hd-bet, and PATH."
-    )
+def _strip_niigz(p: Path) -> str:
+    n = p.name
+    return n[:-7] if n.endswith(".nii.gz") else Path(n).stem
 
-def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", mode: str = "fast", tta: int = 0):
+def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool = False):
+    """
+    hd-bet 2.x invocation:
+      - use --disable_tta to turn TTA off
+      - -o expects an output directory
+      - use --save_bet_mask and --no_bet_image to only emit mask
+    """
     bin_path = _resolve_hdbet()
+    out_dir = out_mask.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     cmd = [
-        bin_path, "-i", str(image), "-o", str(out_mask),
-        "-device", device, "-mode", mode, "-tta", str(tta)
+        bin_path,
+        "-i", str(image),
+        "-o", str(out_dir),
+        "-device", device,
+        "--save_bet_mask",
+        "--no_bet_image",
     ]
-    # no shell; cleaner and avoids PATH surprises
+    if not tta:
+        cmd.append("--disable_tta")
+
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if proc.returncode != 0 or not out_mask.exists():
+    if proc.returncode != 0:
         raise PreprocessError(
             f"hd-bet failed (rc={proc.returncode}).\n"
             f"cmd: {' '.join(cmd)}\n"
             f"stdout:\n{proc.stdout}\n"
             f"stderr:\n{proc.stderr}"
         )
+
+    # Find the produced mask and move/rename to requested path
+    base = _strip_niigz(Path(image))
+    candidates = sorted(out_dir.glob(f"*{base}*mask*.nii.gz"))
+    if not candidates:
+        candidates = sorted(out_dir.glob("*mask*.nii.gz"))
+    if not candidates:
+        raise PreprocessError(f"hd-bet ran but no mask was written in {out_dir}. Files: {[p.name for p in out_dir.iterdir()]}")
+    shutil.move(str(candidates[0]), str(out_mask))
 
 def _numpy_to_ants(arr, target_img=None):
     """Create an ANTs image from a numpy array with specific properties"""
@@ -185,7 +200,7 @@ def preprocess_inputs(
     # Skull-stripping via HD-BET
     mask_path = mask_dir / "brain_mask.nii.gz"
     use_gpu = torch.cuda.is_available()
-    _run_hdbet_cli(ref_path, mask_path, device="cuda" if use_gpu else "cpu")
+    _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=False)
     mask_img = _load_nifti(mask_path)
 
     # Registration to template
