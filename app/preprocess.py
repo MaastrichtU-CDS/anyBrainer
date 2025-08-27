@@ -89,8 +89,9 @@ def _collect_inv_transforms(reg_dir: Path) -> list[str]:
 def preprocess_inputs(
     inputs: list[Path] | list[Path | None],
     mods: list[str],
-    task: Task,
     work_dir: Path| None = None,
+    ref_mod: str = "flair",
+    tmpl_path: Path = Path("templates/icbm_mni152_t1_09a_asym_bet.nii.gz"),
     ) -> None:
     """
     Preprocess input images for FOMO25 tasks.
@@ -115,6 +116,7 @@ def preprocess_inputs(
         ValueError: If `inputs` and `mods` are not the same length.
         ValueError: If `inputs` and `mods` contain only None elements.
         FileNotFoundError: If any input image does not exist.
+        FileNotFoundError: If template does not exist.
         PreprocessError: If hd-bet CLI is not found on PATH.
         PreprocessError: If hd-bet CLI fails.
         PreprocessError: If any input image preprocessing fails.
@@ -142,14 +144,7 @@ def preprocess_inputs(
     # Map modalities to input paths
     mod2path: dict[str, Path] = {m.lower(): Path(p) for m, p in zip(mods, inputs)}
 
-    # Choose reference modality for computing brain mask & registration fields
-    if task in ("task1", "task2"):
-        ref_mod = "flair" if "flair" in mod2path else next(iter(mod2path.keys()))
-        tmpl_path = Path("templates/icbm_mni152_t2_09a_asym_bet.nii.gz")
-    else:
-        ref_mod = "t1" if "t1" in mod2path else next(iter(mod2path.keys()))
-        tmpl_path = Path("templates/icbm_mni152_t1_09a_asym_bet.nii.gz")
-    
+    # Check template
     if not tmpl_path.exists():
         raise FileNotFoundError(f"Template not found: {tmpl_path}")
 

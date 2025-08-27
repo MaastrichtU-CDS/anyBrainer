@@ -28,6 +28,9 @@ from anyBrainer.factories import UnitFactory
 
 Task = Literal["task1", "task2", "task3"]
 
+TEMPL_DIR = Path(os.getenv("ANYBRAINER_TEMPLATES_DIR", "/opt/anyBrainer/templates"))
+CKPTS_DIR = Path(os.getenv("ANYBRAINER_CKPTS_DIR", "/opt/anyBrainer/ckpts"))
+
 TASK_1_CONFIG = {
     "predict_transforms": {
         "name": "get_predict_transforms",
@@ -42,11 +45,11 @@ TASK_1_CONFIG = {
         "name": "get_postprocess_classification_transforms",
     },
     "model_ckpts": [
-        "ckpts/task1/run_0.ckpt",
-        "ckpts/task1/run_1.ckpt",
-        "ckpts/task1/run_2.ckpt",
-        "ckpts/task1/run_3.ckpt",
-        "ckpts/task1/run_4.ckpt",
+        "task1/run_0.ckpt",
+        "task1/run_1.ckpt",
+        "task1/run_2.ckpt",
+        "task1/run_3.ckpt",
+        "task1/run_4.ckpt",
     ]
 }
 
@@ -65,11 +68,11 @@ TASK_2_CONFIG = {
         "name": "get_postprocess_segmentation_transforms",
     },
     "model_ckpts": [
-        "ckpts/task2/run_0.ckpt",
-        "ckpts/task2/run_1.ckpt",
-        "ckpts/task2/run_2.ckpt",
-        "ckpts/task2/run_3.ckpt",
-        "ckpts/task2/run_4.ckpt",
+        "task2/run_0.ckpt",
+        "task2/run_1.ckpt",
+        "task2/run_2.ckpt",
+        "task2/run_3.ckpt",
+        "task2/run_4.ckpt",
     ]
 }
 
@@ -84,11 +87,11 @@ TASK_3_CONFIG = {
         "target_key": "img"
     },
     "model_ckpts": [
-        "ckpts/task3/run_0.ckpt",
-        "ckpts/task3/run_1.ckpt",
-        "ckpts/task3/run_2.ckpt",
-        "ckpts/task3/run_3.ckpt",
-        "ckpts/task3/run_4.ckpt",
+        "task3/run_0.ckpt",
+        "task3/run_1.ckpt",
+        "task3/run_2.ckpt",
+        "task3/run_3.ckpt",
+        "task3/run_4.ckpt",
     ]
 }
 
@@ -124,8 +127,9 @@ def predict_task_1():
     preprocess_inputs(
         inputs=[args.flair, args.adc, args.dwi_b1000, args.swi, args.t2s],
         mods=["flair", "adc", "dwi_b1000", "swi", "t2s"],
-        task="task1",
+        ref_mod="flair",
         work_dir=work_dir,
+        tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
     )
 
     input_dict = {
@@ -147,7 +151,11 @@ def predict_task_1():
 
     # Load ensemble
     models = []
-    for ck in TASK_1_CONFIG["model_ckpts"]:
+    ckpts = [CKPTS_DIR / p for p in TASK_1_CONFIG["model_ckpts"]]
+    for ck in ckpts:
+        if not ck.exists():
+            raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
+
         m = ClassificationModel.load_from_checkpoint(ck, map_location="cpu")
         m.eval()
         try:
@@ -216,8 +224,9 @@ def predict_task_2():
     preprocess_inputs(
         inputs=[args.dwi_b1000, args.flair, args.swi, args.t2s],
         mods=["dwi_b1000", "flair", "swi", "t2s"],
-        task="task2",
+        ref_mod="flair",
         work_dir=work_dir,
+        tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
     )
 
     input_dict = {
@@ -237,7 +246,11 @@ def predict_task_2():
 
     # Load ensemble
     models = []
-    for ck in TASK_2_CONFIG["model_ckpts"]:
+    ckpts = [CKPTS_DIR / p for p in TASK_2_CONFIG["model_ckpts"]]
+    for ck in ckpts:
+        if not ck.exists():
+            raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
+
         m = SegmentationModel.load_from_checkpoint(ck, map_location="cpu")
         m.eval()
         try:
@@ -301,8 +314,9 @@ def predict_task_3():
     preprocess_inputs(
         inputs=[args.t1, args.t2],
         mods=["t1", "t2"],
-        task="task3",
+        ref_mod="t1",
         work_dir=work_dir,
+        tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
     )
 
     input_dict = {
@@ -320,7 +334,11 @@ def predict_task_3():
 
     # Load ensemble
     models = []
-    for ck in TASK_3_CONFIG["model_ckpts"]:
+    ckpts = [CKPTS_DIR / p for p in TASK_3_CONFIG["model_ckpts"]]
+    for ck in ckpts:
+        if not ck.exists():
+            raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
+
         m = RegressionModel.load_from_checkpoint(ck, map_location="cpu")
         m.eval()
         try:
