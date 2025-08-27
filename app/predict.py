@@ -86,6 +86,9 @@ TASK_3_CONFIG = {
         "sliding_window": True,
         "target_key": "img"
     },
+    "postprocess_transforms": {
+        "name": "get_postprocess_regression_transforms",
+    },
     "model_ckpts": [
         "run_0.ckpt",
         "run_1.ckpt",
@@ -361,7 +364,7 @@ def predict_task_3():
             except Exception:
                 pass
             curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
-            logits = m.predict_step(curr, batch_idx=0)
+            logits = m.predict(curr, img_key="img", do_postprocess=True, invert=False)
             logits_cpu = logits.detach().float().cpu()
 
             mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
