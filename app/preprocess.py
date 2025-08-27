@@ -63,9 +63,6 @@ def _resolve_hdbet() -> str:
         return found
     raise PreprocessError("hd-bet CLI not found in container.")
 
-def _strip_niigz(p: Path) -> str:
-    n = p.name
-    return n[:-7] if n.endswith(".nii.gz") else Path(n).stem
 
 def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool = False):
     """
@@ -75,13 +72,11 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
       - use --save_bet_mask and --no_bet_image to only emit mask
     """
     bin_path = _resolve_hdbet()
-    out_dir = out_mask.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         bin_path,
         "-i", str(image),
-        "-o", str(out_dir),
+        "-o", str(out_mask),
         "-device", device,
         "--save_bet_mask",
         "--no_bet_image",
@@ -97,15 +92,6 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
             f"stdout:\n{proc.stdout}\n"
             f"stderr:\n{proc.stderr}"
         )
-
-    # Find the produced mask and move/rename to requested path
-    base = _strip_niigz(Path(image))
-    candidates = sorted(out_dir.glob(f"*{base}*mask*.nii.gz"))
-    if not candidates:
-        candidates = sorted(out_dir.glob("*mask*.nii.gz"))
-    if not candidates:
-        raise PreprocessError(f"hd-bet ran but no mask was written in {out_dir}. Files: {[p.name for p in out_dir.iterdir()]}")
-    shutil.move(str(candidates[0]), str(out_mask))
 
 def _numpy_to_ants(arr, target_img=None):
     """Create an ANTs image from a numpy array with specific properties"""
