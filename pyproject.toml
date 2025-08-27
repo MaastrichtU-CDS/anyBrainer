@@ -19,7 +19,7 @@ authors = [
 dependencies = [
     "lightning>=2.1.4",
     "monai==1.5.0",
-    "numpy>=1.23",
+    "numpy>=1.26,<2.0",
     "opencv-python>=4.8.1.78",
     "torch>2.4.1",
     "wandb>=0.16.0",

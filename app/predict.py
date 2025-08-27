@@ -361,7 +361,7 @@ def predict_task_3():
             except Exception:
                 pass
             curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
-            logits = m.predict(curr, img_key="img", do_postprocess=False, invert=False)
+            logits = m.predict_step(curr, batch_idx=0)
             logits_cpu = logits.detach().float().cpu()
 
             mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
