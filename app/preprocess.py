@@ -53,13 +53,44 @@ def _apply_transforms(
 def _apply_mask(image: ants.ANTsImage, mask: ants.ANTsImage) -> ants.ANTsImage:
     return ants.mask_image(image, mask)
 
+def _resolve_hdbet() -> str:
+    """
+    Prefer the container's hd-bet binary. Fall back to PATH if needed.
+    """
+    env_bin = os.environ.get("HDBET_BIN")
+    if env_bin and Path(env_bin).exists():
+        return env_bin
+
+    # prefer standard container locations
+    for cand in ("/usr/local/bin/hd-bet", "/usr/bin/hd-bet"):
+        if Path(cand).exists():
+            return cand
+
+    # last resort: PATH (may see host ~/.local/bin if not guarded)
+    found = shutil.which("hd-bet")
+    if found:
+        return found
+
+    raise PreprocessError(
+        f"hd-bet CLI not found. Checked HDBET_BIN={env_bin!r}, "
+        "/usr/local/bin/hd-bet, /usr/bin/hd-bet, and PATH."
+    )
+
 def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", mode: str = "fast", tta: int = 0):
-    if not _has_cmd("hd-bet"):
-        raise PreprocessError("hd-bet CLI not found on PATH")
-    cmd = f"hd-bet -i {image} -o {out_mask} -device {device} -mode {mode} -tta {tta}"
-    ret = subprocess.call(["bash", "-lc", cmd])
-    if ret != 0 or not out_mask.exists():
-        raise PreprocessError("hd-bet CLI failed.")
+    bin_path = _resolve_hdbet()
+    cmd = [
+        bin_path, "-i", str(image), "-o", str(out_mask),
+        "-device", device, "-mode", mode, "-tta", str(tta)
+    ]
+    # no shell; cleaner and avoids PATH surprises
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0 or not out_mask.exists():
+        raise PreprocessError(
+            f"hd-bet failed (rc={proc.returncode}).\n"
+            f"cmd: {' '.join(cmd)}\n"
+            f"stdout:\n{proc.stdout}\n"
+            f"stderr:\n{proc.stderr}"
+        )
 
 def _numpy_to_ants(arr, target_img=None):
     """Create an ANTs image from a numpy array with specific properties"""
