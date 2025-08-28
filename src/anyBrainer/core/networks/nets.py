@@ -506,10 +506,8 @@ class Swinv2LateFusionFPNDecoder(nn.Module):
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
         spatial_dims: int = 3,
-
         # Fusion args
         n_late_fusion: int = 1,
-
         # FPN decoder args
         out_channels: int = 1,
         width: int = 32,
