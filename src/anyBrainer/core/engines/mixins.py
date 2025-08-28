@@ -159,10 +159,10 @@ class WeightInitMixin(PLModuleMixin):
             )
             logger.info(f"[{self.__class__.__name__}] Loaded pretrained weights from checkpoint "
                         f"{load_pretrain_weights}\n#### Summary ####"
-                        f"\n- Attempted to load {len(stats['loaded_keys'])} parameters "
-                        f"(filtered out {len(stats['ignored_keys'])} parameters)"
-                            f"\n- Unexpected {len(stats['unexpected_keys'])} parameters"
-                            f"\n- Missing {len(stats['missing_keys'])} parameters")
+                        f"\n- Loaded {len(stats['loaded_keys'])} parameters "
+                        f"(from {len(stats['loaded_keys']) + len(stats['ignored_keys'])} parameters)"
+                        f"\n- Unexpected {len(stats['unexpected_keys'])} parameters"
+                        f"\n- Missing {len(stats['missing_keys'])} parameters")
         except Exception as e:
             logger.error(f"[{self.__class__.__name__}] Failed to load pretrained weights: {e}")
             raise e
