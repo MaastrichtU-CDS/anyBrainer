@@ -179,7 +179,7 @@ TASK_2_CONFIG = {
                 "name": "SlidingWindowInferer",
                 "roi_size": 128,
                 "mode": "constant",
-                "overlap": 5,
+                "overlap": 0.5,
             },
             "postprocess": None,
             "tta": "get_flip_tta"
