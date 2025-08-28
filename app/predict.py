@@ -226,7 +226,6 @@ TASK_3_CONFIG = {
             "mlp_num_hidden_layers": 1,
             "mlp_hidden_dim": 128,
             "mlp_dropout": 0.2,
-            "mlp_activation": "GELU",
             "late_fusion": True,
             "n_late_fusion": 2
         },
