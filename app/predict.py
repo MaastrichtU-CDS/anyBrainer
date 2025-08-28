@@ -19,13 +19,7 @@ from utils import (
     move_batch_to_device,
     get_device,
 )
-
-from anyBrainer.core.engines import (
-    ClassificationModel,
-    RegressionModel,
-    SegmentationModel,
-)
-from anyBrainer.factories import UnitFactory
+from anyBrainer.factories import UnitFactory, ModuleFactory
 
 Task = Literal["task1", "task2", "task3"]
 
@@ -90,8 +84,8 @@ TASK_1_CONFIG = {
             "name": "BCEWithLogitsLoss",
         },
         "weights_init_settings": {
-            "weights_init_fn": "init_swin_v2",
-            "load_pretrain_weights": None,
+            "weights_init_fn": None,
+            "load_pretrain_weights": None, # populated in the main function
             "load_param_group_prefix": None,
             "rename_map": {
                 "model.": ""
@@ -126,8 +120,75 @@ TASK_2_CONFIG = {
         "sliding_window": False,
         "target_key": "img"
     },
+    "pl_module_settings": {
+        "name": "SegmentationModel",
+        "model_kwargs": {
+            "name": "Swinv2LateFusionFPNDecoder",
+            "in_channels": 1,
+            "out_channels": 1,
+            "patch_size": 2,
+            "depths": [2, 2, 6, 2],
+            "num_heads": [3, 6, 12, 24],
+            "window_size": 7,
+            "feature_size": 48,
+            "use_v2": True,
+            "extra_swin_kwargs": {
+                "use_checkpoint": True,
+            },
+            "n_late_fusion": 3
+        },
+        "optimizer_kwargs": {
+            "name": "AdamW",
+            "auto_no_weight_decay": True,
+            "param_groups": [
+                {
+                    "lr": 0.0005,
+                    "weight_decay": 0.0001,
+                    "param_group_prefix": "decoder"
+                },
+                {
+                    "lr": 0.00002,
+                    "weight_decay": 0.00001,
+                    "param_group_prefix": ["encoder.layers4"]
+                }
+            ]
+        },
+        "lr_scheduler_kwargs": {
+            "name": "CosineAnnealingWithWarmup",
+            "interval": "step",
+            "frequency": 1,
+            "warmup_iters": [144, 81], # [8%, 15%]
+            "start_iter": [0, 1260],
+            "eta_min": [0.00005, 0.000002],
+            "total_iters": 1800
+        },
+        "loss_fn_kwargs": {
+            "name": "monai:DiceCELoss",
+            "sigmoid": True,
+        },
+        "weights_init_settings": {
+            "weights_init_fn": None,
+            "load_pretrain_weights": None, # populated in the main function
+            "load_param_group_prefix": None,
+            "rename_map": {
+                "model.": ""
+            }
+        },
+        "inference_settings": {
+            "inferer_kwargs": {
+                "name": "SlidingWindowInferer",
+                "roi_size": 128,
+                "mode": "constant",
+                "overlap": 5,
+            },
+            "postprocess": None,
+            "tta": "get_flip_tta"
+        }
+    },
     "postprocess_transforms": {
         "name": "get_postprocess_segmentation_transforms",
+        "keep_largest": False,
+        "remove_small_objects": False,
     },
     "model_ckpts": [
         "run_0.ckpt",
@@ -147,6 +208,83 @@ TASK_3_CONFIG = {
         "concat_img": True,
         "sliding_window": True,
         "target_key": "img"
+    },
+    "pl_module_settings": {
+        "name": "RegressionModel",
+        "model_kwargs": {
+            "name": "Swinv2Classifier",
+            "patch_size": 2,
+            "depths": [2, 2, 6, 2],
+            "num_heads": [3, 6, 12, 24],
+            "window_size": 7,
+            "feature_size": 48,
+            "use_v2": True,
+            "extra_swin_kwargs": {
+                "use_checkpoint": True,
+            },
+            "mlp_num_classes": 1,
+            "mlp_num_hidden_layers": 1,
+            "mlp_hidden_dim": 128,
+            "mlp_dropout": 0.2,
+            "mlp_activation": "GELU",
+            "late_fusion": True,
+            "n_late_fusion": 2
+        },
+        "optimizer_kwargs": {
+            "name": "AdamW",
+            "auto_no_weight_decay": True,
+            "param_groups": [
+                {
+                    "lr": 0.0005,
+                    "weight_decay": 0.001,
+                    "param_group_prefix": ["fusion_head", "classification_head"]
+                },
+                {
+                    "lr": 0.0001,
+                    "weight_decay": 0.00005,
+                    "param_group_prefix": "encoder.layers4"
+                },
+                {
+                    "lr": 0.00007,
+                    "weight_decay": 0.00005,
+                    "param_group_prefix": "encoder.layers3"
+                },
+                {
+                    "lr": 0.00005,
+                    "weight_decay": 0.00005,
+                    "param_group_prefix": "encoder.layers2"
+                },
+                {
+                    "lr": 0.00003,
+                    "weight_decay": 0.00005,
+                    "param_group_prefix": "encoder.layers1"
+                }
+            ]
+        },
+        "lr_scheduler_kwargs": {
+            "name": "CosineAnnealingWithWarmup",
+            "interval": "step",
+            "frequency": 1,
+            "warmup_iters": [0.00005, 0.00001, 0.000007, 0.000005, 0.000003],
+            "start_iter": [96, 116, 126, 108, 80], # [8%, 12%, 15%, 18%, 22%]
+            "eta_min": [0, 240, 360, 600, 840],
+            "total_iters": 1200,
+        },
+        "loss_fn_kwargs": {
+            "name": "SmoothL1Loss",
+            "beta": 0.1,
+        },
+        "weights_init_settings": {
+            "weights_init_fn": None,
+            "load_pretrain_weights": None, # populated in the main function
+            "load_param_group_prefix": None,
+            "rename_map": {
+                "model.": ""
+            }
+        },
+        "center_labels": "fixed:65",
+        "scale_labels": [20, 90],
+        "bias_init": None,
     },
     "postprocess_transforms": {
         "name": "get_postprocess_regression_transforms",
@@ -171,9 +309,12 @@ def predict_task_1():
     ap.add_argument("--swi", default=None)
     ap.add_argument("--t2s", default=None)
     ap.add_argument("--output", required=True)
+    ap.add_argument("--debug", default=False, action="store_true")
     args = ap.parse_args()
 
     logging.info(f"====RUNNING BRAIN INFARCT CLASSIFICATION PIPELINE====\n")
+    if not args.debug:
+        logging.getLogger("anyBrainer").setLevel(logging.WARNING)
 
     work_dir = Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
@@ -198,8 +339,6 @@ def predict_task_1():
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
-        do_bet=True,
-        do_reg=True,
     )
     input_dict = {
         "flair": work_dir / "inputs" / Path(args.flair).name,
@@ -223,16 +362,9 @@ def predict_task_1():
     for ck in ckpts:
         if not ck.exists():
             raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
-        
         model_cfg = deepcopy(TASK_1_CONFIG["pl_module_settings"])
         model_cfg["weights_init_settings"]["load_pretrain_weights"] = ck
-        m = ClassificationModel(**model_cfg)
-        m.eval()
-        try:
-            m.freeze()  # if LightningModule
-        except Exception:
-            pass
-        models.append(m)
+        models.append(ModuleFactory.get_pl_module_instance_from_kwargs(model_cfg))
     logging.info(f"Loaded {len(models)} models for task 1.")
 
     # Predict (mean logits)
@@ -267,6 +399,7 @@ def predict_task_1():
     # Save
     write_probability(args.output, prob)
     logging.info(f"Output written to {args.output}.")
+    logging.info(f"====BRAIN INFARCT CLASSIFICATION PIPELINE COMPLETED====\n")
 
 def predict_task_2():
     """
@@ -278,9 +411,12 @@ def predict_task_2():
     ap.add_argument("--swi", default=None)
     ap.add_argument("--t2s", default=None)
     ap.add_argument("--output", required=True)
+    ap.add_argument("--debug", default=False, action="store_true")
     args = ap.parse_args()
 
     logging.info(f"====RUNNING BRAIN MENINGIOMA SEGMENTATION PIPELINE====\n")
+    if not args.debug:
+        logging.getLogger("anyBrainer").setLevel(logging.WARNING)
 
     work_dir = Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
@@ -306,18 +442,18 @@ def predict_task_2():
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
     )
-
     input_dict = {
         "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
         "flair": work_dir / "inputs" / Path(args.flair).name,
         opt_mod_key: opt_mod_path,
     }
-
     for p in input_dict.values():
         if not p.exists():
             raise FileNotFoundError(f"Cannot find preprocessed input {p.name}; "
                                     f"check working directory {work_dir} or any "
                                     f"preprocessing failures.")
+    logging.info(f"Successfully preprocessed inputs.")
+
     # Load transforms
     predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_2_CONFIG["predict_transforms"]))
     postprocess_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_2_CONFIG["postprocess_transforms"]))
@@ -328,14 +464,9 @@ def predict_task_2():
     for ck in ckpts:
         if not ck.exists():
             raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
-
-        m = SegmentationModel.load_from_checkpoint(ck, map_location="cpu")
-        m.eval()
-        try:
-            m.freeze()  # if LightningModule
-        except Exception:
-            pass
-        models.append(m)
+        model_cfg = deepcopy(TASK_2_CONFIG["pl_module_settings"])
+        model_cfg["weights_init_settings"]["load_pretrain_weights"] = ck
+        models.append(ModuleFactory.get_pl_module_instance_from_kwargs(model_cfg))
     logging.info(f"Loaded {len(models)} models for task 2.")
 
     # Predict (mean logits)
@@ -344,7 +475,8 @@ def predict_task_2():
     w = 1.0 / max(1, len(models))
     cpu_batch = cast(dict[str, torch.Tensor], list_data_collate([predict_transforms(input_dict)]))
     with torch.no_grad():
-        for m in models:
+        logging.info(f"Running ensemble of {len(models)} models...")
+        for m in tqdm(models):
             m = m.to(device).eval()
             try:
                 m.freeze()
@@ -362,20 +494,27 @@ def predict_task_2():
     cpu_batch['pred'] = cast(torch.Tensor, postprocess_transforms(mean_logits))
 
     # Revert prediction
+    logging.info(f"Reverting predicted segmentation mask to original space...")
     inv = Invertd(
         keys="pred", 
         orig_keys="flair", 
         transform=predict_transforms, 
         nearest_interp=True,
     )
+    logging.info(f"Reverting cropping, resampling, and orientation transforms...")
     inv_batch = cast(
         dict[str, torch.Tensor],
         list_data_collate([inv(d) for d in cast(list[dict], decollate_batch(cpu_batch))])
     )
+    logging.info(f"Cropping, resampling, and orientation transforms reverted; "
+                 f"reverting registration to template...")
     pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir)
+    logging.info(f"Image reverted to original space; saving to {args.output}...")
 
     # Save
     pred_img.to_file(args.output)
+    logging.info(f"Output written to {args.output}.")
+    logging.info(f"====BRAIN MENINGIOMA SEGMENTATION PIPELINE COMPLETED====\n")
 
 def predict_task_3():
     """
@@ -385,10 +524,16 @@ def predict_task_3():
     ap.add_argument("--t1", required=True)
     ap.add_argument("--t2", required=True)
     ap.add_argument("--output", required=True)
+    ap.add_argument("--debug", default=False, action="store_true")
     args = ap.parse_args()
+
+    logging.info(f"====RUNNING BRAIN AGE PREDICTION PIPELINE====\n")
+    if not args.debug:
+        logging.getLogger("anyBrainer").setLevel(logging.WARNING)
 
     work_dir = Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
+    logging.info(f"Preprocessing inputs...")
     preprocess_inputs(
         inputs=[args.t1, args.t2],
         mods=["t1", "t2"],
@@ -396,17 +541,17 @@ def predict_task_3():
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
     )
-
     input_dict = {
         "t1": work_dir / "inputs" / Path(args.t1).name,
         "t2": work_dir / "inputs" / Path(args.t2).name,
     }
-
     for p in input_dict.values():
         if not p.exists():
             raise FileNotFoundError(f"Cannot find preprocessed input {p.name}; "
                                     f"check working directory {work_dir} or any "
                                     f"preprocessing failures.")
+    logging.info(f"Successfully preprocessed inputs.")
+
     # Load transforms
     predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_3_CONFIG["predict_transforms"]))
 
@@ -416,14 +561,9 @@ def predict_task_3():
     for ck in ckpts:
         if not ck.exists():
             raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
-
-        m = RegressionModel.load_from_checkpoint(ck, map_location="cpu")
-        m.eval()
-        try:
-            m.freeze()  # if LightningModule
-        except Exception:
-            pass
-        models.append(m)
+        model_cfg = deepcopy(TASK_3_CONFIG["pl_module_settings"])
+        model_cfg["weights_init_settings"]["load_pretrain_weights"] = ck
+        models.append(ModuleFactory.get_pl_module_instance_from_kwargs(model_cfg))
     logging.info(f"Loaded {len(models)} models for task 3.")
 
     # Predict (mean logits)
@@ -432,7 +572,8 @@ def predict_task_3():
     w = 1.0 / max(1, len(models))
     cpu_batch = list_data_collate([predict_transforms(input_dict)])
     with torch.no_grad():
-        for m in models:
+        logging.info(f"Running ensemble of {len(models)} models...")
+        for m in tqdm(models):
             m = m.to(device).eval()
             try:
                 m.freeze()
@@ -447,11 +588,15 @@ def predict_task_3():
             m = m.to("cpu")
             torch.cuda.empty_cache()
 
-        # Optional postprocess; assume it returns a scalar probability tensor
         out = float(cast(torch.Tensor, mean_logits).item())
+    
+    logging.info(f"Ensemble prediction completed with probability {out}. "
+                 f"Writing output to {args.output}...")
 
     # Save
     write_probability(args.output, out)
+    logging.info(f"Output written to {args.output}.")
+    logging.info(f"====BRAIN AGE PREDICTION PIPELINE COMPLETED====\n")
 
 def main():
     """
