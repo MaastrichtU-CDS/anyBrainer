@@ -737,6 +737,7 @@ def get_postprocess_segmentation_transforms(
         transforms.append(RemoveSmallObjects(**remove_small_objects_kwargs))
     return transforms
 
+@register(RK.TRANSFORM)
 def get_postprocess_regression_transforms(
     center: float | None = None,
     scale_range: tuple[float, float] | None = None,
