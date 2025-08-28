@@ -51,8 +51,9 @@ TASK_1_CONFIG = {
             "window_size": 7,
             "feature_size": 48,
             "use_v2": True,
-            "extra_swin_kwargs": {},
-            "use_checkpoint": True,
+            "extra_swin_kwargs": {
+                "use_checkpoint": True,
+            },
             "mlp_num_classes": 1,
             "mlp_num_hidden_layers": 1,
             "mlp_hidden_dim": 128,
