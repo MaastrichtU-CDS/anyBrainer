@@ -288,6 +288,8 @@ TASK_3_CONFIG = {
     },
     "postprocess_transforms": {
         "name": "get_postprocess_regression_transforms",
+        "center": 65,
+        "scale_range": [20, 90],
     },
     "model_ckpts": [
         "run_0.ckpt",
@@ -606,7 +608,7 @@ def main():
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    predict_task_1()
+    predict_task_2()
 
 if __name__ == "__main__":
     main()
