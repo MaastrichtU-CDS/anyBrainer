@@ -685,6 +685,7 @@ def get_segmentation_val_transforms(
 @register(RK.TRANSFORM)
 def get_postprocess_classification_transforms(
     activation_kwargs: dict[str, Any] | None = None,
+    as_discrete: bool = True,
     as_discrete_kwargs: dict[str, Any] | None = None,
 ) -> list[Callable]:
     """
@@ -696,11 +697,13 @@ def get_postprocess_classification_transforms(
         activation_kwargs = {'sigmoid': True}
     if as_discrete_kwargs is None:
         as_discrete_kwargs = {'threshold': 0.5}
-    return [
+    transforms: list[Callable] = [
         Activations(**activation_kwargs),
-        AsDiscrete(**as_discrete_kwargs),
-        EnsureType()
     ]
+    if as_discrete:
+        transforms.append(AsDiscrete(**as_discrete_kwargs))
+    transforms.append(EnsureType())
+    return transforms
 
 @register(RK.TRANSFORM)
 def get_postprocess_segmentation_transforms(

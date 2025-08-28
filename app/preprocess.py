@@ -223,15 +223,19 @@ def preprocess_inputs(
 
     # Skull-stripping via HD-BET
     if do_bet:
+        logging.info(f"Running hd-bet to get brain mask from {ref_path}...")
         mask_path = mask_dir / "brain_mask.nii.gz"
         use_gpu = torch.cuda.is_available()
         _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=True)
+        logging.info(f"hd-bet completed.")
         mask_img = _load_nifti(mask_path)
 
     # Registration to template
     if do_reg:
+        logging.info(f"Computing registration fields of {ref_path} to template {tmpl_path}...")
         tmpl_img = _load_nifti(tmpl_path)
         fwd, inv = _get_reg_transforms(_apply_mask(ref_img, mask_img), tmpl_img)
+        logging.info(f"Registration fields computed.")
         for i, t in enumerate(fwd):
             shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
         for i, t in enumerate(inv):
@@ -240,6 +244,7 @@ def preprocess_inputs(
     # Preprocess all inputs
     ref_spacing = ref_img.spacing
     for img_path in inputs:
+        logging.info(f"Applying preprocessing to {img_path}...")
         try:
             img = _load_nifti(img_path)
             if ref_spacing != img.spacing:
@@ -250,6 +255,7 @@ def preprocess_inputs(
             if do_reg:
                 img = _apply_transforms(img, tmpl_img, fwd)
             _save_nifti(img, in_dir / img_path.name)
+            logging.info(f"Preprocessing of {img_path} completed.")
         except Exception as e:
             raise PreprocessError(f"Failed to preprocess {img_path}: {e}")
 

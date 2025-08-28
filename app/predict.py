@@ -6,6 +6,7 @@ import os
 from typing import Literal, cast
 import logging
 from copy import deepcopy
+from tqdm import tqdm
 
 import torch
 from monai.transforms.compose import Compose
@@ -103,6 +104,7 @@ TASK_1_CONFIG = {
     },
     "postprocess_transforms": {
         "name": "get_postprocess_classification_transforms",
+        "as_discrete": False,
     },
     "model_ckpts": [
         "run_0.ckpt",
@@ -171,6 +173,8 @@ def predict_task_1():
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
 
+    logging.info(f"====RUNNING BRAIN INFARCT CLASSIFICATION PIPELINE====\n")
+
     work_dir = Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
     if args.swi is not None and args.t2s is not None:
@@ -187,6 +191,7 @@ def predict_task_1():
     else:
         raise ValueError("Either SWI or T2* modality must be provided.")
 
+    logging.info(f"Preprocessing inputs...")
     preprocess_inputs(
         inputs=[args.flair, args.adc, args.dwi_b1000, args.swi, args.t2s],
         mods=["flair", "adc", "dwi_b1000", "swi", "t2s"],
@@ -196,21 +201,19 @@ def predict_task_1():
         do_bet=True,
         do_reg=True,
     )
-
     input_dict = {
         "flair": work_dir / "inputs" / Path(args.flair).name,
         "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
         "adc": work_dir / "inputs" / Path(args.adc).name,
         opt_mod_key: opt_mod_path,
     }
-
     for p in input_dict.values():
         if not p.exists():
             raise FileNotFoundError(f"Cannot find preprocessed input {p.name}; "
                                     f"check working directory {work_dir} or any "
                                     f"preprocessing failures.")
+    logging.info(f"Successfully preprocessed inputs.")
 
-    # Load transforms
     predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_1_CONFIG["predict_transforms"]))
     postprocess_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_1_CONFIG["postprocess_transforms"]))
 
@@ -238,7 +241,8 @@ def predict_task_1():
     w = 1.0 / max(1, len(models))
     cpu_batch = list_data_collate([predict_transforms(input_dict)])
     with torch.no_grad():
-        for m in models:
+        logging.info(f"Running ensemble of {len(models)} models...")
+        for m in tqdm(models):
             m = m.to(device).eval()
             try:
                 m.freeze()
@@ -257,8 +261,12 @@ def predict_task_1():
         out = cast(torch.Tensor, postprocess_transforms(mean_logits))
         prob = float(out.item())
 
+    logging.info(f"Ensemble prediction completed with probability {prob}. "
+                 f"Writing output to {args.output}...")
+
     # Save
     write_probability(args.output, prob)
+    logging.info(f"Output written to {args.output}.")
 
 def predict_task_2():
     """
@@ -271,6 +279,8 @@ def predict_task_2():
     ap.add_argument("--t2s", default=None)
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
+
+    logging.info(f"====RUNNING BRAIN MENINGIOMA SEGMENTATION PIPELINE====\n")
 
     work_dir = Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
@@ -288,6 +298,7 @@ def predict_task_2():
     else:
         raise ValueError("Either SWI or T2* modality must be provided.")
 
+    logging.info(f"Preprocessing inputs...")
     preprocess_inputs(
         inputs=[args.dwi_b1000, args.flair, args.swi, args.t2s],
         mods=["dwi_b1000", "flair", "swi", "t2s"],
