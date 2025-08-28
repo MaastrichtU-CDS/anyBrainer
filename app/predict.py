@@ -556,6 +556,7 @@ def predict_task_3():
 
     # Load transforms
     predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_3_CONFIG["predict_transforms"]))
+    postprocess_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_3_CONFIG["postprocess_transforms"]))
 
     # Load ensemble
     models = []
@@ -590,7 +591,7 @@ def predict_task_3():
             m = m.to("cpu")
             torch.cuda.empty_cache()
 
-        out = float(cast(torch.Tensor, mean_logits).item())
+        out = float(cast(torch.Tensor, postprocess_transforms(mean_logits)).item())
     
     logging.info(f"Ensemble prediction completed with probability {out}. "
                  f"Writing output to {args.output}...")
@@ -608,7 +609,7 @@ def main():
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    predict_task_3()
+    predict_task_2()
 
 if __name__ == "__main__":
     main()

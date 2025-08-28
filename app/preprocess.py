@@ -140,15 +140,12 @@ def _numpy_to_ants(arr, target_img=None):
 
 def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
     a = convert_to_numpy(pred, dtype=np.float32)  # preserves shape
-    # drop batch
-    if a.ndim == 5:  # (B,C,D,H,W)
+    if a.ndim == 5:  # (B,C,H,W,D)
         a = a[0]
-    # drop channel
-    if a.ndim == 4:  # (C,D,H,W)
-        # expect C==1
+    if a.ndim == 4:  # (C,H,W,D)
         a = a[0]
-    # now (D,H,W)
-    return (a >= threshold).astype(np.uint8)
+    # now (H,W,D)
+    return (np.transpose(a, (1, 0, 2)) >= threshold).astype(np.uint8)  # (W,H,D)
 
 def _collect_inv_transforms(reg_dir: Path) -> list[str]:
     items = sorted(reg_dir.glob("inv_*"), key=lambda p: int(p.stem.split("_")[1]))
