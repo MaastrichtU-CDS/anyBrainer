@@ -45,7 +45,7 @@ TASK_1_CONFIG = {
         "name": "ClassificationModel",
         "model_kwargs": {
             "name": "Swinv2Classifier",
-            "   patch_size": 2,
+            "patch_size": 2,
             "depths": [2, 2, 6, 2],
             "num_heads": [3, 6, 12, 24],
             "window_size": 7,
