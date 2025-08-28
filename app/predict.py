@@ -41,6 +41,65 @@ TASK_1_CONFIG = {
         "sliding_window": True,
         "target_key": "img"
     },
+    "pl_module_settings": {
+        "name": "ClassificationModel",
+        "model_kwargs": {
+            "name": "Swinv2Classifier",
+            "   patch_size": 2,
+            "depths": [2, 2, 6, 2],
+            "num_heads": [3, 6, 12, 24],
+            "window_size": 7,
+            "feature_size": 48,
+            "use_v2": True,
+            "extra_swin_kwargs": {},
+            "use_checkpoint": True,
+            "mlp_num_classes": 1,
+            "mlp_num_hidden_layers": 1,
+            "mlp_hidden_dim": 128,
+            "late_fusion": True,
+            "n_late_fusion": 4
+        },
+        "optimizer_kwargs": {
+            "name": "AdamW",
+            "auto_no_weight_decay": True,
+            "param_groups": [
+                {
+                    "lr": 0.0005,
+                    "weight_decay": 0.001,
+                    "param_group_prefix": ["classification_head", "fusion_head"]
+                },
+                {
+                    "lr": 0.00002,
+                    "weight_decay": 0.00005,
+                    "param_group_prefix": ["encoder.layers4"]
+                }
+            ]
+        },
+        "lr_scheduler_kwargs": {
+            "name": "CosineAnnealingWithWarmup",
+            "interval": "step",
+            "frequency": 1,
+            "warmup_iters": [30, 18], # [10%, 20%]
+            "start_iter": [0, 210],
+            "eta_min": [0.00005, 0.000002],
+            "total_iters": 300
+        },
+        "loss_fn_kwargs": {
+            "name": "BCEWithLogitsLoss",
+        },
+        "weights_init_settings": {
+            "weights_init_fn": "init_swin_v2",
+            "load_pretrain_weights": None,
+            "load_param_group_prefix": None,
+            "rename_map": {
+                "model.": ""
+            }
+        },
+        "inference_settings": {
+            "postprocess": None,
+            "tta": "get_flip_tta"
+        }
+    },
     "postprocess_transforms": {
         "name": "get_postprocess_classification_transforms",
     },
@@ -133,8 +192,8 @@ def predict_task_1():
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
-        do_bet=False,
-        do_reg=False,
+        do_bet=True,
+        do_reg=True,
     )
 
     input_dict = {
@@ -160,8 +219,10 @@ def predict_task_1():
     for ck in ckpts:
         if not ck.exists():
             raise FileNotFoundError(f"Cannot find requested checkpoint {ck.name}.")
-
-        m = ClassificationModel.load_from_checkpoint(ck, map_location="cpu")
+        
+        model_cfg = deepcopy(TASK_1_CONFIG["pl_module_settings"])
+        model_cfg["weights_init_settings"]["load_pretrain_weights"] = ck
+        m = ClassificationModel(**model_cfg)
         m.eval()
         try:
             m.freeze()  # if LightningModule
