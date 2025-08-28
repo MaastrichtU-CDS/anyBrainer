@@ -133,6 +133,8 @@ def predict_task_1():
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
+        do_bet=False,
+        do_reg=False,
     )
 
     input_dict = {

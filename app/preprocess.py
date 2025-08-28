@@ -160,6 +160,8 @@ def preprocess_inputs(
     work_dir: Path| None = None,
     ref_mod: str = "flair",
     tmpl_path: Path = Path("templates/icbm_mni152_t1_09a_asym_bet.nii.gz"),
+    do_bet: bool = True,
+    do_reg: bool = True,
     ) -> None:
     """
     Preprocess input images for FOMO25 tasks.
@@ -209,29 +211,31 @@ def preprocess_inputs(
     mask_dir = _ensure_dir(work_dir / "masks")
     reg_dir = _ensure_dir(work_dir / "reg")
 
+    # Check template
+    if do_reg and not tmpl_path.exists():
+        raise FileNotFoundError(f"Template not found: {tmpl_path}")
+    
     # Map modalities to input paths
     mod2path: dict[str, Path] = {m.lower(): Path(p) for m, p in zip(mods, inputs)}
-
-    # Check template
-    if not tmpl_path.exists():
-        raise FileNotFoundError(f"Template not found: {tmpl_path}")
 
     ref_path = mod2path[ref_mod]
     ref_img = _load_nifti(ref_path)
 
     # Skull-stripping via HD-BET
-    mask_path = mask_dir / "brain_mask.nii.gz"
-    use_gpu = torch.cuda.is_available()
-    _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=True)
-    mask_img = _load_nifti(mask_path)
+    if do_bet:
+        mask_path = mask_dir / "brain_mask.nii.gz"
+        use_gpu = torch.cuda.is_available()
+        _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=True)
+        mask_img = _load_nifti(mask_path)
 
     # Registration to template
-    tmpl_img = _load_nifti(tmpl_path)
-    fwd, inv = _get_reg_transforms(_apply_mask(ref_img, mask_img), tmpl_img)
-    for i, t in enumerate(fwd):
-        shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
-    for i, t in enumerate(inv):
-        shutil.copy2(t, reg_dir / f"inv_{i}{Path(t).suffix}")
+    if do_reg:
+        tmpl_img = _load_nifti(tmpl_path)
+        fwd, inv = _get_reg_transforms(_apply_mask(ref_img, mask_img), tmpl_img)
+        for i, t in enumerate(fwd):
+            shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
+        for i, t in enumerate(inv):
+            shutil.copy2(t, reg_dir / f"inv_{i}{Path(t).suffix}")
 
     # Preprocess all inputs
     ref_spacing = ref_img.spacing
@@ -241,9 +245,11 @@ def preprocess_inputs(
             if ref_spacing != img.spacing:
                 raise ValueError(f"Mismatched spacing: {ref_spacing} != {img.spacing} "
                                  f"between modalities")
-            img_masked = _apply_mask(img, mask_img)
-            img_reg = _apply_transforms(img_masked, tmpl_img, fwd)
-            _save_nifti(img_reg, in_dir / img_path.name)
+            if do_bet:
+                img = _apply_mask(img, mask_img)
+            if do_reg:
+                img = _apply_transforms(img, tmpl_img, fwd)
+            _save_nifti(img, in_dir / img_path.name)
         except Exception as e:
             raise PreprocessError(f"Failed to preprocess {img_path}: {e}")
 
@@ -251,6 +257,7 @@ def revert_preprocess(
     pred: torch.Tensor,
     orig: str | Path,
     work_dir: Path| None = None,
+    do_reg: bool = True,
 ) -> ants.ANTsImage:
     """
     Revert preprocessing on predicted segmentation masks for FOMO25 tasks.
@@ -278,22 +285,23 @@ def revert_preprocess(
     """
     work_dir = Path(work_dir or os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
-    inv_transforms = _collect_inv_transforms(work_dir / "reg")
-    if len(inv_transforms) == 0:
-        raise FileNotFoundError("Inverse transforms not found.")
-    
-    tmpl_path = Path("icbm_mni152_t2_09a_asym_bet.nii.gz")
-    if not tmpl_path.exists():
-        raise FileNotFoundError(f"Template not found: {tmpl_path}")
-    tmpl_img = _load_nifti(tmpl_path)
-
     orig_path = Path(orig)
     if not orig_path.exists():
         raise FileNotFoundError(f"Original image not found: {orig_path}")
+
     orig_img = _load_nifti(orig_path)
-
     pred_arr = _tensor_to_3d_mask_binary(pred)
-    pred_img = _numpy_to_ants(pred_arr, tmpl_img)
+    if do_reg:
+        inv_transforms = _collect_inv_transforms(work_dir / "reg")
+        if len(inv_transforms) == 0:
+            raise FileNotFoundError("Inverse transforms not found.")
+        
+        tmpl_path = Path("icbm_mni152_t2_09a_asym_bet.nii.gz")
+        if not tmpl_path.exists():
+            raise FileNotFoundError(f"Template not found: {tmpl_path}")
 
-    return _apply_transforms(pred_img, orig_img, inv_transforms, interp='nearestNeighbor')
+        tmpl_img = _load_nifti(tmpl_path)
+        pred_img = _numpy_to_ants(pred_arr, tmpl_img)
+        return _apply_transforms(pred_img, orig_img, inv_transforms, interp='nearestNeighbor')
     
+    return _numpy_to_ants(pred_arr, orig_img)
