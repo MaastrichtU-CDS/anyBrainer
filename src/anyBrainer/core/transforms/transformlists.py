@@ -214,25 +214,16 @@ def get_predict_transforms(
             SlidingWindowPatchd(keys=keys, patch_size=patch_size, overlap=None,
                                 n_patches=n_patches, allow_missing_keys=allow_missing_keys),
         ])
-        if concat_img:
+    if concat_img:
+        ch_dim = 1 if sliding_window else 0
+        transforms.extend([
+            ConcatItemsd(keys=keys, name=target_key, dim=ch_dim,
+                        allow_missing_keys=allow_missing_keys),
+        ])
+        if delete_orig:
             transforms.extend([
-                ConcatItemsd(keys=keys, name=target_key, dim=1,
-                            allow_missing_keys=allow_missing_keys),
+                DeleteItemsd(keys=keys)
             ])
-            if delete_orig:
-                transforms.extend([
-                    DeleteItemsd(keys=keys)
-                ])
-    else:
-        if concat_img:
-            transforms.extend([
-                ConcatItemsd(keys=keys, name=target_key, dim=0,
-                            allow_missing_keys=allow_missing_keys),
-            ])
-            if delete_orig:
-                transforms.extend([
-                    DeleteItemsd(keys=keys)
-                ])
     return transforms
 
 @register(RK.TRANSFORM)

@@ -510,7 +510,8 @@ def predict_task_2():
     )
     logging.info(f"Cropping, resampling, and orientation transforms reverted; "
                  f"reverting registration to template...")
-    pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir)
+    pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir, 
+                                 tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz")
     logging.info(f"Image reverted to original space; saving to {args.output}...")
 
     # Save

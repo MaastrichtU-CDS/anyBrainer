@@ -264,6 +264,7 @@ def revert_preprocess(
     orig: str | Path,
     work_dir: Path| None = None,
     do_reg: bool = True,
+    tmpl_path: Path = Path("templates/icbm_mni152_t2_09a_asym_bet.nii.gz"),
 ) -> ants.ANTsImage:
     """
     Revert preprocessing on predicted segmentation masks for FOMO25 tasks.
@@ -273,8 +274,6 @@ def revert_preprocess(
     - Cropping
     - Resampling
     - Orientation (flipping)
-
-    For now assumes that it is used only for task 2 that contains FLAIR (template is T2w).
 
     Steps: 
     1) Convert to uint8 numpy array
@@ -302,7 +301,6 @@ def revert_preprocess(
         if len(inv_transforms) == 0:
             raise FileNotFoundError("Inverse transforms not found.")
         
-        tmpl_path = Path("icbm_mni152_t2_09a_asym_bet.nii.gz")
         if not tmpl_path.exists():
             raise FileNotFoundError(f"Template not found: {tmpl_path}")
 
