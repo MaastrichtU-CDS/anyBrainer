@@ -23,8 +23,8 @@ from anyBrainer.factories import UnitFactory, ModuleFactory
 
 Task = Literal["task1", "task2", "task3"]
 
-TEMPL_DIR = Path("templates") # Path(os.getenv("ANYBRAINER_TEMPLATES_DIR", "/opt/anyBrainer/templates"))
-CKPTS_DIR = Path("ckpts/task2") # Path(os.getenv("ANYBRAINER_CKPTS_DIR", "/opt/anyBrainer/ckpts"))
+TEMPL_DIR = Path(os.getenv("ANYBRAINER_TEMPLATES_DIR", "/opt/anyBrainer/templates"))
+CKPTS_DIR = Path(os.getenv("ANYBRAINER_CKPTS_DIR", "/opt/anyBrainer/ckpts"))
 
 TASK_1_CONFIG = {
     "predict_transforms": {
@@ -341,6 +341,8 @@ def predict_task_1():
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
+        do_bet=True,
+        do_reg=True,
     )
     input_dict = {
         "flair": work_dir / "inputs" / Path(args.flair).name,
@@ -437,14 +439,16 @@ def predict_task_2():
         raise ValueError("Either SWI or T2* modality must be provided.")
 
     logging.info(f"Preprocessing inputs...")
+    _do_bet = True
+    _do_reg = True
     preprocess_inputs(
         inputs=[args.dwi_b1000, args.flair, args.swi, args.t2s],
         mods=["dwi_b1000", "flair", "swi", "t2s"],
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
-        do_bet=False,
-        do_reg=True,
+        do_bet=_do_bet,
+        do_reg=_do_reg,
     )
     input_dict = {
         "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
@@ -514,7 +518,7 @@ def predict_task_2():
                  f"reverting registration to template...")
     pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir, 
                                  tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
-                                 do_reg=True)
+                                 do_reg=_do_reg)
     logging.info(f"Image reverted to original space; saving to {args.output}...")
 
     # Save
@@ -546,6 +550,8 @@ def predict_task_3():
         ref_mod="t1",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
+        do_bet=True,
+        do_reg=True,
     )
     input_dict = {
         "t1": work_dir / "inputs" / Path(args.t1).name,

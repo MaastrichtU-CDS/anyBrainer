@@ -275,8 +275,6 @@ def preprocess_inputs(
         moving = _apply_mask(ref_img, mask_img) if do_bet else ref_img
         fwd, inv = _get_reg_transforms(moving, fixed)
         logging.info(f"Registration fields computed.")
-        logging.info(f"FWD: {fwd}")
-        logging.info(f"INV: {inv}")
         for i, t in enumerate(fwd):
             shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
         for i, t in enumerate(inv):
@@ -288,16 +286,13 @@ def preprocess_inputs(
         logging.info(f"Applying preprocessing to {img_path}...")
         try:
             img = _load_nifti(img_path)
-            logging.info(f"Image loaded: {img}")
             if ref_spacing != img.spacing:
                 raise ValueError(f"Mismatched spacing: {ref_spacing} != {img.spacing} "
                                  f"between modalities")
             if do_bet:
                 img = _apply_mask(img, mask_img)
-                logging.info(f"Mask applied: {img}")
             if do_reg:
                 img = _apply_transforms(img, fixed, fwd)
-                logging.info(f"Transform applied: {img}")
             _save_nifti(img, in_dir / img_path.name)
             logging.info(f"Preprocessing of {img_path} completed.")
         except Exception as e:
@@ -339,7 +334,6 @@ def revert_preprocess(
         raise FileNotFoundError(f"Original image not found: {orig_path}")
 
     orig_img = _load_nifti(orig_path)
-    logging.info(f"Original image loaded: {orig_img}")
     pred_arr = _tensor_to_3d_mask_binary(pred)
     if do_reg:
         inv_transforms, which_to_invert = _collect_inv_transforms_with_flags(work_dir / "reg")
@@ -350,13 +344,7 @@ def revert_preprocess(
             raise FileNotFoundError(f"Template not found: {tmpl_path}")
 
         tmpl_img = _load_nifti(tmpl_path)
-        logging.info(f"Template image loaded: {tmpl_img}")
         pred_img = _numpy_to_ants(pred_arr, tmpl_img)
-        logging.info(f"Pred image loaded: {pred_img}")
-        reverted = _apply_transforms(pred_img, orig_img, inv_transforms, interp='nearestNeighbor', 
-                                     which_to_invert=which_to_invert)
-        logging.info(f"Reverted image: {reverted}")
-        return reverted
-    
-    logging.info(f"No registration applied.")
+        return _apply_transforms(pred_img, orig_img, inv_transforms, 
+                                 interp='nearestNeighbor', which_to_invert=which_to_invert)
     return _numpy_to_ants(pred_arr, orig_img)
