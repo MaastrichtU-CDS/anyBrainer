@@ -498,7 +498,7 @@ def predict_task_2():
     logging.info(f"Reverting predicted segmentation mask to original space...")
     inv = Invertd(
         keys="pred", 
-        orig_keys="flair", 
+        orig_keys="dwi", 
         transform=predict_transforms, 
         nearest_interp=True,
     )
@@ -509,7 +509,7 @@ def predict_task_2():
     )
     logging.info(f"Cropping, resampling, and orientation transforms reverted; "
                  f"reverting registration to template...")
-    pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir, 
+    pred_img = revert_preprocess(inv_batch['pred'][0], args.dwi_b1000, work_dir, 
                                  tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz")
     logging.info(f"Image reverted to original space; saving to {args.output}...")
 

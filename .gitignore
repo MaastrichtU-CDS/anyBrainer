@@ -38,6 +38,7 @@ config_files/
 examples/
 templates/
 ckpts/
+third_party/
 
 # Extras
 TODOS.md

@@ -145,7 +145,7 @@ def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
     if a.ndim == 4:  # (C,H,W,D)
         a = a[0]
     # now (H,W,D)
-    return (np.transpose(a, (1, 0, 2)) >= threshold).astype(np.uint8)  # (W,H,D)
+    return (a >= threshold).astype(np.uint8)
 
 def _collect_inv_transforms(reg_dir: Path) -> list[str]:
     items = sorted(reg_dir.glob("inv_*"), key=lambda p: int(p.stem.split("_")[1]))
