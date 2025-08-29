@@ -253,6 +253,8 @@ def preprocess_inputs(
         moving = _apply_mask(ref_img, mask_img) if do_bet else ref_img
         fwd, inv = _get_reg_transforms(moving, fixed)
         logging.info(f"Registration fields computed.")
+        logging.info(f"FWD: {fwd}")
+        logging.info(f"INV: {inv}")
         for i, t in enumerate(fwd):
             shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
         for i, t in enumerate(inv):
