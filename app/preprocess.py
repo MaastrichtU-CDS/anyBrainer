@@ -64,6 +64,18 @@ def _resolve_hdbet() -> str:
         return found
     raise PreprocessError("hd-bet CLI not found in container PATH.")
 
+def _ensure_hdbet_weights() -> Path:
+    # hd-bet v2 looks in ~/hd-bet_params/release_2.0.0/...
+    home = os.environ.get("HDBET_HOME", "/opt/hd-bet-home")
+    root = Path(home) / "hd-bet_params" / "release_2.0.0"
+    ck = root / "fold_all" / "checkpoint_final.pth"
+    if not ck.exists():
+        raise PreprocessError(
+            f"HD-BET weights not found: {ck}. The container is offline; "
+            f"ship weights under {root}."
+        )
+    return root
+
 def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool = False):
     """
     hd-bet 2.x with single-input:
@@ -72,6 +84,7 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
       - We pass a unique temp filename, then rename the produced mask to `out_mask`.
     """
     bin_path = _resolve_hdbet()
+    _ensure_hdbet_weights()
     image = Path(image)
     out_mask = Path(out_mask)
     out_mask.parent.mkdir(parents=True, exist_ok=True)
