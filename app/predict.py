@@ -444,7 +444,7 @@ def predict_task_2():
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
         do_bet=False,
-        do_reg=False,
+        do_reg=True,
     )
     input_dict = {
         "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
@@ -514,7 +514,7 @@ def predict_task_2():
                  f"reverting registration to template...")
     pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir, 
                                  tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
-                                 do_reg=False)
+                                 do_reg=True)
     logging.info(f"Image reverted to original space; saving to {args.output}...")
 
     # Save
