@@ -174,6 +174,7 @@ def get_predict_transforms(
     patch_size: int | Sequence[int] = (128, 128, 128),
     spacing: tuple[float, float, float] = (1, 1, 1),
     keys: list[str] = OPEN_KEYS,
+    ref_key: int | str = 0,
     allow_missing_keys: bool = True,
     is_nifti: bool = False,
     concat_img: bool = False,
@@ -186,6 +187,7 @@ def get_predict_transforms(
     IO transforms for inference.
     """
     transforms: list[Callable] = []
+    ref_key = keys[ref_key] if isinstance(ref_key, int) else ref_key
 
     # Load data; normalize and reorient if NIfTI
     if not is_nifti:
@@ -199,7 +201,7 @@ def get_predict_transforms(
                        allow_missing_keys=allow_missing_keys),
             Orientationd(keys=keys, axcodes='LPI', allow_missing_keys=allow_missing_keys),
             Spacingd(keys=keys, pixdim=spacing, allow_missing_keys=allow_missing_keys),
-            CropForegroundd(keys=keys, source_key=keys[0], allow_missing_keys=allow_missing_keys),
+            CropForegroundd(keys=keys, source_key=ref_key, allow_missing_keys=allow_missing_keys),
             ClipNonzeroPercentilesd(keys=keys, lower=0.5, upper=99.5, allow_missing_keys=allow_missing_keys),
             NormalizeIntensityd(keys=keys, allow_missing_keys=allow_missing_keys, nonzero=True),
         ])
