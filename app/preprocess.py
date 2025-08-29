@@ -249,8 +249,9 @@ def preprocess_inputs(
     # Registration to template
     if do_reg:
         logging.info(f"Computing registration fields of {ref_path} to template {tmpl_path}...")
-        tmpl_img = _load_nifti(tmpl_path)
-        fwd, inv = _get_reg_transforms(_apply_mask(ref_img, mask_img), tmpl_img)
+        fixed = _load_nifti(tmpl_path)
+        moving = _apply_mask(ref_img, mask_img) if do_bet else ref_img
+        fwd, inv = _get_reg_transforms(moving, fixed)
         logging.info(f"Registration fields computed.")
         for i, t in enumerate(fwd):
             shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
@@ -269,7 +270,7 @@ def preprocess_inputs(
             if do_bet:
                 img = _apply_mask(img, mask_img)
             if do_reg:
-                img = _apply_transforms(img, tmpl_img, fwd)
+                img = _apply_transforms(img, fixed, fwd)
             _save_nifti(img, in_dir / img_path.name)
             logging.info(f"Preprocessing of {img_path} completed.")
         except Exception as e:
