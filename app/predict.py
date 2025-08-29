@@ -23,8 +23,8 @@ from anyBrainer.factories import UnitFactory, ModuleFactory
 
 Task = Literal["task1", "task2", "task3"]
 
-TEMPL_DIR = Path(os.getenv("ANYBRAINER_TEMPLATES_DIR", "/opt/anyBrainer/templates"))
-CKPTS_DIR = Path(os.getenv("ANYBRAINER_CKPTS_DIR", "/opt/anyBrainer/ckpts"))
+TEMPL_DIR = Path(os.getenv("ANYBRAINER_TEMPLATES_DIR", "templates")) # change to "/opt/anyBrainer/templates"
+CKPTS_DIR = Path(os.getenv("ANYBRAINER_CKPTS_DIR", "ckpts/task2")) # change to "/opt/anyBrainer/ckpts"
 
 TASK_1_CONFIG = {
     "predict_transforms": {
@@ -443,6 +443,7 @@ def predict_task_2():
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
+        do_bet=False,
     )
     input_dict = {
         "dwi": work_dir / "inputs" / Path(args.dwi_b1000).name,
