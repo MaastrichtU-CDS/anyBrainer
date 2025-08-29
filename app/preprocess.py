@@ -7,6 +7,7 @@ import os
 import shutil
 import logging
 import uuid
+import re
 
 import numpy as np
 import ants
@@ -44,9 +45,11 @@ def _apply_transforms(
     target: ants.ANTsImage,
     transformlist: list[str], 
     interp: str = "linear",
+    which_to_invert: list[bool] | None = None,
 ) -> ants.ANTsImage:
     return ants.apply_transforms(
-        fixed=target, moving=moving, transformlist=transformlist, interpolator=interp
+        fixed=target, moving=moving, transformlist=transformlist, interpolator=interp, 
+        whichtoinvert=which_to_invert
     )
 
 def _apply_mask(image: ants.ANTsImage, mask: ants.ANTsImage) -> ants.ANTsImage:
@@ -166,9 +169,28 @@ def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
     # now (H,W,D)
     return (a >= threshold).astype(np.uint8)
 
-def _collect_inv_transforms(reg_dir: Path) -> list[str]:
-    items = sorted(reg_dir.glob("inv_*"), key=lambda p: int(p.stem.split("_")[1]))
-    return [str(p) for p in items]
+def _collect_inv_transforms_with_flags(reg_dir: Path) -> tuple[list[str], list[bool]]:
+    def idx(p: Path) -> int:
+        m = re.search(r"inv_(\d+)", p.name)
+        return int(m.group(1)) if m else 0
+
+    xforms = sorted(reg_dir.glob("inv_*"), key=idx)
+    xforms = [str(p) for p in xforms]
+
+    # For inverse chains:
+    # - inverse warp files are already inverse -> invert=False
+    # - affine matrices need inversion -> invert=True
+    flags = []
+    for xf in xforms:
+        name = Path(xf).name
+        if "InverseWarp" in name or name.endswith(".nii") or name.endswith(".nii.gz"):
+            flags.append(False)
+        elif name.endswith("GenericAffine.mat"):
+            flags.append(True)
+        else:
+            # Safe default for other itk tx types in an inverse chain
+            flags.append(True if name.endswith(".mat") else False)
+    return xforms, flags
 
 def preprocess_inputs(
     inputs: list[Path] | list[Path | None],
@@ -320,7 +342,7 @@ def revert_preprocess(
     logging.info(f"Original image loaded: {orig_img}")
     pred_arr = _tensor_to_3d_mask_binary(pred)
     if do_reg:
-        inv_transforms = _collect_inv_transforms(work_dir / "reg")
+        inv_transforms, which_to_invert = _collect_inv_transforms_with_flags(work_dir / "reg")
         if len(inv_transforms) == 0:
             raise FileNotFoundError("Inverse transforms not found.")
         
@@ -331,7 +353,8 @@ def revert_preprocess(
         logging.info(f"Template image loaded: {tmpl_img}")
         pred_img = _numpy_to_ants(pred_arr, tmpl_img)
         logging.info(f"Pred image loaded: {pred_img}")
-        reverted = _apply_transforms(pred_img, orig_img, inv_transforms, interp='nearestNeighbor')
+        reverted = _apply_transforms(pred_img, orig_img, inv_transforms, interp='nearestNeighbor', 
+                                     which_to_invert=which_to_invert)
         logging.info(f"Reverted image: {reverted}")
         return reverted
     
