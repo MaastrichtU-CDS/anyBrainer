@@ -92,7 +92,13 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
     if not tta:
         cmd.append("--disable_tta")
 
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # point HOME to where release_2.0.0 is copied
+    env = dict(os.environ)
+    env["HOME"] = os.environ.get("HDBET_HOME", "/opt/hd-bet-home")
+    # belt & suspenders for offline
+    env.update({"http_proxy":"", "https_proxy":"", "NO_PROXY":"*"})
+
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     # Show logs even on success
     logging.info("[hd-bet] cmd: %s", " ".join(cmd))
     if proc.stdout.strip():
@@ -223,7 +229,7 @@ def preprocess_inputs(
         logging.info(f"Running hd-bet to get brain mask from {ref_path}...")
         mask_path = mask_dir / "brain_mask.nii.gz"
         use_gpu = torch.cuda.is_available()
-        _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=True)
+        _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=False)
         logging.info(f"hd-bet completed.")
         mask_img = _load_nifti(mask_path)
 
