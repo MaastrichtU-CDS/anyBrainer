@@ -341,8 +341,8 @@ def predict_task_1():
         ref_mod="flair",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
-        do_bet=True,
-        do_reg=True,
+        do_bet=False,
+        do_reg=False,
     )
     input_dict = {
         "flair": work_dir / "inputs" / Path(args.flair).name,
