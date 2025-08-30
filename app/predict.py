@@ -295,8 +295,8 @@ TASK_3_CONFIG = {
         "run_0.ckpt",
         "run_1.ckpt",
         "run_2.ckpt",
-        "run_3.ckpt",
-        "run_4.ckpt",
+        #"run_3.ckpt",
+        #"run_4.ckpt",
     ]
 }
 
