@@ -550,8 +550,8 @@ def predict_task_3():
         ref_mod="t1",
         work_dir=work_dir,
         tmpl_path=TEMPL_DIR / "icbm_mni152_t1_09a_asym_bet.nii.gz",
-        do_bet=True,
-        do_reg=True,
+        do_bet=False,
+        do_reg=False,
     )
     input_dict = {
         "t1": work_dir / "inputs" / Path(args.t1).name,
