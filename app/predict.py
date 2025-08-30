@@ -33,7 +33,7 @@ TASK_1_CONFIG = {
         "allow_missing_keys": True,
         "is_nifti": True,
         "concat_img": True,
-        "sliding_window": True,
+        "sliding_window": False,
         "target_key": "img"
     },
     "pl_module_settings": {
