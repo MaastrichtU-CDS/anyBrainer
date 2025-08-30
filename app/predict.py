@@ -282,13 +282,13 @@ TASK_3_CONFIG = {
                 "model.": ""
             }
         },
-        "center_labels": "fixed:65",
+        "center_labels": "fixed:55",
         "scale_labels": [20, 90],
         "bias_init": None,
     },
     "postprocess_transforms": {
         "name": "get_postprocess_regression_transforms",
-        "center": 65,
+        "center": 55,
         "scale_range": [20, 90],
     },
     "model_ckpts": [
