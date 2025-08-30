@@ -52,8 +52,10 @@ TASK_1_CONFIG = {
             "mlp_num_classes": 1,
             "mlp_num_hidden_layers": 1,
             "mlp_hidden_dim": 128,
+            "mlp_dropout": 0.3,
+            "expect_patch_dim": False,
             "late_fusion": True,
-            "n_late_fusion": 4
+            "n_late_fusion": 4,
         },
         "optimizer_kwargs": {
             "name": "AdamW",
@@ -92,9 +94,16 @@ TASK_1_CONFIG = {
             }
         },
         "inference_settings": {
+            "inferer_kwargs": {
+                "name": "SlidingWindowClassificationInferer",
+                "patch_size": 128,
+                "overlap": 0.5,
+                "aggregation_mode": "noisy_or"
+            },
             "postprocess": None,
-            "tta": "get_flip_tta"
-        }
+            "tta": "get_flip_tta",
+        },
+        "get_label_from_seg": True,
     },
     "postprocess_transforms": {
         "name": "get_postprocess_classification_transforms",
@@ -619,7 +628,7 @@ def main():
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    predict_task_3()
+    predict_task_1()
 
 if __name__ == "__main__":
     main()
