@@ -98,7 +98,7 @@ TASK_1_CONFIG = {
                 "name": "SlidingWindowClassificationInferer",
                 "patch_size": 128,
                 "overlap": 0.5,
-                "aggregation_mode": "noisy_or"
+                "aggregation_mode": "mean"
             },
             "postprocess": None,
             "tta": "get_flip_tta",
