@@ -1,3 +1,4 @@
+# Config file for finetuning classification model (task 1 in FOMO25 challenge)
 # Global settings; don't add new--manually passed
 global_settings:
   seed: 12345
