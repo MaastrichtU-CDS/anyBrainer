@@ -48,6 +48,7 @@ class SlidingWindowClassificationInferer(Inferer):
         self, 
         patch_size: int | Sequence[int],
         overlap: float | Sequence[float],
+        n_patches: int | Sequence[int] | None = None,
         spatial_dims: int = 3,
         padding_mode: str = "constant",
         aggregation_mode: Literal["weighted", "mean", "majority", "none", "noisy_or", "lse", "topk"] = "noisy_or",
@@ -60,6 +61,8 @@ class SlidingWindowClassificationInferer(Inferer):
         Args:
         - patch_size: The size of the patches to extract from the image.
         - overlap: The overlap between patches.
+        - n_patches: The number of patches to extract from the image; 
+            if provided, `overlap` is ignored.
         - padding_mode: The mode to use for padding the image.
         - aggregation_mode: The mode to use for aggregating the predictions.
         - apply_activation: Whether to apply activation to the predictions;
@@ -69,6 +72,7 @@ class SlidingWindowClassificationInferer(Inferer):
         self.patch_size = ensure_tuple_dim(patch_size, self.spatial_dims)
         self.overlap = ensure_tuple_dim(overlap, self.spatial_dims)
         self.padding_mode = padding_mode
+        self.n_patches = n_patches
         if aggregation_mode not in ["weighted", "mean", "majority", "none", "noisy_or", "lse", "topk"]:
             msg = f"Invalid aggregation mode: {aggregation_mode}"
             raise ValueError(msg)
@@ -79,6 +83,7 @@ class SlidingWindowClassificationInferer(Inferer):
 
         logger.info(f"[{self.__class__.__name__}] Initialised with "
                     f"patch_size={patch_size}, overlap={overlap}, "
+                    f"n_patches={n_patches}, "
                     f"padding_mode={padding_mode}, "
                     f"aggregation_mode={aggregation_mode}, "
                     f"apply_activation={apply_activation}, "
@@ -107,6 +112,7 @@ class SlidingWindowClassificationInferer(Inferer):
         slice_extractor = SlidingWindowPatch(
             patch_size=self.patch_size,
             overlap=self.overlap,
+            n_patches=self.n_patches,
             padding_mode=self.padding_mode,
             spatial_dims=len(spatial),
         )

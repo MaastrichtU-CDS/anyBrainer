@@ -97,7 +97,7 @@ TASK_1_CONFIG = {
             "inferer_kwargs": {
                 "name": "SlidingWindowClassificationInferer",
                 "patch_size": 128,
-                "overlap": 0.5,
+                "n_patches": (2, 2, 2),
                 "aggregation_mode": "mean"
             },
             "postprocess": None,
