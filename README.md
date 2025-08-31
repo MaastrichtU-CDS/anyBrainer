@@ -14,7 +14,7 @@ anyBrainer was used for the [MICCAI FOMO25 challenge](https://fomo25.github.io./
 - Inference and containerized submission
 
 
-## Features ✨
+## Features
 - **Config-driven workflows**: Run pretraining/finetuning/inference via `.yaml` configs  
   (`pretrain_cl.yaml`, `finetune_cls.yaml`, `finetune_seg.yaml`, `finetune_reg.yaml`)  
 - **Custom MONAI transforms** for MRI-specific augmentation and preprocessing  
@@ -62,12 +62,9 @@ anyBrainer CVWorkflow "finetune_reg.yaml"
 
 ```text
 anyBrainer/
-├── app/              # Inference scripts and Apptainer files (containerization)
-├── ckpts/            # Checkpoints from training runs
-├── config_files/     # Example / user-provided configs
-├── scripts/          # Utility scripts for experiments
-├── src/              # Source code
-│   └── anyBrainer/   # Main package
+├── app/                  # Inference scripts and Apptainer files (containerization)
+├── src/                  # Source code
+│   └── anyBrainer/       # Main package
 │       ├── config/       # Config management
 │       ├── core/         # Core modules: data, engines, networks, losses, transforms, etc.
 │       ├── factories/    # Factories for models, optimizers, schedulers
@@ -76,18 +73,17 @@ anyBrainer/
 │       ├── registry/     # Registries for models, transforms, losses, etc.
 │       ├── main.py       # CLI entry point
 │       └── __init__.py
-├── templates/        # Template YAML configs
-├── tests/            # Unit and integration tests
-├── finetune_cls.yaml # Example config: classification
-├── finetune_reg.yaml # Example config: regression
-├── finetune_seg.yaml # Example config: segmentation
-├── pretrain_cl.yaml  # Example config: contrastive pretraining
-├── pyproject.toml    # Project dependencies
+├── tests/                # Unit and integration tests
+├── finetune_cls.yaml     # Example config: classification
+├── finetune_reg.yaml     # Example config: regression
+├── finetune_seg.yaml     # Example config: segmentation
+├── pretrain_cl.yaml      # Example config: contrastive pretraining
+├── pyproject.toml        # Project dependencies
 ├── LICENSE
 └── README.md
 ```
 
-## Citation 📖
+## Citation
 
 If you use anyBrainer in your research, please cite this repository:
 
@@ -100,6 +96,6 @@ If you use anyBrainer in your research, please cite this repository:
 
 
 
-## License 📜
+## License
 
 This project is released under the MIT License. See LICENSE(./LICENSE) for details.
