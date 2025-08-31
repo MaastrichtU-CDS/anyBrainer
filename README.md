@@ -13,7 +13,6 @@ anyBrainer was used for the [MICCAI FOMO25 challenge](https://fomo25.github.io./
 - Finetuning for classification, segmentation, and regression  
 - Inference and containerized submission
 
----
 
 ## Features ✨
 - **Config-driven workflows**: Run pretraining/finetuning/inference via `.yaml` configs  
@@ -26,7 +25,6 @@ anyBrainer was used for the [MICCAI FOMO25 challenge](https://fomo25.github.io./
 - Compatible with **Weights & Biases** logging for detailed experiment tracking
 - **Containerization-ready**: inference scripts and [Apptainer](https://apptainer.org/) specs in [`app/`](./app)  
 
----
 
 ## Installation
 
@@ -40,7 +38,6 @@ pip install -e .
 pip install -e ".[dev,test]"
 ```
 
----
 
 ## Usage
 
@@ -60,7 +57,6 @@ anyBrainer CVWorkflow "finetune_seg.yaml"
 anyBrainer CVWorkflow "finetune_reg.yaml"
 ```
 
----
 
 ## Project Structure 📂
 
@@ -89,7 +85,7 @@ anyBrainer/
 ├── LICENSE
 └── README.md
 
----
+
 
 ## Citation 📖
 
@@ -102,8 +98,8 @@ If you use anyBrainer in your research, please cite this repository:
   howpublished = {\url{https://github.com/...}}
 }
 
----
 
-License 📜
+
+## License 📜
 
 This project is released under the MIT License. See LICENSE(./LICENSE) for details.
