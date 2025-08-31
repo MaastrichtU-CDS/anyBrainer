@@ -47,7 +47,7 @@ class SlidingWindowClassificationInferer(Inferer):
     def __init__(
         self, 
         patch_size: int | Sequence[int],
-        overlap: float | Sequence[float] = 0.5,
+        overlap: float | Sequence[float] | None = 0.5,
         n_patches: int | Sequence[int] | None = None,
         spatial_dims: int = 3,
         padding_mode: str = "constant",
