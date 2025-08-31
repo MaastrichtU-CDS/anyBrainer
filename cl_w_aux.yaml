@@ -1,3 +1,4 @@
+# Config file for contrastive learning pretraining framework
 # Global settings
 global_settings:
   seed: 12345
