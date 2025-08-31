@@ -304,8 +304,8 @@ TASK_3_CONFIG = {
         "run_0.ckpt",
         "run_1.ckpt",
         "run_2.ckpt",
-        #"run_3.ckpt",
-        #"run_4.ckpt",
+        "run_3.ckpt",
+        "run_4.ckpt",
     ]
 }
 
@@ -382,7 +382,7 @@ def predict_task_1():
 
     # Predict (mean logits)
     device = get_device()
-    mean_logits = None
+    mean_logits: torch.Tensor | None = None
     w = 1.0 / max(1, len(models))
     cpu_batch = list_data_collate([predict_transforms(input_dict)])
     with torch.no_grad():
@@ -488,7 +488,7 @@ def predict_task_2():
 
     # Predict (mean logits)
     device = get_device()
-    mean_logits = None
+    mean_logits: torch.Tensor | None = None
     w = 1.0 / max(1, len(models))
     cpu_batch = cast(dict[str, torch.Tensor], list_data_collate([predict_transforms(input_dict)]))
     with torch.no_grad():
@@ -590,7 +590,7 @@ def predict_task_3():
 
     # Predict (mean logits)
     device = get_device()
-    mean_logits = None
+    mean_logits: torch.Tensor | None = None
     w = 1.0 / max(1, len(models))
     cpu_batch = list_data_collate([predict_transforms(input_dict)])
     with torch.no_grad():
@@ -628,7 +628,7 @@ def main():
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    predict_task_1()
+    predict_task_3()
 
 if __name__ == "__main__":
     main()
