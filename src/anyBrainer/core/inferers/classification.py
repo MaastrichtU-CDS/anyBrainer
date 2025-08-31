@@ -47,7 +47,7 @@ class SlidingWindowClassificationInferer(Inferer):
     def __init__(
         self, 
         patch_size: int | Sequence[int],
-        overlap: float | Sequence[float] | None = 0.5,
+        overlap: float | Sequence[float] | None = None,
         n_patches: int | Sequence[int] | None = None,
         spatial_dims: int = 3,
         padding_mode: str = "constant",
@@ -69,10 +69,13 @@ class SlidingWindowClassificationInferer(Inferer):
             softmax for multiclass, sigmoid for binary.
         """
         self.spatial_dims = spatial_dims
-        self.patch_size = ensure_tuple_dim(patch_size, self.spatial_dims)
-        self.overlap = ensure_tuple_dim(overlap, self.spatial_dims)
-        self.padding_mode = padding_mode
-        self.n_patches = n_patches
+        self.slice_extractor = SlidingWindowPatch(
+            patch_size=patch_size,
+            overlap=overlap,
+            n_patches=n_patches,
+            padding_mode=padding_mode,
+            spatial_dims=spatial_dims,
+        )
         if aggregation_mode not in ["weighted", "mean", "majority", "none", "noisy_or", "lse", "topk"]:
             msg = f"Invalid aggregation mode: {aggregation_mode}"
             raise ValueError(msg)
@@ -109,15 +112,8 @@ class SlidingWindowClassificationInferer(Inferer):
         device = inputs.device
 
         # Get slices for patches
-        slice_extractor = SlidingWindowPatch(
-            patch_size=self.patch_size,
-            overlap=self.overlap,
-            n_patches=self.n_patches,
-            padding_mode=self.padding_mode,
-            spatial_dims=len(spatial),
-        )
-        slice_extractor(inputs)
-        slices = slice_extractor.slices
+        self.slice_extractor(inputs)
+        slices = self.slice_extractor.slices
         P = len(slices)
 
         logits_list: list[torch.Tensor] = []
@@ -145,11 +141,11 @@ class SlidingWindowClassificationInferer(Inferer):
 
         elif self.aggregation_mode == "weighted":
             img_center = [(s - 1) / 2.0 for s in spatial]
-            sigma = [ps / 2.0 for ps in self.patch_size]
+            sigma = [ps / 2.0 for ps in self.slice_extractor.patch_size]
             weights = []
             for slc in slices:
                 start_idxs = [s.start for s in slc]
-                center = [start + ps / 2.0 for start, ps in zip(start_idxs, self.patch_size)]
+                center = [start + ps / 2.0 for start, ps in zip(start_idxs, self.slice_extractor.patch_size)]
                 weights.append(get_patch_gaussian_weight(center, img_center, sigma))
             w = torch.as_tensor(weights, device=device, dtype=logits_all.dtype) # (P,)
             w = w / (w.sum() + 1e-12)
