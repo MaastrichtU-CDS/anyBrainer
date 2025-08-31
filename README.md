@@ -71,7 +71,7 @@ anyBrainer/
 │       ├── interfaces/   # Base classes and interfaces
 │       ├── log/          # Logging utilities
 │       ├── registry/     # Registries for models, transforms, losses, etc.
-│       ├── main.py       # CLI entry point
+│       ├── __main__.py   # CLI entry point
 │       └── __init__.py
 ├── tests/                # Unit and integration tests
 ├── finetune_cls.yaml     # Example config: classification
