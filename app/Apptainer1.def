@@ -1,0 +1,138 @@
+Bootstrap: docker
+
+# Use any docker image as a base (see https://hub.docker.com/)
+# If using GPU, consider using a CUDA-enabled base image
+From: python:3.11-slim
+
+%labels
+    Petros Koutsouvelis FOMO25 Challenge - Classification Task
+    Version v1.0.0
+    Description FOMO25 Infarct Classification Apptainer Image
+
+%environment
+    # Locale / IO
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONUNBUFFERED=1
+
+    # Python safety
+    export PYTHONNOUSERSITE=1    # ignore host ~/.local site-packages
+    unset PYTHONPATH             # rely on pip-installed package; no host pollution
+    export PYTHONHASHSEED=0
+    export WANDB_MODE=offline
+    export HF_HUB_OFFLINE=1
+    export TRANSFORMERS_OFFLINE=1
+    export http_proxy=
+    export https_proxy=
+    export NO_PROXY=*
+
+    # Deterministic PATH (no host ~/.local/bin)
+    export PATH=/usr/local/bin:/usr/bin:/bin
+
+    # Threads (can override at runtime)
+    export OMP_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+
+    # Tool locations
+    export HDBET_BIN=/usr/local/bin/hd-bet
+    export HDBET_HOME=/opt/hd-bet-home
+    export MPLCONFIGDIR=/tmp/matplotlib
+
+    # Data dirs inside the image (overridable via --bind or env)
+    export ANYBRAINER_TEMPLATES_DIR=/opt/anyBrainer/templates
+    export ANYBRAINER_CKPTS_DIR=/opt/anyBrainer/ckpts
+
+    # pipx (not strictly needed at runtime, harmless if present)
+    export PIPX_HOME=/opt/pipx
+    export PIPX_BIN_DIR=/usr/local/bin
+    
+%files
+    # Copy files (model, predict.py, requirements.txt, ...) to the container
+    app/predict.py /app/predict.py
+    app/preprocess.py /app/preprocess.py
+    app/utils.py /app/utils.py
+    app/sitecustomize.py /app/sitecustomize.py
+    ./requirements.txt /app/requirements.txt
+
+    # Copy package for `pip install .`
+    ./pyproject.toml /opt/anyBrainer/pyproject.toml
+    ./src /opt/anyBrainer/src
+
+    # Any data directories
+    ./templates /opt/anyBrainer/templates 
+    ./ckpts/task1 /opt/anyBrainer/ckpts
+    
+    # HD-BET ckpts
+    ./third_party/hd_bet_params/release_2.0.0 /opt/hd-bet-home/hd-bet_params/release_2.0.0
+
+%post
+    set -eux
+
+    # Make pipx write binaries to a system path during the build
+    export PIPX_HOME=/opt/pipx
+    export PIPX_BIN_DIR=/usr/local/bin
+    mkdir -p "$PIPX_HOME" "$PIPX_BIN_DIR"
+    
+    # Create necessary directories
+    mkdir -p /input /output /app
+
+    # OS deps
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential git ca-certificates python3-venv libgomp1 \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Base Python tooling + pipx
+    python -m pip install --no-cache-dir -U pip setuptools wheel pipx
+
+    # 1) HD-BET in an isolated pipx venv (global shims to /usr/local/bin)
+    python -m pipx install --global "hd-bet==2.0.1"
+    command -v hd-bet
+    /usr/local/bin/hd-bet -h >/dev/null
+
+    # 2) Torch in main env (CUDA wheels)
+    python -m pip install --no-cache-dir "torch==2.6.0" "torchvision==0.21.*"
+
+    # 3) App dependencies (do not list torch/torchvision here)
+    # Create constraints (NO INDENTATION!) and install once with -c
+    printf 'numpy==1.26.*\n' > /app/constraints.txt
+    pip install --no-cache-dir -r /app/requirements.txt -c /app/constraints.txt
+
+    # Remove heavy/unused stuff (safe if not present)
+    pip uninstall -y matplotlib tensorboard tensorflow || true
+
+    # 4) Install your package (project root or /opt/anyBrainer/src if you prefer)
+    python -m pip install --no-cache-dir /opt/anyBrainer -c /app/constraints.txt
+
+    # 4b) Sanity check: fail build if not importable
+    python - <<'PY'
+import importlib
+m = importlib.import_module("anyBrainer")
+print("anyBrainer installed at:", m.__file__)
+PY
+
+    # Entry point
+    chmod +x /app/predict.py
+
+    pip check || true
+    pip cache purge || true
+
+%runscript
+    # Execute the prediction script with all arguments
+    exec python /app/predict.py "$@"
+
+%help
+    This container runs the FOMO25 infarct classification task.
+
+    Build this container with:
+        apptainer build --fakeroot --arch amd64 /path/to/save/classification.sif /path/to/Apptainer.def
+
+    Usage (GPU):
+        apptainer run --bind /path/to/input:/input:ro \
+            --bind /path/to/output:/output \
+            --nv \
+            classification.sif \
+            --flair /input/flair.nii.gz \
+            --adc /input/adc.nii.gz \
+            --dwi_b1000 /input/dwi.nii.gz \
+            --t2s /input/t2s.nii.gz \
+            --output /output/sub_id.txt
