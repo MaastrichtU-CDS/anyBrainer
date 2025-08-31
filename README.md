@@ -60,6 +60,7 @@ anyBrainer CVWorkflow "finetune_reg.yaml"
 
 ## Project Structure 📂
 
+```text
 anyBrainer/
 ├── app/              # Inference scripts and Apptainer files (containerization)
 ├── ckpts/            # Checkpoints from training runs
@@ -84,7 +85,7 @@ anyBrainer/
 ├── pyproject.toml    # Project dependencies
 ├── LICENSE
 └── README.md
-
+```
 
 ## Citation 📖
 
