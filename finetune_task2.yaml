@@ -1,0 +1,175 @@
+# Global settings; don't add new--manually passed
+global_settings:
+  seed: 12345
+  project: CLwAux-downstream-task2
+  experiment: allin_epoch95
+  root_dir: /projects/prjs1526/anyBrainer/experiments
+
+# Logging settings; add new entries only in dedicated sections or as extra_kwargs
+logging_settings:
+  dev_mode: False
+  worker_logs: False
+  save_logs: True
+  wandb_enable: True
+  wandb_watch_enable: True
+  wandb_watch_kwargs: # can add
+    log_freq: 50
+    log_graph: true
+    log: 'all'
+
+# Data settings; add new entries only in dedicated sections or as extra_kwargs
+pl_datamodule_settings:
+  name: SegmentationDataModule
+  data_dir: /projects/prjs1526/FOMO-MRI/fomo-task2_reg_filtered
+  data_handler_kwargs:
+    data_format: GenericNifti
+    files_suffix:
+    exts: [".nii.gz"]
+  train_val_test_split: [1.0, 0.0, 0.0]
+  num_workers: 4
+  batch_size: 1
+  extra_dataloader_kwargs:
+    shuffle: True
+    pin_memory: False
+  train_transforms:
+    name: get_segmentation_train_transforms
+    keys: ["dwi", "flair", "swi", "t2s"]
+    seg_key: "seg"
+    create_empty_seg: False
+    allow_missing_keys: True
+    is_nifti: True
+    concat_img: True
+    target_key: "img"
+    n_patches: 2
+    n_pos: 2
+    n_neg: 1
+  val_transforms:
+    name: get_segmentation_val_transforms
+    keys: ["dwi", "flair", "swi", "t2s"]
+    seg_key: "seg"
+    create_empty_seg: False
+    allow_missing_keys: True
+    is_nifti: True
+    concat_img: True
+    target_key: "img"
+  test_transforms: 
+    name: get_segmentation_val_transforms
+    keys: ["dwi", "flair", "swi", "t2s"]
+    seg_key: "seg"
+    create_empty_seg: False
+    allow_missing_keys: True
+    is_nifti: True
+    concat_img: True
+    target_key: "img"
+  predict_transforms: 
+    name: get_predict_transforms
+    keys: ["dwi", "flair", "swi", "t2s"]
+    allow_missing_keys: True
+    is_nifti: True
+    concat_img: True
+    target_key: "img"
+  extra_kwargs:
+    seg_filename: "seg.nii.gz"
+
+# Model settings; apart from name, automatically passed as kwargs
+pl_module_settings:
+  name: SegmentationModel
+  model_kwargs:
+    name: Swinv2LateFusionFPNDecoder
+    in_channels: 1
+    out_channels: 1
+    patch_size: 2
+    depths: [2, 2, 6, 2]
+    num_heads: [3, 6, 12, 24]
+    window_size: 7
+    feature_size: 48
+    use_v2: True
+    extra_swin_kwargs:
+      use_checkpoint: True
+    n_late_fusion: 3
+  optimizer_kwargs:
+    name: AdamW
+    auto_no_weight_decay: True
+    param_groups:
+      - lr: 0.0005
+        weight_decay: 0.0001
+        param_group_prefix: decoder
+      - lr: 0.00002
+        weight_decay: 0.00001
+        param_group_prefix: [encoder.layers4]
+  lr_scheduler_kwargs:
+    name: CosineAnnealingWithWarmup
+    interval: step
+    frequency: 1
+    warmup_iters: [144, 81] # [8%, 15%]
+    start_iter: [0, 1260]
+    eta_min: [0.00005, 0.000002]
+    total_iters: 1800
+  loss_fn_kwargs:
+    name: "monai:DiceCELoss"
+    sigmoid: True
+  weights_init_settings:
+    weights_init_fn: init_swin_v2
+    load_pretrain_weights: /projects/prjs1526/anyBrainer/experiments/CLwAux-baseline/full/checkpoints/epoch=94.ckpt
+    load_param_group_prefix: model.encoder
+    rename_map: 
+      model.encoder: encoder
+  inference_settings:
+    inferer_kwargs: 
+      name: SlidingWindowInferer
+      roi_size: 128
+      mode: constant
+      overlap: 0.5
+    postprocess: get_postprocess_segmentation_transforms
+    tta: get_flip_tta
+
+# Checkpoint settings; add new entries only in dedicated sections
+ckpt_settings:
+  new_version: True
+  model_checkpoint:
+  save_every_n_epochs: 50
+  save_top_k: 1
+  save_last: False
+  extra_ckpt_kwargs: # add any extra checkpoint kwargs here
+    save_on_train_epoch_end: True
+
+# Callback settings (other than model checkpointing); automatically passed as kwargs
+pl_callback_settings:
+  - name: FreezeParamGroups
+    param_group_prefix: [encoder.layers4, encoder.layers3, encoder.layers2, encoder.layers1, encoder.patch_embed]
+    freeze_epoch: 0
+    unfreeze_epoch: [210, -1, -1, -1, -1]
+  - name: SWAAvgOnly
+    start_epoch: 240
+    update_on: epoch
+
+# Trainer settings; except for logger, callbacks, reload_dataloaders_every_n_epochs, automatically passed as kwargs
+pl_trainer_settings:
+  max_epochs: 300
+  accumulate_grad_batches: 2
+  gradient_clip_val: 4.0
+  gradient_clip_algorithm: norm
+  precision: bf16-mixed
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  log_every_n_steps: 1
+  val_check_interval: 1.0
+  check_val_every_n_epoch: 5
+  num_sanity_val_steps: 2
+  overfit_batches: 0.0
+  fast_dev_run: False
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  limit_test_batches: 1.0
+  limit_predict_batches: 1.0
+  accelerator: auto
+
+# Validation settings; add new entries only in dedicated sections
+val_settings:
+  val_mode: repeated
+  n_splits: 5
+  start_idx: 0
+  run_test: False
+  seeds: [12345, 12346, 12347, 12348, 12349]
+  aggregate_metrics: ['val/', 'test/']

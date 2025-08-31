@@ -1,0 +1,121 @@
+# Global settings
+global_settings:
+  seed: 12345
+  project: CLwAux-baseline
+  experiment: full
+  root_dir: /projects/prjs1526/anyBrainer/experiments
+
+# Logging settings
+logging_settings:
+  dev_mode: False
+  worker_logs: False
+  save_logs: True
+  wandb_enable: True
+  wandb_watch_enable: True
+  wandb_watch_kwargs:
+    log_freq: 2851
+    log_graph: True
+    log: 'all'
+
+# Data settings
+pl_datamodule_settings:
+  name: ContrastiveDataModule
+  data_dir: /projects/prjs1526/FOMO-MRI/fomo-60k_clean
+  data_handler_kwargs:
+    data_format: GenericNifti
+    exts: [".npy"]
+  train_val_test_split: [0.95, 0.05, 0.0]
+  num_workers: 12
+  batch_size: 4
+  extra_dataloader_kwargs:
+    shuffle: True
+    pin_memory: False
+  train_transforms: get_contrastive_train_transforms
+  val_transforms: get_contrastive_val_transforms
+  test_transforms: get_contrastive_val_transforms
+  predict_transforms: get_predict_transforms
+
+# Model
+pl_module_settings:
+  name: CLwAuxModel
+  model_kwargs:
+    name: Swinv2CL
+    patch_size: 2
+    depths: [2, 2, 6, 2]
+    num_heads: [3, 6, 12, 24]
+    window_size: 7
+    feature_size: 48
+    use_v2: true
+    extra_swin_kwargs:
+    proj_dim: 128
+    proj_hidden_dim: 2048
+    proj_hidden_act: GELU
+    aux_mlp_head: True
+    aux_mlp_num_classes: 5
+    aux_mlp_num_hidden_layers: 1
+    aux_mlp_hidden_dim: 2048
+    aux_mlp_hidden_act: GELU
+    aux_mlp_dropout: 0.0
+  weights_init_kwargs:
+    weights_init_fn: init_swin_v2
+  optimizer_kwargs:
+    name: AdamW
+    lr: 0.0001
+    weight_decay: 0.01
+  lr_scheduler_kwargs:
+    name: CosineAnnealingWithWarmup
+    interval: step
+    frequency: 1
+    warmup_iters: 14255
+    total_iters: 285100
+  loss_kwargs:
+    temperature: 0.1
+    top_k_negatives:
+    cross_entropy_weights: [1.00, 3.42, 2.86, 1.67, 5.00]
+  loss_scheduler_kwargs:
+    loss_weight_step_start: 4096
+    loss_weight_step_end: 28510
+    loss_weight_start_value: 0.05
+    loss_weight_end_value: 0.95
+    late_ramp_step_start: 71275
+    late_ramp_step_end: 114040
+    late_ramp_end_value: 0.03
+  momentum_scheduler_kwargs:
+    interval: step
+    momentum_step_start: 4096
+    momentum_step_end: 28510
+    momentum_start_value: 0.996
+    momentum_end_value: 0.999
+
+# Checkpoint settings
+ckpt_settings:
+  new_version: False
+  model_checkpoint:
+  save_every_n_epochs: 5
+  save_top_k: -1
+  save_last: True
+
+# Callback settings (other than model checkpointing)
+pl_callback_settings: []
+
+# Trainer settings (pl.Trainer kwargs)
+pl_trainer_settings:
+  max_epochs: 100
+  accumulate_grad_batches: 1
+  gradient_clip_val: 20.0
+  gradient_clip_algorithm: norm
+  precision: bf16-mixed
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  log_every_n_steps: 100
+  val_check_interval: 1.0
+  check_val_every_n_epoch: 1
+  num_sanity_val_steps: 2
+  overfit_batches: 0.0
+  fast_dev_run: false
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  limit_test_batches: 1.0
+  limit_predict_batches: 1.0
+  accelerator: auto
