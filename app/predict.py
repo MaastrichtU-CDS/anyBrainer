@@ -98,7 +98,7 @@ TASK_1_CONFIG = {
                 "name": "SlidingWindowClassificationInferer",
                 "patch_size": 128,
                 "overlap": 0.5,
-                "aggregation_mode": "mean"
+                "aggregation_mode": "noisy_or"
             },
             "postprocess": None,
             "tta": "get_flip_tta",
@@ -628,7 +628,7 @@ def main():
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-    predict_task_2()
+    predict_task_1()
 
 if __name__ == "__main__":
     main()
