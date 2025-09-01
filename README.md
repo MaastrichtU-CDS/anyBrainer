@@ -87,12 +87,14 @@ anyBrainer/
 
 If you use anyBrainer in your research, please cite this repository:
 
+```text
 @misc{anybrainer2025,
   title        = {anyBrainer: A PyTorch Lightning + MONAI Framework for Brain MRI Pretraining and Finetuning},
   author       = {Petros Koutsouvelis},
   year         = {2025},
   howpublished = {\url{https://github.com/...}}
 }
+```
 
 
 
