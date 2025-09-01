@@ -12,7 +12,7 @@ from anyBrainer.core.networks import (
     Swinv2LateFusionFPNDecoder,
     FPNLightDecoder3D,
 )
-
+from anyBrainer.core.utils.models import count_model_params
 
 @pytest.fixture(autouse=True)
 def mock_swin_vit(monkeypatch):
