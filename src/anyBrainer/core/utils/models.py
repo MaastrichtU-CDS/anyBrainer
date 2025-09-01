@@ -118,9 +118,8 @@ def init_swin_v2(model: nn.Module,
     """
     # helper to decide whether a conv is "last" in a residual branch
     def _is_last_residual_conv(m: nn.Conv2d | nn.Conv3d) -> bool:
-        # convention: last conv in your residual pre-conv stack ends with ".2"
+        # convention: last conv in residual conv stack ends with ".2"
         # e.g. 'residual_conv.2.weight'
-        # Modify this if your naming differs or pass False to skip.
         return m.weight.shape[0] == m.weight.shape[1] and m.kernel_size == (3, 3)
 
     for _, m in model.named_modules():

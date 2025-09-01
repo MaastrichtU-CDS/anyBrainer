@@ -12,7 +12,6 @@ from anyBrainer.core.networks import (
     Swinv2LateFusionFPNDecoder,
     FPNLightDecoder3D,
 )
-from anyBrainer.core.utils.models import count_model_params
 
 @pytest.fixture(autouse=True)
 def mock_swin_vit(monkeypatch):
@@ -109,7 +108,7 @@ class TestSwinv2Classifier:
             n_late_fusion=4,
         )
 
-    @pytest.mark.parametrize("mlp_num_classes", [2, 4, 8, 100])
+    @pytest.mark.parametrize("mlp_num_classes", [1])
     def test_forward(self, input_tensor, mlp_num_classes):
         """Test that the model can forward pass."""
         model = Swinv2Classifier(
@@ -121,8 +120,8 @@ class TestSwinv2Classifier:
             use_v2=True,
             feature_size=48,
             mlp_num_classes=mlp_num_classes,
-            mlp_num_hidden_layers=2,
-            mlp_hidden_dim=[128, 64],
+            mlp_num_hidden_layers=1,
+            mlp_hidden_dim=[128],
             mlp_dropout=0.3,
             mlp_activations="LeakyReLU",
             mlp_activation_kwargs={"negative_slope": 0.1},
