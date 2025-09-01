@@ -58,7 +58,7 @@ anyBrainer CVWorkflow "finetune_reg.yaml"
 ```
 
 
-## Project Structure 📂
+## Project Structure
 
 ```text
 anyBrainer/
