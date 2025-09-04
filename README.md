@@ -101,4 +101,4 @@ If you use anyBrainer in your research, please cite this repository:
 
 ## License
 
-This project is released under the MIT License. See LICENSE(./LICENSE) for details.
+This project is released under the MIT License. See [LICENSE](./LICENSE) for details.
