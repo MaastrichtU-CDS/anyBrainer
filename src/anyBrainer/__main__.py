@@ -1,19 +1,16 @@
 """
 anyBrainer – CLI entry‑point
 
-Run any workflow registered in the package from the command line:
+Run any workflow registered in the package from the command line; e.g.,:
 
-    $ anyBrainer train_workflow configs/train.yaml
+    $ anyBrainer TrainWorkflow configs/pretrain.yaml
 
 Config file must be YAML or JSON and at minimum contain the keys
 expected by the workflow constructor (e.g. ``global_settings``,
 ``pl_datamodule_settings`` …).
 
-Each workflow class is looked‑up in ``WORKFLOW_REGISTRY`` by the
-CLI‑friendly name provided as the first positional argument.
-
-Add new workflows by importing the class **once** at package import
-time and mapping a short name to its dotted path.
+Each workflow class is looked‑up in the ``WORKFLOW`` registry by the
+name provided as the first positional argument.
 """
 
 import argparse
