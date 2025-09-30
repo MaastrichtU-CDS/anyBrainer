@@ -9,7 +9,7 @@ The framework supports **contrastive learning pretraining** as well as downstrea
 - **Regression** (e.g., brain age prediction)
 - **Multimodal fusion** setups
 
-**anyBrainer** was used for the [MICCAI FOMO25 challenge](https://fomo25.github.io./) across **all tasks** (3rd place):
+**anyBrainer** was used for the [MICCAI FOMO25 challenge](https://fomo25.github.io./) across **all tasks**:
 - Pretraining  
 - Finetuning for classification, segmentation, and regression  
 - Inference and containerized submission
