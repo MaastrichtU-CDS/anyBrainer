@@ -409,7 +409,7 @@ class SlidingWindowPatchd(MapTransform):
 class RandImgKeyd(MapTransform, Randomizable):
     """
     Dictionary transform to randomly select a key from 
-    the provided keys and store it in a new key.
+    the provided keys and store the value in a new key.
     """
     def __init__(
         self,
@@ -477,24 +477,21 @@ class UnscalePredsIfNeeded(Transform):
 
     Usage (array):
         t = UnscalePredsIfNeeded(meta={"scale_range": (min_val, max_val), "center": center})
-        unscaled = t(preds)
-
-    You can also call with a `meta` override:
-        unscaled = t(preds, meta=meta_for_this_batch)
+        unscaled = t(pred)
     """
 
     def __init__(self, scale_range: tuple[Any, Any] | None = None, center: int | float | None = None):
         """
         Args:
-            scale_range: (min_val, max_val) for scaling preds to [-1, 1]
-            center: offset to add to preds to center them around 0
+            scale_range: (min_val, max_val) for scaling pred to [-1, 1]
+            center: offset to add to pred to center them around 0
         """
         self.scale_range = scale_range
         self.center = center
 
     def __call__(self, pred: torch.Tensor) -> torch.Tensor:
         if not isinstance(pred, torch.Tensor):
-            raise TypeError(f"`preds` must be a torch.Tensor, got {type(preds)}")
+            raise TypeError(f"`pred` must be a torch.Tensor, got {type(pred)}")
 
         out = pred
 
