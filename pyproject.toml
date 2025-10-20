@@ -29,6 +29,7 @@ dependencies = [
     "scikit-image===0.25.2",
     "nibabel==5.3.2",
     "antspyx==0.6.1",
+    "PyYAML>=6.0.2",
 ]
 
 [project.optional-dependencies]
