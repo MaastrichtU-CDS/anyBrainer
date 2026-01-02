@@ -2,47 +2,50 @@
 
 import pytest
 import torch
+
 # pyright: reportPrivateImportUsage=false
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
 
 from anyBrainer.core.networks import (
-    Swinv2CL, 
+    Swinv2CL,
     Swinv2Classifier,
     Swinv2ClassifierMidFusion,
     Swinv2LateFusionFPNDecoder,
     FPNLightDecoder3D,
 )
 
+
 @pytest.fixture(autouse=True)
 def mock_swin_vit(monkeypatch):
-    """
-    Monkey-patch MONAI's SwinTransformer so every forward pass of the model
-    yields a synthetic tensor that matches the bottleneck dimensions, given 
-    a feature_size of 48 and 4 stages.
-    """
+    """Monkey-patch MONAI's SwinTransformer so every forward pass of the model
+    yields a synthetic tensor that matches the bottleneck dimensions, given a
+    feature_size of 48 and 4 stages."""
+
     def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
         gen = torch.Generator().manual_seed(42)
-        x = [   
-                torch.rand((8, 48, 64, 64, 64), dtype=torch.float32, generator=gen),
-                torch.rand((8, 96, 32, 32, 32), dtype=torch.float32, generator=gen),
-                torch.rand((8, 192, 16, 16, 16), dtype=torch.float32, generator=gen),
-                torch.rand((8, 384, 8, 8, 8), dtype=torch.float32, generator=gen),
-                torch.rand((8, 768, 4, 4, 4), dtype=torch.float32, generator=gen),
-            ]
+        x = [
+            torch.rand((8, 48, 64, 64, 64), dtype=torch.float32, generator=gen),
+            torch.rand((8, 96, 32, 32, 32), dtype=torch.float32, generator=gen),
+            torch.rand((8, 192, 16, 16, 16), dtype=torch.float32, generator=gen),
+            torch.rand((8, 384, 8, 8, 8), dtype=torch.float32, generator=gen),
+            torch.rand((8, 768, 4, 4, 4), dtype=torch.float32, generator=gen),
+        ]
         return x
 
     monkeypatch.setattr(SwinViT, "forward", _dummy_call, raising=True)
 
+
 @pytest.fixture(autouse=True)
 def mock_fpn_decoder(monkeypatch):
-    """
-    Mock FPN decoder to yield batch size of 8, 2 channels, and spatial dimensions of 128.
-    """
+    """Mock FPN decoder to yield batch size of 8, 2 channels, and spatial
+    dimensions of 128."""
+
     def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
         gen = torch.Generator().manual_seed(42)
         return torch.rand((8, 2, 128, 128, 128), dtype=torch.float32, generator=gen)
+
     monkeypatch.setattr(FPNLightDecoder3D, "forward", _dummy_call, raising=True)
 
 
@@ -69,7 +72,7 @@ class TestSwinv2CL:
         proj, aux = model(input_tensor)
         assert proj.shape == (8, 128)
         assert aux.shape == (8, 7)
-    
+
     def test_forward_no_aux_mlp(self, input_tensor):
         """Test that the model can skip the auxiliary MLP."""
         model = Swinv2CL(
@@ -162,31 +165,34 @@ class TestSwinv2Classifier:
             model_w_fusion(torch.randn(8, 4, 1, 128, 128, 128))
 
     def test_late_fusion_wrong_num_modalities(self, model_w_fusion):
-        """Test that the model raises an error if the number of modalities is wrong."""
+        """Test that the model raises an error if the number of modalities is
+        wrong."""
         with pytest.raises(ValueError):
             model_w_fusion(torch.randn(8, 2, 8, 1, 128, 128, 128))
-    
+
     def test_late_fusion_wrong_in_channels(self, model_w_fusion):
         """Test that the model raises an error if the input shape is wrong."""
         with pytest.raises(ValueError):
             model_w_fusion(torch.randn(8, 4, 8, 2, 128, 128, 128))
 
     def test_late_fusion_wrong_spatial_dims(self, model_w_fusion):
-        """Test that the model raises an error if the spatial dimensions are wrong."""
+        """Test that the model raises an error if the spatial dimensions are
+        wrong."""
         with pytest.raises(ValueError):
             model_w_fusion(torch.randn(8, 4, 8, 1, 128, 128))
-    
+
     def test_late_fusion_no_expect_patch_dim(self, model_w_fusion):
         """Test that the model can forward pass."""
         model_w_fusion.expect_patch_dim = False
         output = model_w_fusion(torch.randn(8, 4, 1, 128, 128, 128))
         assert output.shape == (8, 2)
-    
+
     def test_late_fusion_wrong_expect_patch_dim(self, model_w_fusion):
-        """Test that the model raises an error if the number of modalities is wrong."""
+        """Test that the model raises an error if the number of modalities is
+        wrong."""
         with pytest.raises(ValueError):
             model_w_fusion(torch.randn(8, 4, 1, 128, 128, 128))
-    
+
     def test_late_fusion_minimum_input(self, model_w_fusion):
         """Test that the model can forward pass."""
         model_w_fusion.expect_patch_dim = False
@@ -211,7 +217,7 @@ class TestSwinv2ClassifierMidFusion:
         )
         output = model(torch.randn(8, 4, 1, 128, 128, 128))
         assert output.shape == (8, 2)
-    
+
     @pytest.mark.parametrize("n_classes", [1, 2, 4, 8])
     def test_forward_different_n_classes(self, n_classes):
         """Test that the model can forward pass."""
@@ -227,9 +233,10 @@ class TestSwinv2ClassifierMidFusion:
         )
         output = model(torch.randn(8, 4, 1, 128, 128, 128))
         assert output.shape == (8, n_classes)
-    
+
     def test_wrong_n_fusion(self):
-        """Test that the model raises an error if the number of modalities is wrong."""
+        """Test that the model raises an error if the number of modalities is
+        wrong."""
         model = Swinv2ClassifierMidFusion(
             in_channels=1,
             depths=(2, 2, 6, 2),
@@ -241,9 +248,10 @@ class TestSwinv2ClassifierMidFusion:
         )
         with pytest.raises(ValueError):
             model(torch.randn(8, 3, 1, 128, 128, 128))
-    
+
     def test_wrong_in_channels(self):
-        """Test that the model raises an error if the number of input channels is wrong."""
+        """Test that the model raises an error if the number of input channels
+        is wrong."""
         model = Swinv2ClassifierMidFusion(
             in_channels=3,
             depths=(2, 2, 6, 2),
@@ -269,17 +277,20 @@ class TestSwinv2LateFusionFPNDecoder:
     def test_initialization(self, model):
         """Test that the model initializes correctly."""
         assert model.fusion_weights.size() == (6, 4)
-    
+
     def test_forward(self, model):
         """Test that the model can forward pass."""
         output = model(torch.randn(8, 4, 1, 128, 128, 128))
         assert output.shape == (8, 2, 128, 128, 128)
-    
-    @pytest.mark.parametrize("in_shape", [
-        (8, 3, 128, 128, 128),
-        (8, 4, 2, 128, 128, 128),
-        (8, 4, 128, 128),
-    ])
+
+    @pytest.mark.parametrize(
+        "in_shape",
+        [
+            (8, 3, 128, 128, 128),
+            (8, 4, 2, 128, 128, 128),
+            (8, 4, 128, 128),
+        ],
+    )
     def test_wrong_in_shape(self, model, in_shape):
         """Test that the model raises an error if the input shape is wrong."""
         with pytest.raises(ValueError):

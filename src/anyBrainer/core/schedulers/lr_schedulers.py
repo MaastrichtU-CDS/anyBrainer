@@ -5,7 +5,6 @@ __all__ = [
 ]
 
 import logging
-from typing import cast
 
 import math
 import torch
@@ -29,8 +28,7 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         last_epoch: int = -1,
         **kwargs,
     ):
-        """"
-        Cosine annealing with warmup scheduler.
+        """ " Cosine annealing with warmup scheduler.
 
         If `warmup_iters` and `total_iters` are lists, they must be of the same length as
         the number of optimizer parameter groups, and each value will be used for the
@@ -47,25 +45,27 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         n_groups = len(optimizer.param_groups)
 
         self.warmup_iters = resolve_num_list_arg(
-            warmup_iters, n_groups, f"[CosineAnnealingWithWarmup] `warmup_iters`"
+            warmup_iters, n_groups, "[CosineAnnealingWithWarmup] `warmup_iters`"
         )
         self.total_iters = resolve_num_list_arg(
-            total_iters, n_groups, f"[CosineAnnealingWithWarmup] `total_iters`"
+            total_iters, n_groups, "[CosineAnnealingWithWarmup] `total_iters`"
         )
         self.eta_min = resolve_num_list_arg(
-            eta_min, n_groups, f"[CosineAnnealingWithWarmup] `eta_min`"
+            eta_min, n_groups, "[CosineAnnealingWithWarmup] `eta_min`"
         )
         self.start_iter = resolve_num_list_arg(
-            start_iter, n_groups, f"[CosineAnnealingWithWarmup] `start_iter`"
+            start_iter, n_groups, "[CosineAnnealingWithWarmup] `start_iter`"
         )
 
         super().__init__(optimizer, last_epoch)
 
-        logger.info("[CosineAnnealingWithWarmup] Initialized with per-group config:\n" +
-                    "\n".join(
-                        f"Group {i}: warmup_iters={w}, eta_min={e}" 
-                        for i, (w, e) in enumerate(zip(self.warmup_iters, self.eta_min))
-                    ))
+        logger.info(
+            "[CosineAnnealingWithWarmup] Initialized with per-group config:\n"
+            + "\n".join(
+                f"Group {i}: warmup_iters={w}, eta_min={e}"
+                for i, (w, e) in enumerate(zip(self.warmup_iters, self.eta_min))
+            )
+        )
 
     def get_lr(self):
         lrs = []
@@ -89,7 +89,9 @@ class CosineAnnealingWithWarmup(_LRScheduler):
                     decay_iters = total_iters - start_iter - warmup
                     progress = (effective_epoch - warmup) / float(decay_iters)
                     progress = min(max(progress, 0.0), 1.0)  # clamp to [0, 1]
-                    lr = eta_min + (base_lr - eta_min) * 0.5 * (1.0 + math.cos(math.pi * progress))
+                    lr = eta_min + (base_lr - eta_min) * 0.5 * (
+                        1.0 + math.cos(math.pi * progress)
+                    )
 
             lrs.append(lr)
 

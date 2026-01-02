@@ -25,61 +25,63 @@ from anyBrainer.interfaces import (
     LoggingManager,
     ParameterScheduler,
     Workflow,
-    PLModuleMixin
+    PLModuleMixin,
 )
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+
 class RegistryKind(str, Enum):
     """Kind of registry."""
-    WORKFLOW        = "workflow"
-    DATA_EXPLORER   = "data_explorer"
+
+    WORKFLOW = "workflow"
+    DATA_EXPLORER = "data_explorer"
     LOGGING_MANAGER = "logging_manager"
-    TRAINER         = "trainer"
-    PL_MODULE       = "pl_module"
+    TRAINER = "trainer"
+    PL_MODULE = "pl_module"
     PL_MODULE_MIXIN = "pl_module_mixin"
-    DATAMODULE      = "datamodule"
-    NETWORK         = "network"
-    LOSS            = "loss"
-    OPTIMIZER       = "optimizer"
-    LR_SCHEDULER    = "lr_scheduler"
+    DATAMODULE = "datamodule"
+    NETWORK = "network"
+    LOSS = "loss"
+    OPTIMIZER = "optimizer"
+    LR_SCHEDULER = "lr_scheduler"
     PARAM_SCHEDULER = "param_scheduler"
-    INFERER         = "inferer"
-    TRANSFORM       = "transform"
-    CALLBACK        = "callback"
-    METRIC          = "metric"
-    UTIL            = "util"
+    INFERER = "inferer"
+    TRANSFORM = "transform"
+    CALLBACK = "callback"
+    METRIC = "metric"
+    UTIL = "util"
 
 
-REGISTRIES: dict[RegistryKind, dict[str, object]] = {
-    kind: {} for kind in RegistryKind
-}
+REGISTRIES: dict[RegistryKind, dict[str, object]] = {kind: {} for kind in RegistryKind}
 
 ALLOWED_TYPES: dict[RegistryKind, tuple[object, ...]] = {
-    RegistryKind.DATA_EXPLORER:   (DataExplorer,),
+    RegistryKind.DATA_EXPLORER: (DataExplorer,),
     RegistryKind.LOGGING_MANAGER: (LoggingManager,),
     RegistryKind.PARAM_SCHEDULER: (ParameterScheduler,),
-    RegistryKind.WORKFLOW:        (Workflow,),
-    RegistryKind.METRIC:          (type,),
-    RegistryKind.TRAINER:         (pl.Trainer,),
-    RegistryKind.PL_MODULE:       (pl.LightningModule,),
+    RegistryKind.WORKFLOW: (Workflow,),
+    RegistryKind.METRIC: (type,),
+    RegistryKind.TRAINER: (pl.Trainer,),
+    RegistryKind.PL_MODULE: (pl.LightningModule,),
     RegistryKind.PL_MODULE_MIXIN: (PLModuleMixin,),
-    RegistryKind.DATAMODULE:      (pl.LightningDataModule,),
-    RegistryKind.NETWORK:         (nn.Module,),
-    RegistryKind.LOSS:            (nn.Module,),
-    RegistryKind.OPTIMIZER:       (optim.Optimizer,),
-    RegistryKind.LR_SCHEDULER:    (_LRScheduler,),
-    RegistryKind.CALLBACK:        (pl.Callback,),
-    RegistryKind.INFERER:         (Inferer,),
-    RegistryKind.TRANSFORM:       (ABCCallable,),
-    RegistryKind.UTIL:            (ABCCallable,),
+    RegistryKind.DATAMODULE: (pl.LightningDataModule,),
+    RegistryKind.NETWORK: (nn.Module,),
+    RegistryKind.LOSS: (nn.Module,),
+    RegistryKind.OPTIMIZER: (optim.Optimizer,),
+    RegistryKind.LR_SCHEDULER: (_LRScheduler,),
+    RegistryKind.CALLBACK: (pl.Callback,),
+    RegistryKind.INFERER: (Inferer,),
+    RegistryKind.TRANSFORM: (ABCCallable,),
+    RegistryKind.UTIL: (ABCCallable,),
 }
+
 
 # Register interface
 def register(kind: RegistryKind) -> Callable[[T], T]:
     """Decorator that records the object and returns it unchanged."""
+
     def _decorator(obj: T) -> T:
         check_allowed_types(kind.value, obj, ALLOWED_TYPES[kind])
         bucket = REGISTRIES[kind]
@@ -90,7 +92,9 @@ def register(kind: RegistryKind) -> Callable[[T], T]:
             raise ValueError(msg)
         bucket[name] = obj
         return obj
+
     return _decorator
+
 
 def get(kind: RegistryKind, name: str, silence: bool = False) -> Any:
     """Get an object from the registry."""
@@ -102,8 +106,9 @@ def get(kind: RegistryKind, name: str, silence: bool = False) -> Any:
             logger.error(msg)
         raise ValueError(msg)
 
+
 def flush(
-    kind: RegistryKind | None = None
+    kind: RegistryKind | None = None,
 ) -> dict[str, Any] | dict[RegistryKind, dict[str, Any]]:
     """Return a copy of the registry contents."""
     if kind is not None:

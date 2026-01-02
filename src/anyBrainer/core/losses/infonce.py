@@ -19,9 +19,8 @@ logger = logging.getLogger(__name__)
 
 @register(RK.LOSS)
 class InfoNCELoss(nn.Module):
-    """
-    InfoNCE loss with optional top-k hard negative selection and
-    optional (l_pos, l_neg) post-processing hook.
+    """InfoNCE loss with optional top-k hard negative selection and optional
+    (l_pos, l_neg) post-processing hook.
 
     Args:
         temperature: Softmax temperature.
@@ -35,9 +34,10 @@ class InfoNCELoss(nn.Module):
         temperature: float = 0.07,
         top_k_negatives: int | None = None,
         min_negatives: int = 1,
-        postprocess_fn: Callable[
-            [torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
-        ] | None = None,
+        postprocess_fn: (
+            Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]]
+            | None
+        ) = None,
         normalize: bool = False,
         cross_entropy_args: dict[str, Any] | None = None,
     ):
@@ -93,7 +93,7 @@ class InfoNCELoss(nn.Module):
         # Negative logits (B,K)
         with torch.no_grad():
             negatives = queue.detach()  # (K,D)
-        l_neg = q @ negatives.T        # (B,K)
+        l_neg = q @ negatives.T  # (B,K)
 
         # Top-k hard negative selection
         if self.top_k_negatives is not None:
@@ -106,7 +106,7 @@ class InfoNCELoss(nn.Module):
             _, idx = torch.topk(l_neg, k=M, dim=1)
             mask = torch.zeros_like(l_neg, dtype=torch.bool)
             mask.scatter_(1, idx, True)
-            l_neg = l_neg.masked_fill(~mask, float('-inf'))
+            l_neg = l_neg.masked_fill(~mask, float("-inf"))
 
         # Optional custom post-processing
         if self.postprocess_fn is not None:

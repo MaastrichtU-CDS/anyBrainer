@@ -16,6 +16,7 @@ from anyBrainer.factories.unit import UnitFactory
 
 logger = logging.getLogger(__name__)
 
+
 def resolve_fn(
     fn: str | Callable | None,
 ) -> Callable | Any | None:
@@ -27,6 +28,7 @@ def resolve_fn(
     msg = f"Unsupported input type: {type(fn)}"
     logger.error(msg)
     raise ValueError(msg)
+
 
 def resolve_metric(
     obj: str | dict[str, Any] | Callable | None,
@@ -42,10 +44,11 @@ def resolve_metric(
     logger.error(msg)
     raise ValueError(msg)
 
+
 def resolve_transform(
     transform: dict[str, Any] | str | list[Callable] | Callable | None,
 ) -> list[Callable] | list[Compose] | None:
-    """Directly returns the list of transforms. """
+    """Directly returns the list of transforms."""
     if isinstance(transform, dict):
         return UnitFactory.get_transformslist_from_kwargs(transform)
     if isinstance(transform, str):
@@ -55,7 +58,7 @@ def resolve_transform(
     if callable(transform):
         return [transform]
     if isinstance(transform, list):
-        return [t for t in transform if callable(t)] # Filters out non-callables
+        return [t for t in transform if callable(t)]  # Filters out non-callables
     msg = f"Unsupported input type: {type(transform)}"
     logger.error(msg)
     raise ValueError(msg)

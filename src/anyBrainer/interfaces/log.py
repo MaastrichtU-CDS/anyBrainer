@@ -13,8 +13,10 @@ from typing import Any, Callable, TYPE_CHECKING
 if TYPE_CHECKING:
     from lightning.pytorch.loggers import WandbLogger
 
+
 class LoggingManager(ABC):
     """Logging manager interface."""
+
     main_logger: logging.Logger
     wandb_logger: WandbLogger | None
 

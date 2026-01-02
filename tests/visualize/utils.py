@@ -1,10 +1,8 @@
-"""
-Utility functions for visualizing data.
-"""
+"""Utility functions for visualizing data."""
 
 __all__ = [
-    'as_numpy',
-    'pick_volume_slice',
+    "as_numpy",
+    "pick_volume_slice",
 ]
 
 from typing import Sequence, Optional
@@ -12,8 +10,10 @@ from typing import Sequence, Optional
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+
 # pyright: reportPrivateImportUsage=false
 from monai.transforms import Compose
+
 
 def as_numpy(x: torch.Tensor | np.ndarray) -> np.ndarray:
     """Torch tensor → numpy; already-numpy objects pass through unchanged."""
@@ -21,15 +21,15 @@ def as_numpy(x: torch.Tensor | np.ndarray) -> np.ndarray:
         return x.detach().cpu().numpy()
     return np.asarray(x)
 
+
 def pick_volume_slice(
     vol: np.ndarray,
     slice_index: int,
     axis: int = 0,
     channel: int = 0,
 ) -> np.ndarray:
-    """
-    Extract a single slice from a 3-D or 4-D (C, D, H, W) volume along any spatial axis.
-    Falls back gracefully for 2-D data.
+    """Extract a single slice from a 3-D or 4-D (C, D, H, W) volume along any
+    spatial axis. Falls back gracefully for 2-D data.
 
     Parameters
     ----------
@@ -44,12 +44,12 @@ def pick_volume_slice(
     channel : int, optional
         Channel to display if data are four-dimensional (C, D, H, W)
     """
-    if vol.ndim == 4:          # (C, D, H, W)  – common for MONAI images
+    if vol.ndim == 4:  # (C, D, H, W)  – common for MONAI images
         # First select the channel, then treat remaining (D, H, W) as 3D volume
         return np.take(vol[channel], slice_index, axis=axis)
-    elif vol.ndim == 3:        # (D, H, W)     – channel-less volume
+    elif vol.ndim == 3:  # (D, H, W)     – channel-less volume
         return np.take(vol, slice_index, axis=axis)
-    elif vol.ndim == 2:        # already 2-D   – nothing to slice
+    elif vol.ndim == 2:  # already 2-D   – nothing to slice
         return vol
     else:
         raise ValueError(f"Cannot handle volume with shape {vol.shape}")
@@ -66,8 +66,8 @@ def visualize_transform_stage(
     channel: int = 0,
     save_path: Optional[str] = None,
 ):
-    """
-    Visualize selected keys from a MONAI dictionary pipeline at an arbitrary stage.
+    """Visualize selected keys from a MONAI dictionary pipeline at an arbitrary
+    stage.
 
     Parameters
     ----------
@@ -93,7 +93,7 @@ def visualize_transform_stage(
     """
     if stage is not None and (stage < 0 or stage >= len(pipeline.transforms)):
         raise IndexError(f"Stage must be in [0, {len(pipeline.transforms)-1}]")
-    
+
     if axis not in (0, 1, 2):
         raise ValueError(f"Invalid axis: {axis}. Must be 0, 1, or 2.")
 
@@ -137,7 +137,11 @@ def visualize_transform_stage(
             if c == 0:
                 ax.set_ylabel(f"z={idx}", rotation=0, labelpad=20)
 
-    stage_str = f"stage {stage} (after {stage+1} transform)" if stage is not None else "final output"
+    stage_str = (
+        f"stage {stage} (after {stage+1} transform)"
+        if stage is not None
+        else "final output"
+    )
     fig.suptitle(f"MONAI pipeline visualisation – {stage_str}", fontsize=14)
     if save_path is not None:
         fig.savefig(save_path)

@@ -6,11 +6,12 @@ from pathlib import Path
 
 import torch
 
+
 def download_templates(
-        target_dir: Path | str = "templates", 
-        template: str | None = None,
+    target_dir: Path | str = "templates",
+    template: str | None = None,
 ) -> None:
-    """Download MNI152 templates"""
+    """Download MNI152 templates."""
     base_url = "https://zenodo.org/records/15470657/files/"
     files = [
         "icbm_mni152_t1_09a_asym_bet.nii.gz",
@@ -40,6 +41,7 @@ def download_templates(
         except Exception as e:
             logging.info(f"Failed to download {fname}: {e}")
 
+
 def get_pads_from_bbox(
     crop_slices: tuple[slice, slice, slice],
     orig_shape_xyz: tuple[int, int, int],
@@ -53,7 +55,7 @@ def get_pads_from_bbox(
 
     def lr(s: slice, dim: int) -> tuple[int, int]:
         start = 0 if s.start is None else int(s.start)
-        stop  = dim if s.stop  is None else int(s.stop)
+        stop = dim if s.stop is None else int(s.stop)
         return start, dim - stop
 
     px = lr(sx, X)  # (left, right) along X
@@ -62,6 +64,7 @@ def get_pads_from_bbox(
 
     return {"x": px, "y": py, "z": pz}
 
+
 def write_probability(output_path: Path, prob: float):
     """Write single probability (float) to a .txt file."""
     output_path = Path(output_path)
@@ -69,9 +72,11 @@ def write_probability(output_path: Path, prob: float):
     with open(output_path, "w") as f:
         f.write(f"{float(prob):.6f}\n")  # six decimal places, trailing newline
 
+
 def get_device() -> torch.device:
     # allow override via env/flag later if you want
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def move_batch_to_device(batch: dict, device: torch.device) -> dict:
     # move just the image tensor; meta dicts/lists stay on CPU

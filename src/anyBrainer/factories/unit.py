@@ -1,6 +1,5 @@
 """Factory for creating unit (nets, optimizers, schedulers, etc.) instances."""
 
-
 from __future__ import annotations
 
 __all__ = [
@@ -34,14 +33,13 @@ class UnitFactory:
         cls,
         model_kwargs: dict[str, Any],
     ) -> nn.Module:
-        """
-        Get model instance from kwargs.
+        """Get model instance from kwargs.
 
         Model class is retrieved from anyBrainer.registry-NETWORK or monai.networks.nets.
 
         Args:
             model_kwargs: model kwargs, containing "name" key.
-        
+
         Raises:
             ValueError: If model name is not provided in model_kwargs.
             ValueError: If requested model is not found in anyBrainer.registry-NETWORK.
@@ -52,7 +50,7 @@ class UnitFactory:
             msg = "Model name not found in model_kwargs."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         model_kwargs = model_kwargs.copy()
         model_name = model_kwargs.pop("name")
 
@@ -63,19 +61,21 @@ class UnitFactory:
             try:
                 model_cls = getattr(monai_nets, model_name)
             except AttributeError:
-                msg = (f"Model '{model_name}' not found in anyBrainer.registry-NETWORK "
-                       "or monai.networks.nets.")
+                msg = (
+                    f"Model '{model_name}' not found in anyBrainer.registry-NETWORK "
+                    "or monai.networks.nets."
+                )
                 logger.error(msg)
                 raise ValueError(msg)
-        
+
         # Handle improper initialization args
         try:
-            model = model_cls(**model_kwargs) # type: ignore
+            model = model_cls(**model_kwargs)  # type: ignore
         except Exception as e:
             msg = f"Error initializing model '{model_name}': {e}"
             logger.exception(msg)
             raise
-        
+
         return model
 
     @classmethod
@@ -83,8 +83,7 @@ class UnitFactory:
         cls,
         optimizer_kwargs: dict[str, Any] | list[dict[str, Any]],
     ) -> optim.Optimizer | list[optim.Optimizer]:
-        """
-        Get optimizer instances from kwargs.
+        """Get optimizer instances from kwargs.
 
         Optimizer class is retrieved from torch.optim.
         Expects users to provide `params`: list[nn.Parameter] | Iterable[nn.Parameter]
@@ -105,7 +104,9 @@ class UnitFactory:
         if isinstance(optimizer_kwargs, list):
             optimizers_list = []
             for _optimizer_kwargs in optimizer_kwargs:
-                optimizers_list.append(cls.get_optimizer_instances_from_kwargs(_optimizer_kwargs))
+                optimizers_list.append(
+                    cls.get_optimizer_instances_from_kwargs(_optimizer_kwargs)
+                )
             return optimizers_list
 
         # Ensure required keys are provided
@@ -113,7 +114,7 @@ class UnitFactory:
             msg = "Optimizer name not found in optimizer_kwargs."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         if "params" not in optimizer_kwargs:
             msg = "`params` not found in optimizer_kwargs."
             logger.error(msg)
@@ -122,7 +123,7 @@ class UnitFactory:
         optimizer_kwargs = optimizer_kwargs.copy()
         cls_name = optimizer_kwargs.pop("name")
         params = optimizer_kwargs.pop("params")
-        
+
         # Extract requested optimizer class
         try:
             optimizer_cls = getattr(optim, cls_name)
@@ -130,7 +131,7 @@ class UnitFactory:
             msg = f"Optimizer '{cls_name}' not found in torch.optim."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         # Handle improper initialization args
         try:
             optimizer = optimizer_cls(params, **optimizer_kwargs)
@@ -147,8 +148,8 @@ class UnitFactory:
         lr_scheduler_kwargs: dict | list[dict],
         optimizer: optim.Optimizer | list[optim.Optimizer],
     ) -> dict[str, Any] | list[dict[str, Any]]:
-        """
-        Get LR scheduler instances from torch.optim.lr_scheduler or anyBrainer.registry-LR_SCHEDULER.
+        """Get LR scheduler instances from torch.optim.lr_scheduler or
+        anyBrainer.registry-LR_SCHEDULER.
 
         The returned LR scheduler is a dictionary with the instance and keys expected in Lightning's lr_scheduler_config.
 
@@ -176,21 +177,27 @@ class UnitFactory:
                 msg = "Optimizer must be a list if lr_scheduler_kwargs is a list."
                 logger.error(msg)
                 raise ValueError(msg)
-            
+
             if len(lr_scheduler_kwargs) != len(optimizer):
                 msg = "Length of lr_scheduler_kwargs and optimizer must match."
                 logger.error(msg)
                 raise ValueError(msg)
-            
+
             schedulers_list = []
             for _scheduler, _optimizer in zip(lr_scheduler_kwargs, optimizer):
-                schedulers_list.append(cls.get_lr_scheduler_instances_from_kwargs(_scheduler, _optimizer))
+                schedulers_list.append(
+                    cls.get_lr_scheduler_instances_from_kwargs(_scheduler, _optimizer)
+                )
             return schedulers_list
 
         if not isinstance(lr_scheduler_kwargs, list) and isinstance(optimizer, list):
             schedulers_list = []
             for _optimizer in optimizer:
-                schedulers_list.append(cls.get_lr_scheduler_instances_from_kwargs(lr_scheduler_kwargs, _optimizer))
+                schedulers_list.append(
+                    cls.get_lr_scheduler_instances_from_kwargs(
+                        lr_scheduler_kwargs, _optimizer
+                    )
+                )
             return schedulers_list
 
         # Ensure required keys are provided
@@ -220,20 +227,22 @@ class UnitFactory:
         except AttributeError:
             try:
                 lr_scheduler_cls = get(RK.LR_SCHEDULER, lr_scheduler_dict["name"])
-            except ValueError:  
-                msg = (f"LR scheduler '{lr_scheduler_dict['name']}' not found in "
-                        f"torch.optim.lr_scheduler or anyBrainer.registry-LR_SCHEDULER.")
+            except ValueError:
+                msg = (
+                    f"LR scheduler '{lr_scheduler_dict['name']}' not found in "
+                    f"torch.optim.lr_scheduler or anyBrainer.registry-LR_SCHEDULER."
+                )
                 logger.error(msg)
                 raise ValueError(msg)
 
         # Handle improper initialization args
         try:
-            lr_scheduler = lr_scheduler_cls(optimizer, **lr_scheduler_kwargs) # type: ignore
+            lr_scheduler = lr_scheduler_cls(optimizer, **lr_scheduler_kwargs)  # type: ignore
             lr_scheduler_dict["scheduler"] = lr_scheduler
         except Exception as e:
             msg = f"Error initializing LR scheduler '{lr_scheduler_dict['name']}': {e}"
             logger.exception(msg)
-            raise 
+            raise
 
         return lr_scheduler_dict
 
@@ -242,9 +251,9 @@ class UnitFactory:
         cls,
         other_schedulers: list[dict[str, Any]],
     ) -> tuple[list[ParameterScheduler], list[ParameterScheduler]]:
-        """
-        Get any other custom schedulers from anyBrainer.registry-PARAM_SCHEDULER.
-        
+        """Get any other custom schedulers from anyBrainer.registry-
+        PARAM_SCHEDULER.
+
         Groups the schedulers into step and epoch schedulers, the values of which are
         extracted using built-in Lightning hooks.
 
@@ -265,31 +274,31 @@ class UnitFactory:
                 msg = "Scheduler name not found in scheduler_kwargs."
                 logger.error(msg)
                 raise ValueError(msg)
-            
+
             if "interval" not in scheduler_kwargs:
                 msg = "Scheduler interval not found in scheduler_kwargs."
                 logger.error(msg)
                 raise ValueError(msg)
-            
+
             scheduler_kwargs = scheduler_kwargs.copy()
             scheduler_name = scheduler_kwargs.pop("name")
             scheduler_interval = scheduler_kwargs.pop("interval")
-            
+
             try:
                 scheduler_cls = get(RK.PARAM_SCHEDULER, scheduler_name)
             except ValueError:
                 msg = f"Scheduler '{scheduler_name}' not found in anyBrainer.registry-PARAM_SCHEDULER."
                 logger.error(msg)
-                raise ValueError(msg)   
-            
+                raise ValueError(msg)
+
             # Handle improper initialization args
             try:
-                scheduler = scheduler_cls(**scheduler_kwargs) # type: ignore
+                scheduler = scheduler_cls(**scheduler_kwargs)  # type: ignore
             except Exception as e:
                 msg = f"Error initializing scheduler '{scheduler_name}': {e}"
                 logger.exception(msg)
                 raise
-            
+
             # Add scheduler to list
             if scheduler_interval == "step":
                 other_schedulers_step.append(scheduler)
@@ -299,7 +308,7 @@ class UnitFactory:
                 msg = f"Scheduler interval '{scheduler_interval}' not supported."
                 logger.error(msg)
                 raise ValueError(msg)
-        
+
         return other_schedulers_step, other_schedulers_epoch
 
     @classmethod
@@ -307,8 +316,8 @@ class UnitFactory:
         cls,
         loss_fn_kwargs: dict[str, Any] | list[dict[str, Any]],
     ) -> nn.Module | list[nn.Module]:
-        """
-        Get loss function instances from torch.nn or anyBrainer.registry-LOSS.
+        """Get loss function instances from torch.nn or anyBrainer.registry-
+        LOSS.
 
         Special cases:
         - If multiple loss functions are provided, return a list of loss function instances.
@@ -325,7 +334,9 @@ class UnitFactory:
         if isinstance(loss_fn_kwargs, list):
             loss_fns_list = []
             for _loss_fn_kwargs in loss_fn_kwargs:
-                loss_fns_list.append(cls.get_loss_fn_instances_from_kwargs(_loss_fn_kwargs))
+                loss_fns_list.append(
+                    cls.get_loss_fn_instances_from_kwargs(_loss_fn_kwargs)
+                )
             return loss_fns_list
 
         # Ensure required keys are provided
@@ -348,14 +359,14 @@ class UnitFactory:
             loss_fn_name = loss_fn_name.split(":")[-1]
             try:
                 loss_fn_cls = getattr(module, loss_fn_name)
-            except AttributeError:  
-                msg = (f"Loss fn '{loss_fn_name}' not found in {module.__name__}.")
+            except AttributeError:
+                msg = f"Loss fn '{loss_fn_name}' not found in {module.__name__}."
                 logger.error(msg)
                 raise ValueError(msg)
-        
+
         # Handle improper initialization args
         try:
-            loss_fn = loss_fn_cls(**loss_fn_kwargs) # type: ignore
+            loss_fn = loss_fn_cls(**loss_fn_kwargs)  # type: ignore
         except Exception as e:
             msg = f"Error initializing loss fn '{loss_fn_name}': {e}"
             logger.exception(msg)
@@ -368,8 +379,8 @@ class UnitFactory:
         cls,
         callback_kwargs: list[dict[str, Any]],
     ) -> list[pl.Callback]:
-        """
-        Get callback instances from anyBrainer.registry-CALLBACK or pl.callbacks. 
+        """Get callback instances from anyBrainer.registry-CALLBACK or
+        pl.callbacks.
 
         Args:
             callback_kwargs: list of callback kwargs, each containing "name" key.
@@ -386,10 +397,10 @@ class UnitFactory:
                 msg = "Callback name not found in callback_kwargs."
                 logger.error(msg)
                 raise ValueError(msg)
-            
+
             _callback_kwargs = _callback_kwargs.copy()
             callback_name = _callback_kwargs.pop("name")
-            
+
             # Extract requested callback class
             try:
                 callback_cls = getattr(pl_callbacks, callback_name)
@@ -397,27 +408,28 @@ class UnitFactory:
                 try:
                     callback_cls = get(RK.CALLBACK, callback_name)
                 except ValueError:
-                    msg = (f"Callback '{callback_name}' not found in anyBrainer.registry-CALLBACK "
-                        "or pl.callbacks.")
+                    msg = (
+                        f"Callback '{callback_name}' not found in anyBrainer.registry-CALLBACK "
+                        "or pl.callbacks."
+                    )
                     logger.error(msg)
                     raise ValueError(msg)
-            
-            try: # Handle improper initialization args
-                callbacks_list.append(callback_cls(**_callback_kwargs)) # type: ignore
+
+            try:  # Handle improper initialization args
+                callbacks_list.append(callback_cls(**_callback_kwargs))  # type: ignore
             except Exception as e:
                 msg = f"Error initializing callback '{callback_name}': {e}"
                 logger.exception(msg)
                 raise
-                
+
         return callbacks_list
-    
+
     @classmethod
     def get_inferer_instance_from_kwargs(
         cls,
         inferer_kwargs: dict[str, Any],
     ) -> Inferer:
-        """
-        Get inferer instance from anyBrainer.registry-INFERER.
+        """Get inferer instance from anyBrainer.registry-INFERER.
 
         Args:
             inferer_kwargs: inferer kwargs, containing "name" key.
@@ -432,7 +444,7 @@ class UnitFactory:
             msg = "Inferer name not provided in inferer_kwargs."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         inferer_kwargs = inferer_kwargs.copy()
         inferer_name = inferer_kwargs.pop("name")
 
@@ -443,28 +455,30 @@ class UnitFactory:
             try:
                 inferer_cls = get(RK.INFERER, inferer_name)
             except ValueError:
-                msg = (f"Inferer '{inferer_name}' not found in anyBrainer.registry-INFERER "
-                       "or monai.inferers.")
+                msg = (
+                    f"Inferer '{inferer_name}' not found in anyBrainer.registry-INFERER "
+                    "or monai.inferers."
+                )
                 logger.error(msg)
                 raise ValueError(msg)
-        
+
         # Handle improper initialization args
         try:
-            inferer = inferer_cls(**inferer_kwargs) # type: ignore
+            inferer = inferer_cls(**inferer_kwargs)  # type: ignore
         except Exception as e:
             msg = f"Error initializing inferer '{inferer_name}': {e}"
             logger.exception(msg)
             raise
 
         return inferer
-    
+
     @classmethod
     def get_transformslist_from_kwargs(
         cls,
         transform_kwargs: dict[str, Any],
-    ) -> list[Callable]: 
-        """
-        Get list of transforms from anyBrainer.registry-TRANSFORM, using a transform builder fn. 
+    ) -> list[Callable]:
+        """Get list of transforms from anyBrainer.registry-TRANSFORM, using a
+        transform builder fn.
 
         Args:
             transform_kwargs: transform kwargs, containing "name" key.
@@ -479,7 +493,7 @@ class UnitFactory:
             msg = "Transform name not provided in transform_kwargs."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         transform_kwargs = transform_kwargs.copy()
         transforms_name = transform_kwargs.pop("name")
 
@@ -489,10 +503,10 @@ class UnitFactory:
             msg = f"Transform builder name '{transforms_name}' not found in anyBrainer.transforms."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         # Handle improper initialization args
         try:
-            transformslist = get_transforms_fn(**transform_kwargs) # type: ignore
+            transformslist = get_transforms_fn(**transform_kwargs)  # type: ignore
         except Exception as e:
             msg = f"Error retrieving transormslist '{transforms_name}': {e}"
             logger.exception(msg)
@@ -505,8 +519,7 @@ class UnitFactory:
         cls,
         activation_fn_kwargs: dict[str, Any],
     ) -> nn.Module:
-        """
-        Get activation function from torch.nn.
+        """Get activation function from torch.nn.
 
         Raises:
         - ValueError: If activation function name is not provided in activation_fn_kwargs.
@@ -517,33 +530,32 @@ class UnitFactory:
             msg = "Activation function name not provided in activation_fn_kwargs."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         activation_fn_kwargs = activation_fn_kwargs.copy()
         activation_fn_name = activation_fn_kwargs.pop("name")
-        
+
         try:
             activation_fn_cls = getattr(nn, activation_fn_name)
         except AttributeError:
             msg = f"Activation function '{activation_fn_name}' not found in torch.nn."
             logger.error(msg)
             raise ValueError(msg)
-        
+
         try:
-            activation_fn = activation_fn_cls(**activation_fn_kwargs) # type: ignore
+            activation_fn = activation_fn_cls(**activation_fn_kwargs)  # type: ignore
         except Exception as e:
             msg = f"Error initializing activation function '{activation_fn_name}': {e}"
             logger.exception(msg)
             raise
-        
+
         return activation_fn
-    
+
     @classmethod
     def get_metric_from_kwargs(
         cls,
         metric_kwargs: dict[str, Any],
     ) -> Callable:
-        """
-        Get metric from anyBrainer.registry-METRIC or monai.metrics.
+        """Get metric from anyBrainer.registry-METRIC or monai.metrics.
 
         Args:
             metric_kwargs: metric kwargs, containing "name" key.
@@ -560,7 +572,7 @@ class UnitFactory:
 
         metric_kwargs = metric_kwargs.copy()
         metric_name = metric_kwargs.pop("name")
-        
+
         try:
             metric_cls = getattr(monai_metrics, metric_name)
         except AttributeError:
@@ -570,12 +582,12 @@ class UnitFactory:
                 msg = f"Metric '{metric_name}' not found in anyBrainer.registry-METRIC or monai.metrics."
                 logger.error(msg)
                 raise ValueError(msg)
-            
+
         try:
-            metric = metric_cls(**metric_kwargs) # type: ignore
+            metric = metric_cls(**metric_kwargs)  # type: ignore
         except Exception as e:
             msg = f"Error initializing metric '{metric_name}': {e}"
             logger.exception(msg)
             raise
-        
+
         return metric

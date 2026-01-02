@@ -1,6 +1,4 @@
-"""
-Contains masking transforms for masked autoencoder training.
-"""
+"""Contains masking transforms for masked autoencoder training."""
 
 __all__ = [
     "CreateRandomMaskd",
@@ -23,6 +21,7 @@ from copy import deepcopy
 import numpy as np
 import torch
 from monai.data.utils import dense_patch_slices
+
 # pyright: reportPrivateImportUsage=false
 from monai.transforms.utils import TransformBackends
 from monai.transforms import (
@@ -32,9 +31,7 @@ from monai.transforms import (
 )
 from monai.data import MetaTensor
 
-from anyBrainer.core.transforms.utils import (
-    assign_key
-)
+from anyBrainer.core.transforms.utils import assign_key
 from anyBrainer.core.utils import (
     ensure_tuple_dim,
     pad_to_size,
@@ -44,9 +41,8 @@ logger = logging.getLogger(__name__)
 
 
 class CreateRandomMaskd(MapTransform, Randomizable):
-    """
-    Create a random 3D mask for masked autoencoder training.
-    
+    """Create a random 3D mask for masked autoencoder training.
+
     Args:
         keys: Keys to generate masks for (typically 'img')
         mask_key: Key to store the generated mask
@@ -60,21 +56,23 @@ class CreateRandomMaskd(MapTransform, Randomizable):
     def __init__(
         self,
         keys: Sequence[str] = ("img",),
-        mask_key: str = "mask", 
+        mask_key: str = "mask",
         mask_ratio: float = 0.6,
         mask_patch_size: int = 4,
-        allow_missing_keys: bool = False
+        allow_missing_keys: bool = False,
     ) -> None:
         super().__init__(keys, allow_missing_keys)
 
         self.mask_key = mask_key
         self.mask_ratio = mask_ratio
         self.mask_patch_size = mask_patch_size
-    
+
     def randomize(self, img_shape):
         # Calculate number of patches in each dimension
         d1, d2, d3 = img_shape[-3:]
-        n_patches = (np.array([d1, d2, d3]) + self.mask_patch_size - 1) // self.mask_patch_size
+        n_patches = (
+            np.array([d1, d2, d3]) + self.mask_patch_size - 1
+        ) // self.mask_patch_size
         total_patches = np.prod(n_patches)
 
         # Sample which patches to mask
@@ -86,10 +84,10 @@ class CreateRandomMaskd(MapTransform, Randomizable):
         )
         patch_mask[idx] = False
         self._patch_mask = patch_mask.view(*map(int, n_patches))
-    
+
     def __call__(self, data):
         d = dict(data)
-        
+
         for key in self.key_iterator(d):
             img = d[key]
             img_shape = img.shape
@@ -99,14 +97,16 @@ class CreateRandomMaskd(MapTransform, Randomizable):
                 msg = f"CreateRandomMaskd expects a 3-D volume, got {img_shape}"
                 logger.error(msg)
                 raise ValueError(msg) from e
-            
+
             _, mt_state, pos, *_ = self.R.get_state()
             self.randomize(img_shape)
 
             # Vectorised up-sampling back to voxel space
-            mask = self._patch_mask.repeat_interleave(self.mask_patch_size, 0) \
-                                 .repeat_interleave(self.mask_patch_size, 1) \
-                                 .repeat_interleave(self.mask_patch_size, 2)                  
+            mask = (
+                self._patch_mask.repeat_interleave(self.mask_patch_size, 0)
+                .repeat_interleave(self.mask_patch_size, 1)
+                .repeat_interleave(self.mask_patch_size, 2)
+            )
 
             # Crop in case spatial dims are not multiples of patch size
             mask = mask[:d1, :d2, :d3]
@@ -114,11 +114,13 @@ class CreateRandomMaskd(MapTransform, Randomizable):
             # Get original dims
             while mask.ndim < img.ndim:
                 mask = mask.unsqueeze(0)
-            
-            logger.debug(f"mask shape: {mask.shape}, "
-                         f"mask ratio: {1 - mask.float().mean().item()}, "
-                         f"rng: pos={pos:3d}, first5={mt_state[:5]}")
- 
+
+            logger.debug(
+                f"mask shape: {mask.shape}, "
+                f"mask ratio: {1 - mask.float().mean().item()}, "
+                f"rng: pos={pos:3d}, first5={mt_state[:5]}"
+            )
+
             # Keep metadata
             if isinstance(img, MetaTensor):
                 d[self.mask_key] = MetaTensor(mask, meta=img.meta)
@@ -128,19 +130,21 @@ class CreateRandomMaskd(MapTransform, Randomizable):
 
 
 class SaveReconstructionTargetd(MapTransform):
-    """
-    Save a copy of the image as reconstruction target before intensity augmentations.
+    """Save a copy of the image as reconstruction target before intensity
+    augmentations.
+
     This creates a 'recon' key with the current image data.
     """
+
     def __init__(
-        self, 
-        keys: Sequence[str] | str = "img", 
+        self,
+        keys: Sequence[str] | str = "img",
         recon_key: str = "recon",
-        allow_missing_keys: bool = False
+        allow_missing_keys: bool = False,
     ) -> None:
         super().__init__(keys, allow_missing_keys)
         self.recon_key = recon_key
-    
+
     def __call__(self, data):
         d = dict(data)
         for key in self.key_iterator(d):
@@ -149,15 +153,14 @@ class SaveReconstructionTargetd(MapTransform):
 
 
 class CreateEmptyMaskd(MapTransform):
-    """
-    Create an empty mask.
-    """
+    """Create an empty mask."""
+
     def __init__(
-        self, 
-        keys: Sequence[str] | str = "img", 
-        mask_key: str = "brain_mask", 
+        self,
+        keys: Sequence[str] | str = "img",
+        mask_key: str = "brain_mask",
         skip_if_exists: bool = True,
-        allow_missing_keys: bool = False
+        allow_missing_keys: bool = False,
     ) -> None:
         super().__init__(keys, allow_missing_keys)
         self.mask_key = mask_key
@@ -168,22 +171,19 @@ class CreateEmptyMaskd(MapTransform):
 
         if self.skip_if_exists and self.mask_key in d:
             return d
-        
+
         for key in self.key_iterator(d):
             img = d[key]
             if isinstance(img, MetaTensor):
-                d[self.mask_key] = MetaTensor(
-                    torch.zeros_like(img), meta=img.meta
-                )
+                d[self.mask_key] = MetaTensor(torch.zeros_like(img), meta=img.meta)
             else:
                 d[self.mask_key] = torch.zeros_like(img)
         return d
 
 
 class GetKeyQueryd(MapTransform, Randomizable):
-    """
-    Create a key-query pair for contrastive learning by randomly assigning
-    query and key or by always assigning augmented view to key. 
+    """Create a key-query pair for contrastive learning by randomly assigning
+    query and key or by always assigning augmented view to key.
 
     Random assignment does not prevent key-query pair from being the same.
     Can specify additional extra keys that can be either query/key-specific or fixed.
@@ -197,6 +197,7 @@ class GetKeyQueryd(MapTransform, Randomizable):
         extra_keys: Non-iterable extra keys to be used for the key-query pair.
         track: Whether to track the query and key indices.
     """
+
     def __init__(
         self,
         keys_prefix: str | None = "img",
@@ -207,20 +208,20 @@ class GetKeyQueryd(MapTransform, Randomizable):
         extra_keys: Sequence[str] | None = ["sub_id", "ses_id"],
         track: bool = False,
     ) -> None:
-        
+
         if always_augment_query and query_key is None:
             msg = "query_key must be provided if always_augment_query is True"
             logger.error(msg)
             raise ValueError(msg)
-        
+
         if always_augment_query and keys_prefix is not None:
             logger.warning("keys_prefix is ignored if always_augment_query is True")
-        
+
         if keys_prefix is None and always_augment_query == False:
             msg = "keys_prefix must be provided if always_augment_query is False"
             logger.error(msg)
             raise ValueError(msg)
-        
+
         if keys_prefix is not None and count_key is None:
             msg = "count_key must be provided if keys_prefix is provided"
             logger.error(msg)
@@ -247,31 +248,31 @@ class GetKeyQueryd(MapTransform, Randomizable):
         if self.always_augment_query:
             new_d["query"] = assign_key(d, self.query_key)
             new_d["key"] = assign_key(d, self.query_key)
-            
+
             if self.extra_keys is not None:
                 for key in self.extra_keys:
                     new_d[key] = assign_key(d, key)
             return new_d
-        
+
         # Randomly assign query and key
         if self.count_key not in d:
             msg = f"count_key {self.count_key} not found in data"
             logger.error(msg)
             raise ValueError(msg)
-        
+
         query_idx, key_idx = self.randomize(d[self.count_key])
-        new_d['query'] = assign_key(d, f"{self.keys_prefix}_{query_idx}")
-        new_d['key'] = assign_key(d, f"{self.keys_prefix}_{key_idx}")
-        
+        new_d["query"] = assign_key(d, f"{self.keys_prefix}_{query_idx}")
+        new_d["key"] = assign_key(d, f"{self.keys_prefix}_{key_idx}")
+
         # Assign query/key-specific extra keys; e.g. modality
         if self.extra_iters is not None:
             for key in self.extra_iters:
                 new_d[key] = assign_key(d, f"{key}_{query_idx}")
-        
+
         if self.extra_keys is not None:
             for key in self.extra_keys:
                 new_d[key] = assign_key(d, key)
-        
+
         if self.track:
             new_d["track"] = {
                 "query_idx": query_idx,
@@ -281,11 +282,10 @@ class GetKeyQueryd(MapTransform, Randomizable):
 
 
 class SlidingWindowPatch(Transform):
-    """
-    Extracts sliding window patches from a tensor of shape (C, *spatial_dims),
-    returning a tensor of shape (N_patches, C, *patch_size).
+    """Extracts sliding window patches from a tensor of shape (C,
+    *spatial_dims), returning a tensor of shape (N_patches, C, *patch_size).
 
-    Stride of the sliding window is calculated as either by `overlap` 
+    Stride of the sliding window is calculated as either by `overlap`
     or automatically to match `n_patches`.
 
     If `n_patches` is provided, `overlap` is ignored.
@@ -317,29 +317,39 @@ class SlidingWindowPatch(Transform):
             logger.error(msg)
             raise ValueError(msg)
         if n_patches is not None and overlap is not None:
-            logger.warning("Provided both `n_patches` and `overlap`; will use `n_patches`.")
+            logger.warning(
+                "Provided both `n_patches` and `overlap`; will use `n_patches`."
+            )
 
         self.patch_size = ensure_tuple_dim(patch_size, dim=spatial_dims)
-        self.overlap = (ensure_tuple_dim(overlap, dim=spatial_dims) 
-                        if overlap is not None else None)
-        self.n_patches = (ensure_tuple_dim(n_patches, dim=spatial_dims) 
-                          if n_patches is not None else None)
+        self.overlap = (
+            ensure_tuple_dim(overlap, dim=spatial_dims) if overlap is not None else None
+        )
+        self.n_patches = (
+            ensure_tuple_dim(n_patches, dim=spatial_dims)
+            if n_patches is not None
+            else None
+        )
 
         self.padding_mode = padding_mode
         self.padding_side = padding_side
         self.spatial_dims = spatial_dims
-        self.slices: list[tuple[slice, ...]] = [] # will be populated by __call__()
+        self.slices: list[tuple[slice, ...]] = []  # will be populated by __call__()
 
     def __call__(self, img: torch.Tensor) -> torch.Tensor:
         if img.dim() < 1 + self.spatial_dims:
-            msg = (f"Expected at least {self.spatial_dims + 1}D tensor "
-                   f"(C, *spatial), got shape {img.shape}")
+            msg = (
+                f"Expected at least {self.spatial_dims + 1}D tensor "
+                f"(C, *spatial), got shape {img.shape}"
+            )
             logger.error(msg)
             raise ValueError(msg)
-        
-        C, *spatial = img.shape[-self.spatial_dims - 1:]
-        min_target_dims = [max(S, P) for S, P in zip(spatial, self.patch_size)] # minimum target dim to pad
-        
+
+        C, *spatial = img.shape[-self.spatial_dims - 1 :]
+        min_target_dims = [
+            max(S, P) for S, P in zip(spatial, self.patch_size)
+        ]  # minimum target dim to pad
+
         # Calculate stride
         if self.n_patches is not None:
             stride = []
@@ -350,34 +360,47 @@ class SlidingWindowPatch(Transform):
                     target_dim = S
                 else:
                     st = max(1, math.ceil(max(0, S - P) / (N - 1)))
-                    target_dim = (N - 1) * st + P # possibly extend padding to force N patches
+                    target_dim = (
+                        N - 1
+                    ) * st + P  # possibly extend padding to force N patches
                 stride.append(st)
                 target_dims.append(target_dim)
         else:
-            stride = tuple(max(1, int(round(p * (1.0 - o))))
-                           for p, o in zip(self.patch_size, self.overlap))  # type: ignore[arg-type]
+            stride = tuple(
+                max(1, int(round(p * (1.0 - o))))
+                for p, o in zip(self.patch_size, self.overlap)
+            )  # type: ignore[arg-type]
             target_dims = min_target_dims
 
         # Pad to target dims
-        img = pad_to_size(img, target=target_dims, spatial_dims=self.spatial_dims, 
-                          mode=self.padding_mode, side=self.padding_side) # type: ignore[arg-type]
-        spatial = img.shape[-self.spatial_dims:] # updated spatial dims after padding
-        
+        img = pad_to_size(
+            img,
+            target=target_dims,
+            spatial_dims=self.spatial_dims,
+            mode=self.padding_mode,
+            side=self.padding_side,
+        )  # type: ignore[arg-type]
+        spatial = img.shape[-self.spatial_dims :]  # updated spatial dims after padding
+
         # Get slices for patches
         self.slices = dense_patch_slices(spatial, self.patch_size, stride)
 
-        prefix = (slice(None),) * (img.ndim - self.spatial_dims - 1)  # leading dims before C
+        prefix = (slice(None),) * (
+            img.ndim - self.spatial_dims - 1
+        )  # leading dims before C
         patches = [img[prefix + (slice(None),) + slc] for slc in self.slices]
 
-        return torch.stack(patches, dim=len(prefix))  # shape: (..., N_patches, C, *patch_size)
+        return torch.stack(
+            patches, dim=len(prefix)
+        )  # shape: (..., N_patches, C, *patch_size)
 
 
 class SlidingWindowPatchd(MapTransform):
-    """
-    Dictionary-based version of `SlidingWindowPatch`.
+    """Dictionary-based version of `SlidingWindowPatch`.
 
     See `SlidingWindowPatch` for more details.
     """
+
     def __init__(
         self,
         keys: Sequence[str] | str = "img",
@@ -407,10 +430,9 @@ class SlidingWindowPatchd(MapTransform):
 
 
 class RandImgKeyd(MapTransform, Randomizable):
-    """
-    Dictionary transform to randomly select a key from 
-    the provided keys and store the value in a new key.
-    """
+    """Dictionary transform to randomly select a key from the provided keys and
+    store the value in a new key."""
+
     def __init__(
         self,
         keys: Sequence[Hashable] | Hashable,
@@ -440,10 +462,12 @@ class RandImgKeyd(MapTransform, Randomizable):
 
 
 class ClipNonzeroPercentilesd(MapTransform):
-    """
-    Clip values per-channel to [lower, upper] percentiles computed over nonzero voxels.
+    """Clip values per-channel to [lower, upper] percentiles computed over
+    nonzero voxels.
+
     Works with torch.Tensor and monai.data.MetaTensor on any device.
     """
+
     backend = [TransformBackends.TORCH]
 
     def __init__(self, keys, lower=0.5, upper=99.9, allow_missing_keys=False):
@@ -464,7 +488,9 @@ class ClipNonzeroPercentilesd(MapTransform):
                 if nz.any():
                     # work in float for quantiles; keep device/meta
                     vals = xc[nz].to(dtype=torch.float32)
-                    lo, hi = torch.quantile(vals, torch.tensor(self.q, device=vals.device))
+                    lo, hi = torch.quantile(
+                        vals, torch.tensor(self.q, device=vals.device)
+                    )
                     # in-place clamp only on nonzeros
                     xc[nz] = torch.clamp(xc[nz], min=lo.item(), max=hi.item())
             d[k] = x  # same object; MetaTensor meta preserved
@@ -472,15 +498,18 @@ class ClipNonzeroPercentilesd(MapTransform):
 
 
 class UnscalePredsIfNeeded(Transform):
-    """
-    Array transform to reverse scaling and centering applied to regression predictions.
+    """Array transform to reverse scaling and centering applied to regression
+    predictions.
 
-    Usage (array):
-        t = UnscalePredsIfNeeded(meta={"scale_range": (min_val, max_val), "center": center})
-        unscaled = t(pred)
+    Usage (array):     t = UnscalePredsIfNeeded(meta={"scale_range":
+    (min_val, max_val), "center": center})     unscaled = t(pred)
     """
 
-    def __init__(self, scale_range: tuple[Any, Any] | None = None, center: int | float | None = None):
+    def __init__(
+        self,
+        scale_range: tuple[Any, Any] | None = None,
+        center: int | float | None = None,
+    ):
         """
         Args:
             scale_range: (min_val, max_val) for scaling pred to [-1, 1]

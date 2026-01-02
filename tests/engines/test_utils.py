@@ -17,9 +17,11 @@ from anyBrainer.core.utils import (
 )
 from anyBrainer.core.networks import Swinv2Classifier
 
+
 @pytest.fixture(autouse=True)
 def mock_torch_load(monkeypatch):
     """Mock the torch.load function."""
+
     def mock_load(*args, **kwargs):
         return {
             "state_dict": {
@@ -29,15 +31,15 @@ def mock_torch_load(monkeypatch):
                 "encoder.layers1.0.blocks.0.attn.qkv.bias": torch.randn(144),
                 "encoder.layers1.0.blocks.0.attn.proj.weight": torch.randn(48, 48),
                 "encoder.layers1.0.blocks.0.attn.proj.bias": torch.randn(48),
-
                 "encoder.weight": torch.randn(128),
                 "encoder.bias": torch.randn(128),
-
                 "classifier.weight": torch.randn(2, 128),
                 "classifier.bias": torch.randn(2),
             }
         }
+
     monkeypatch.setattr("torch.load", mock_load)
+
 
 @pytest.fixture(scope="module")
 def input_batch():
@@ -46,9 +48,28 @@ def input_batch():
         "query": torch.randn(8, 1, 128, 128, 128),
         "key": torch.randn(8, 1, 128, 128, 128),
         "mod": ["t1", "t2", "flair", "dwi", "other", "other", "other", "t1"],
-        "sub_id": ["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"],
-        "ses_id": ["ses_01", "ses_01", "ses_01", "ses_02", "ses_01", "ses_01", "ses_01", "ses_01"],
+        "sub_id": [
+            "sub_01",
+            "sub_02",
+            "sub_03",
+            "sub_04",
+            "sub_05",
+            "sub_06",
+            "sub_07",
+            "sub_01",
+        ],
+        "ses_id": [
+            "ses_01",
+            "ses_01",
+            "ses_01",
+            "ses_02",
+            "ses_01",
+            "ses_01",
+            "ses_01",
+            "ses_01",
+        ],
     }
+
 
 @pytest.fixture(scope="module")
 def classification_model_w_encoder():
@@ -63,34 +84,87 @@ def classification_model_w_encoder():
     )
     return model
 
+
 def test_modality_to_onehot(input_batch):
     """Test that the modality to one-hot encoding is correct."""
     one_hot = modality_to_onehot(input_batch, "mod", torch.device("cpu"))
     assert one_hot.shape == (8, 5)
     assert one_hot.dtype == torch.float32
-    assert torch.all(one_hot == torch.tensor([
-        [1, 0, 0, 0, 0], 
-        [0, 1, 0, 0, 0], 
-        [0, 0, 1, 0, 0], 
-        [0, 0, 0, 1, 0], 
-        [0, 0, 0, 0, 1], 
-        [0, 0, 0, 0, 1], 
-        [0, 0, 0, 0, 1], 
-        [1, 0, 0, 0, 0],
-    ]))
+    assert torch.all(
+        one_hot
+        == torch.tensor(
+            [
+                [1, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0],
+                [0, 0, 1, 0, 0],
+                [0, 0, 0, 1, 0],
+                [0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 1],
+                [1, 0, 0, 0, 0],
+            ]
+        )
+    )
 
-@pytest.mark.parametrize("sub, ses", [
-    (["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"], 
-    ["ses_01", "ses_01", "ses_01", "ses_02", "ses_01", "ses_01", "ses_01", "ses_01"]),
-    ([1, 2, 3, 4, 5, 6, 7, 1], 
-    [1, 1, 1, 2, 1, 1, 1, 1]),
-    (torch.tensor([1, 2, 3, 4, 5, 6, 7, 1]), 
-    torch.tensor([1, 1, 1, 2, 1, 1, 1, 1])),
-    (["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"], 
-    [1, 1, 1, 2, 1, 1, 1, 1]),
-    (["sub_01", "sub_02", "sub_03", "sub_04", "sub_05", "sub_06", "sub_07", "sub_01"], 
-    torch.tensor([1, 1, 1, 2, 1, 1, 1, 1])),
-])
+
+@pytest.mark.parametrize(
+    "sub, ses",
+    [
+        (
+            [
+                "sub_01",
+                "sub_02",
+                "sub_03",
+                "sub_04",
+                "sub_05",
+                "sub_06",
+                "sub_07",
+                "sub_01",
+            ],
+            [
+                "ses_01",
+                "ses_01",
+                "ses_01",
+                "ses_02",
+                "ses_01",
+                "ses_01",
+                "ses_01",
+                "ses_01",
+            ],
+        ),
+        ([1, 2, 3, 4, 5, 6, 7, 1], [1, 1, 1, 2, 1, 1, 1, 1]),
+        (
+            torch.tensor([1, 2, 3, 4, 5, 6, 7, 1]),
+            torch.tensor([1, 1, 1, 2, 1, 1, 1, 1]),
+        ),
+        (
+            [
+                "sub_01",
+                "sub_02",
+                "sub_03",
+                "sub_04",
+                "sub_05",
+                "sub_06",
+                "sub_07",
+                "sub_01",
+            ],
+            [1, 1, 1, 2, 1, 1, 1, 1],
+        ),
+        (
+            [
+                "sub_01",
+                "sub_02",
+                "sub_03",
+                "sub_04",
+                "sub_05",
+                "sub_06",
+                "sub_07",
+                "sub_01",
+            ],
+            torch.tensor([1, 1, 1, 2, 1, 1, 1, 1]),
+        ),
+    ],
+)
 def test_sub_ses_ids(input_batch, sub, ses):
     """Test that the subject and session ID tensors are returned correctly."""
     input_batch["sub_id"] = sub
@@ -103,29 +177,38 @@ def test_sub_ses_ids(input_batch, sub, ses):
     assert torch.all(sub_id == torch.tensor([1, 2, 3, 4, 5, 6, 7, 1]))
     assert torch.all(ses_id == torch.tensor([1, 1, 1, 2, 1, 1, 1, 1]))
 
+
 def test_pack_ids(input_batch):
     """Test that the pack_ids function is correct."""
     sub_id, ses_id = get_sub_ses_tensors(input_batch, torch.device("cpu"))
     packed = pack_ids(sub_id, ses_id)
     assert packed.shape == (8,)
     assert packed.dtype == torch.int64
-    assert torch.all(packed == torch.tensor(
-        [1e6 + 1, 2e6 + 1, 3e6 + 1, 4e6 + 2, 5e6 + 1, 6e6 + 1, 7e6 + 1, 1e6 + 1]
-    ))
+    assert torch.all(
+        packed
+        == torch.tensor(
+            [1e6 + 1, 2e6 + 1, 3e6 + 1, 4e6 + 2, 5e6 + 1, 6e6 + 1, 7e6 + 1, 1e6 + 1]
+        )
+    )
+
 
 def test_get_total_norm(model_with_grads):
-    """Compare with reference grad norm using a dummy optimized model"""
+    """Compare with reference grad norm using a dummy optimized model."""
     norm = get_total_grad_norm(model_with_grads)
 
     ref_norm = torch.norm(
-        torch.stack([
-            p.grad.detach().norm(2)
-            for p in model_with_grads.parameters()
-            if p.grad is not None
-        ]), p=2,
+        torch.stack(
+            [
+                p.grad.detach().norm(2)
+                for p in model_with_grads.parameters()
+                if p.grad is not None
+            ]
+        ),
+        p=2,
     )
 
     assert torch.equal(norm, ref_norm)
+
 
 def test_load_encoder_from_checkpoint(classification_model_w_encoder):
     """Test that the encoder is loaded correctly."""

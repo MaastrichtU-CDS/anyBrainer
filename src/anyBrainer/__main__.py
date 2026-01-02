@@ -1,5 +1,4 @@
-"""
-anyBrainer – CLI entry‑point
+"""AnyBrainer – CLI entry‑point.
 
 Run any workflow registered in the package from the command line; e.g.,:
 

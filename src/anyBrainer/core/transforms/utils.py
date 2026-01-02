@@ -5,9 +5,9 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Sequence
 
 logger = logging.getLogger(__name__)
+
 
 def assign_key(data, key):
     try:

@@ -40,27 +40,31 @@ logger = logging.getLogger(__name__)
 
 @register(RK.CALLBACK)
 class UpdateDatamoduleEpoch(pl.Callback):
-    """
-    Callback to update the datamodule's _current_epoch attribute.
-    """        
+    """Callback to update the datamodule's _current_epoch attribute."""
+
     @rank_zero_only
-    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Sync the current epoch between the trainer and the datamodule."""
-        if (trainer.datamodule is None or not hasattr(trainer.datamodule, "_current_epoch")): # pyright: ignore
-            logger.warning("Datamodule does not have _current_epoch attribute. "
-                           "This is likely due to a custom datamodule that does not "
-                           "inherit from anyBrainer.data.BaseDataModule.")
+        if trainer.datamodule is None or not hasattr(
+            trainer.datamodule, "_current_epoch"
+        ):  # pyright: ignore
+            logger.warning(
+                "Datamodule does not have _current_epoch attribute. "
+                "This is likely due to a custom datamodule that does not "
+                "inherit from anyBrainer.data.BaseDataModule."
+            )
             return
-        
-        trainer.datamodule._current_epoch = trainer.current_epoch + 1 # type: ignore
+
+        trainer.datamodule._current_epoch = trainer.current_epoch + 1  # type: ignore
         logger.debug(f"Updated datamodule epoch to {trainer.current_epoch + 1}")
 
 
 @register(RK.CALLBACK)
 class LogLR(pl.Callback):
-    """
-    Callback to log the learning rate for all optimizers in the trainer.
-    """
+    """Callback to log the learning rate for all optimizers in the trainer."""
+
     @rank_zero_only
     def on_before_optimizer_step(
         self,
@@ -72,7 +76,7 @@ class LogLR(pl.Callback):
         if not isinstance(trainer.optimizers, list):
             logger.warning("Cannot log LR because pl_module.optimizers is not a list.")
             return
-        
+
         pl_module.log_dict(
             get_optimizer_lr(trainer.optimizers),
             on_step=True,
@@ -84,9 +88,8 @@ class LogLR(pl.Callback):
 
 @register(RK.CALLBACK)
 class LogGradNorm(pl.Callback):
-    """
-    Callback to log the gradient norm for all parameters in the model.
-    """
+    """Callback to log the gradient norm for all parameters in the model."""
+
     @rank_zero_only
     def on_train_batch_end(
         self,
@@ -110,8 +113,7 @@ class LogGradNorm(pl.Callback):
 
 @register(RK.CALLBACK)
 class FreezeParamGroups(pl.Callback):
-    """
-    Freeze / unfreeze selected parameter groups at scheduled epochs.
+    """Freeze / unfreeze selected parameter groups at scheduled epochs.
 
     Args:
     - param_group_prefix: List of parameter group prefixes to freeze
@@ -121,6 +123,7 @@ class FreezeParamGroups(pl.Callback):
         same format as freeze_epoch.
     - train_bn: Whether to keep BatchNorm layers in train mode.
     """
+
     def __init__(
         self,
         *,
@@ -142,28 +145,35 @@ class FreezeParamGroups(pl.Callback):
         self.freeze_epoch = _expand(freeze_epoch)
         self.unfreeze_epoch = _expand(unfreeze_epoch)
         if len(self.freeze_epoch) != len(self.prefixes):
-            msg = (f"[FreezeParamGroups] `freeze_epoch` must match number of parameter "
-                   f"group prefixes, got {len(self.freeze_epoch)} and {len(self.prefixes)}.")
+            msg = (
+                f"[FreezeParamGroups] `freeze_epoch` must match number of parameter "
+                f"group prefixes, got {len(self.freeze_epoch)} and {len(self.prefixes)}."
+            )
             logger.error(msg)
             raise ValueError(msg)
         if len(self.unfreeze_epoch) != len(self.prefixes):
-            msg = (f"[FreezeParamGroups] `unfreeze_epoch` must match number of parameter "
-                   f"group prefixes, got {len(self.unfreeze_epoch)} and {len(self.prefixes)}.")
+            msg = (
+                f"[FreezeParamGroups] `unfreeze_epoch` must match number of parameter "
+                f"group prefixes, got {len(self.unfreeze_epoch)} and {len(self.prefixes)}."
+            )
             logger.error(msg)
             raise ValueError(msg)
 
         self.train_bn = train_bn
-        self._are_frozen: list[bool] | None = None     # set in setup()
+        self._are_frozen: list[bool] | None = None  # set in setup()
         self._param_groups: list[list[nn.Parameter]] | None = None  # set in setup()
-    
+
     def setup(self, trainer, pl_module, stage: str | None = None):
         self._param_groups = [
-            cast(list[nn.Parameter], get_parameter_groups_from_prefixes(
-                model=pl_module.model, # type: ignore[attr-defined]
-                prefixes=pref,
-                trainable_only=False,
-                silent=True,
-            ))
+            cast(
+                list[nn.Parameter],
+                get_parameter_groups_from_prefixes(
+                    model=pl_module.model,  # type: ignore[attr-defined]
+                    prefixes=pref,
+                    trainable_only=False,
+                    silent=True,
+                ),
+            )
             for pref in self.prefixes
         ]
         self._are_frozen = [False] * len(self._param_groups)
@@ -174,33 +184,38 @@ class FreezeParamGroups(pl.Callback):
             f"train_bn={self.train_bn})."
         )
 
-    def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_epoch_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         """Freeze parameter groups."""
         epoch = trainer.current_epoch
         frozen, unfrozen = self._toggle_requires_grad(epoch)
         bn_mode = self._set_batchnorm_mode(pl_module)
 
         if frozen or unfrozen:
-            msg = (f"[FreezeCallback] epoch {epoch} | "
-                   f"froze: {frozen or '—'} | unfroze: {unfrozen or '—'}")
+            msg = (
+                f"[FreezeCallback] epoch {epoch} | "
+                f"froze: {frozen or '—'} | unfroze: {unfrozen or '—'}"
+            )
             if bn_mode is not None:
                 msg += f" | BatchNorm train={bn_mode}"
             logger.info(msg)
-    
-    def _toggle_requires_grad(self, epoch: int) -> tuple[list[str], list[str]]:
-        """
-        Freeze/unfreeze groups, return lists of prefix names that changed.
 
-        If same epoch is in both freeze and unfreeze lists, the parameter group 
-        will be unfrozen.
+    def _toggle_requires_grad(self, epoch: int) -> tuple[list[str], list[str]]:
+        """Freeze/unfreeze groups, return lists of prefix names that changed.
+
+        If same epoch is in both freeze and unfreeze lists, the
+        parameter group will be unfrozen.
         """
         if self._param_groups is None or self._are_frozen is None:
-            msg = (f"[FreezeParamGroups] `_param_groups` or `_are_frozen` is None. "
-                   "This is likely due to using the callback outside the trainer, "
-                   "which automatically calls `setup()`.")
+            msg = (
+                "[FreezeParamGroups] `_param_groups` or `_are_frozen` is None. "
+                "This is likely due to using the callback outside the trainer, "
+                "which automatically calls `setup()`."
+            )
             logger.error(msg)
             raise ValueError(msg)
-        
+
         frozen, unfrozen = [], []
         for i, params in enumerate(self._param_groups):
             if epoch == self.freeze_epoch[i] and not self._are_frozen[i]:
@@ -216,13 +231,15 @@ class FreezeParamGroups(pl.Callback):
                 unfrozen.append(self.prefixes[i])
 
         return frozen, unfrozen
-    
+
     def _set_batchnorm_mode(self, pl_module) -> bool | None:
         """Put BN layers in train/eval depending on frozen status."""
         if self._are_frozen is None:
-            msg = (f"[FreezeParamGroups] `_are_frozen` is None. "
-                   "This is likely due to using the callback outside the trainer, "
-                   "which automatically calls `setup()`.")
+            msg = (
+                "[FreezeParamGroups] `_are_frozen` is None. "
+                "This is likely due to using the callback outside the trainer, "
+                "which automatically calls `setup()`."
+            )
             logger.error(msg)
             raise ValueError(msg)
 
@@ -236,8 +253,7 @@ class FreezeParamGroups(pl.Callback):
 
 @register(RK.CALLBACK)
 class MetricAggregator(pl.Callback):
-    """
-    Accumulates metrics you `self.log()` during *any* evaluation loop
+    """Accumulates metrics you `self.log()` during *any* evaluation loop
     (validation, test, validate-only) and prints mean ± std after each run.
 
     Args:
@@ -245,7 +261,7 @@ class MetricAggregator(pl.Callback):
         (e.g. 'val_' or 'test_').  Set to '' to catch everything.
     """
 
-    def __init__(self, prefix: str | list[str] = ''):
+    def __init__(self, prefix: str | list[str] = ""):
         super().__init__()
         self.prefix = [prefix] if isinstance(prefix, str) else prefix
         self._current_run: dict[str, float] = defaultdict(float)
@@ -261,7 +277,9 @@ class MetricAggregator(pl.Callback):
                 continue
             if isinstance(v, torch.Tensor):
                 if v.ndim != 0:
-                    logger.warning(f"[MetricAggregator] Skipping non-scalar tensor metric '{k}'.")
+                    logger.warning(
+                        f"[MetricAggregator] Skipping non-scalar tensor metric '{k}'."
+                    )
                     continue
                 v = v.item()
             self._current_run[k] = v
@@ -269,49 +287,56 @@ class MetricAggregator(pl.Callback):
     def _summarise_run(self, tag: str) -> None:
         """Summarise and reset the collected metrics at the end of a run."""
         if not self._current_run:
-            rank_zero_only(logger.warning)(f"[MetricAggregator] No '{tag}' metrics "
-                                           f"collected for run {self._run_idx}.")
+            rank_zero_only(logger.warning)(
+                f"[MetricAggregator] No '{tag}' metrics "
+                f"collected for run {self._run_idx}."
+            )
         else:
             lines = []
             for k, v in self._current_run.items():
                 self._all_runs[k].append(v)
                 lines.append(f"{k}: {v:.4f}")
-            rank_zero_only(logger.info)(f"[MetricAggregator] {tag}-run {self._run_idx} "
-                                        f"summary\n  " + "\n  ".join(lines))
+            rank_zero_only(logger.info)(
+                f"[MetricAggregator] {tag}-run {self._run_idx} "
+                f"summary\n  " + "\n  ".join(lines)
+            )
         self._current_run.clear()
         self._run_idx += 1
-    
+
     def on_validation_epoch_end(
-        self, 
-        trainer: pl.Trainer, 
+        self,
+        trainer: pl.Trainer,
         pl_module: pl.LightningModule,
     ) -> None:
         self._collect(trainer)
 
     def on_test_epoch_end(
-        self, 
-        trainer: pl.Trainer, 
+        self,
+        trainer: pl.Trainer,
         pl_module: pl.LightningModule,
     ) -> None:
         self._collect(trainer)
 
     def on_fit_end(
-        self, 
-        trainer: pl.Trainer, 
+        self,
+        trainer: pl.Trainer,
         pl_module: pl.LightningModule,
     ) -> None:
         # Add best checkpoint metric--if any--to current run.
         ckpt_cb = get_ckpt_callback(trainer)
-        if (ckpt_cb is not None and ckpt_cb.best_model_path and 
-            ckpt_cb.best_model_score is not None):
-            best_score = ckpt_cb.best_model_score.item() # pyright: ignore
+        if (
+            ckpt_cb is not None
+            and ckpt_cb.best_model_path
+            and ckpt_cb.best_model_score is not None
+        ):
+            best_score = ckpt_cb.best_model_score.item()  # pyright: ignore
             best_metric = ckpt_cb.monitor
             self._current_run[f"best_{best_metric}"] = best_score
         self._summarise_run("fit")
 
     def on_test_end(
-        self, 
-        trainer: pl.Trainer, 
+        self,
+        trainer: pl.Trainer,
         pl_module: pl.LightningModule,
     ) -> None:
         self._summarise_run("test")
@@ -331,9 +356,9 @@ class MetricAggregator(pl.Callback):
 
 @register(RK.CALLBACK)
 class SWAAvgOnly(pl.Callback):
-    """
-    SWA-based averaging of model weights from `start_epoch` to the end, without LR annealing
-    or BN updates. Optionally clamps LR to a constant at `start_epoch`.
+    """SWA-based averaging of model weights from `start_epoch` to the end,
+    without LR annealing or BN updates. Optionally clamps LR to a constant at
+    `start_epoch`.
 
     - No LR scheduler interference (unless `clamp_lr` is set).
     - No SWALR / annealing.
@@ -345,10 +370,11 @@ class SWAAvgOnly(pl.Callback):
         clamp_lr: if not None, set every param-group's LR to this value at start.
         update_on: "epoch" (default) or "step" if you prefer finer averaging.
     """
+
     def __init__(
-        self, 
-        start_epoch: int = 40, 
-        clamp_lr: float | None = None, 
+        self,
+        start_epoch: int = 40,
+        clamp_lr: float | None = None,
         update_on: Literal["epoch", "step"] = "epoch",
     ) -> None:
         super().__init__()
@@ -359,9 +385,11 @@ class SWAAvgOnly(pl.Callback):
         self._avg = None
         self._active = False
 
-        logger.info(f"[SWAAvgOnly] SWA averaging-only callback initialized with start_epoch={start_epoch}, "
-                    f"clamp_lr={clamp_lr}, update_on={update_on}.")
-    
+        logger.info(
+            f"[SWAAvgOnly] SWA averaging-only callback initialized with start_epoch={start_epoch}, "
+            f"clamp_lr={clamp_lr}, update_on={update_on}."
+        )
+
     @staticmethod
     def _maybe_unwrap(trainer: pl.Trainer, module: pl.LightningModule) -> nn.Module:
         """Return the base nn.Module across SingleDevice/DDP/etc."""
@@ -375,7 +403,9 @@ class SWAAvgOnly(pl.Callback):
         # Keep averages on the same device as `base`
         self._avg = AveragedModel(base)
 
-    def on_train_epoch_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_epoch_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         if trainer.current_epoch == self.start_epoch:
             self._active = True
             if self.clamp_lr is not None:
@@ -396,14 +426,18 @@ class SWAAvgOnly(pl.Callback):
             base = self._maybe_unwrap(trainer, pl_module)
             self._avg.update_parameters(base)
 
-    def on_train_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
         if self.update_on == "epoch" and self._active and self._avg is not None:
             base = self._maybe_unwrap(trainer, pl_module)
             self._avg.update_parameters(base)
 
     def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         if self._avg is None:
-            logger.warning("[SWAAvgOnly] on_fit_end called but averaging never initialized.")
+            logger.warning(
+                "[SWAAvgOnly] on_fit_end called but averaging never initialized."
+            )
             return
         # swap averaged weights in
         base = self._maybe_unwrap(trainer, pl_module)

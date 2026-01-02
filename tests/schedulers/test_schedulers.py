@@ -2,6 +2,7 @@
 
 from anyBrainer.core.schedulers import StepwiseParameterScheduler
 
+
 class TestSchedulers:
     def test_stepwise_parameter_scheduler(self):
         """Unit test for StepwiseParameterScheduler."""
@@ -19,9 +20,10 @@ class TestSchedulers:
         assert scheduler.get_value(2000) == {"loss_weight": 1.0}
         assert scheduler.get_value(10000) == {"loss_weight": 1.0}
         assert scheduler.get_value(-10) == {"loss_weight": 0.0}
-    
+
     def test_stepwise_parameter_scheduler_step_function(self):
-        """Unit test for StepwiseParameterScheduler performing a step function."""
+        """Unit test for StepwiseParameterScheduler performing a step
+        function."""
         scheduler = StepwiseParameterScheduler(
             param_name="another_param",
             start_step=1000,

@@ -15,7 +15,7 @@ from monai.data.utils import list_data_collate, decollate_batch
 
 from preprocess import preprocess_inputs, revert_preprocess
 from utils import (
-    write_probability, 
+    write_probability,
     move_batch_to_device,
     get_device,
 )
@@ -34,7 +34,7 @@ TASK_1_CONFIG = {
         "is_nifti": True,
         "concat_img": True,
         "sliding_window": False,
-        "target_key": "img"
+        "target_key": "img",
     },
     "pl_module_settings": {
         "name": "ClassificationModel",
@@ -64,41 +64,39 @@ TASK_1_CONFIG = {
                 {
                     "lr": 0.0005,
                     "weight_decay": 0.001,
-                    "param_group_prefix": ["classification_head", "fusion_head"]
+                    "param_group_prefix": ["classification_head", "fusion_head"],
                 },
                 {
                     "lr": 0.00002,
                     "weight_decay": 0.00005,
-                    "param_group_prefix": ["encoder.layers4"]
-                }
-            ]
+                    "param_group_prefix": ["encoder.layers4"],
+                },
+            ],
         },
         "lr_scheduler_kwargs": {
             "name": "CosineAnnealingWithWarmup",
             "interval": "step",
             "frequency": 1,
-            "warmup_iters": [30, 18], # [10%, 20%]
+            "warmup_iters": [30, 18],  # [10%, 20%]
             "start_iter": [0, 210],
             "eta_min": [0.00005, 0.000002],
-            "total_iters": 300
+            "total_iters": 300,
         },
         "loss_fn_kwargs": {
             "name": "BCEWithLogitsLoss",
         },
         "weights_init_settings": {
             "weights_init_fn": None,
-            "load_pretrain_weights": None, # populated in the main function
+            "load_pretrain_weights": None,  # populated in the main function
             "load_param_group_prefix": None,
-            "rename_map": {
-                "model.": ""
-            }
+            "rename_map": {"model.": ""},
         },
         "inference_settings": {
             "inferer_kwargs": {
                 "name": "SlidingWindowClassificationInferer",
                 "patch_size": 128,
                 "n_patches": (2, 2, 2),
-                "aggregation_mode": "mean"
+                "aggregation_mode": "mean",
             },
             "postprocess": None,
             "tta": "get_flip_tta",
@@ -115,7 +113,7 @@ TASK_1_CONFIG = {
         "run_2.ckpt",
         "run_3.ckpt",
         "run_4.ckpt",
-    ]
+    ],
 }
 
 TASK_2_CONFIG = {
@@ -128,7 +126,7 @@ TASK_2_CONFIG = {
         "delete_orig": False,
         "sliding_window": False,
         "target_key": "img",
-        "ref_key": "flair"
+        "ref_key": "flair",
     },
     "pl_module_settings": {
         "name": "SegmentationModel",
@@ -145,32 +143,28 @@ TASK_2_CONFIG = {
             "extra_swin_kwargs": {
                 "use_checkpoint": True,
             },
-            "n_late_fusion": 3
+            "n_late_fusion": 3,
         },
         "optimizer_kwargs": {
             "name": "AdamW",
             "auto_no_weight_decay": True,
             "param_groups": [
-                {
-                    "lr": 0.0005,
-                    "weight_decay": 0.0001,
-                    "param_group_prefix": "decoder"
-                },
+                {"lr": 0.0005, "weight_decay": 0.0001, "param_group_prefix": "decoder"},
                 {
                     "lr": 0.00002,
                     "weight_decay": 0.00001,
-                    "param_group_prefix": ["encoder.layers4"]
-                }
-            ]
+                    "param_group_prefix": ["encoder.layers4"],
+                },
+            ],
         },
         "lr_scheduler_kwargs": {
             "name": "CosineAnnealingWithWarmup",
             "interval": "step",
             "frequency": 1,
-            "warmup_iters": [144, 81], # [8%, 15%]
+            "warmup_iters": [144, 81],  # [8%, 15%]
             "start_iter": [0, 1260],
             "eta_min": [0.00005, 0.000002],
-            "total_iters": 1800
+            "total_iters": 1800,
         },
         "loss_fn_kwargs": {
             "name": "monai:DiceCELoss",
@@ -178,11 +172,9 @@ TASK_2_CONFIG = {
         },
         "weights_init_settings": {
             "weights_init_fn": None,
-            "load_pretrain_weights": None, # populated in the main function
+            "load_pretrain_weights": None,  # populated in the main function
             "load_param_group_prefix": None,
-            "rename_map": {
-                "model.": ""
-            }
+            "rename_map": {"model.": ""},
         },
         "inference_settings": {
             "inferer_kwargs": {
@@ -192,8 +184,8 @@ TASK_2_CONFIG = {
                 "overlap": 0.5,
             },
             "postprocess": None,
-            "tta": "get_flip_tta"
-        }
+            "tta": "get_flip_tta",
+        },
     },
     "postprocess_transforms": {
         "name": "get_postprocess_segmentation_transforms",
@@ -206,7 +198,7 @@ TASK_2_CONFIG = {
         "run_2.ckpt",
         "run_3.ckpt",
         "run_4.ckpt",
-    ]
+    ],
 }
 
 TASK_3_CONFIG = {
@@ -217,7 +209,7 @@ TASK_3_CONFIG = {
         "is_nifti": True,
         "concat_img": True,
         "sliding_window": True,
-        "target_key": "img"
+        "target_key": "img",
     },
     "pl_module_settings": {
         "name": "RegressionModel",
@@ -237,7 +229,7 @@ TASK_3_CONFIG = {
             "mlp_hidden_dim": 128,
             "mlp_dropout": 0.2,
             "late_fusion": True,
-            "n_late_fusion": 2
+            "n_late_fusion": 2,
         },
         "optimizer_kwargs": {
             "name": "AdamW",
@@ -246,36 +238,36 @@ TASK_3_CONFIG = {
                 {
                     "lr": 0.0005,
                     "weight_decay": 0.001,
-                    "param_group_prefix": ["fusion_head", "classification_head"]
+                    "param_group_prefix": ["fusion_head", "classification_head"],
                 },
                 {
                     "lr": 0.0001,
                     "weight_decay": 0.00005,
-                    "param_group_prefix": "encoder.layers4"
+                    "param_group_prefix": "encoder.layers4",
                 },
                 {
                     "lr": 0.00007,
                     "weight_decay": 0.00005,
-                    "param_group_prefix": "encoder.layers3"
+                    "param_group_prefix": "encoder.layers3",
                 },
                 {
                     "lr": 0.00005,
                     "weight_decay": 0.00005,
-                    "param_group_prefix": "encoder.layers2"
+                    "param_group_prefix": "encoder.layers2",
                 },
                 {
                     "lr": 0.00003,
                     "weight_decay": 0.00005,
-                    "param_group_prefix": "encoder.layers1"
-                }
-            ]
+                    "param_group_prefix": "encoder.layers1",
+                },
+            ],
         },
         "lr_scheduler_kwargs": {
             "name": "CosineAnnealingWithWarmup",
             "interval": "step",
             "frequency": 1,
             "warmup_iters": [0.00005, 0.00001, 0.000007, 0.000005, 0.000003],
-            "start_iter": [96, 116, 126, 108, 80], # [8%, 12%, 15%, 18%, 22%]
+            "start_iter": [96, 116, 126, 108, 80],  # [8%, 12%, 15%, 18%, 22%]
             "eta_min": [0, 240, 360, 600, 840],
             "total_iters": 1200,
         },
@@ -285,11 +277,9 @@ TASK_3_CONFIG = {
         },
         "weights_init_settings": {
             "weights_init_fn": None,
-            "load_pretrain_weights": None, # populated in the main function
+            "load_pretrain_weights": None,  # populated in the main function
             "load_param_group_prefix": None,
-            "rename_map": {
-                "model.": ""
-            }
+            "rename_map": {"model.": ""},
         },
         "center_labels": "fixed:55",
         "scale_labels": [20, 90],
@@ -306,8 +296,9 @@ TASK_3_CONFIG = {
         "run_2.ckpt",
         "run_3.ckpt",
         "run_4.ckpt",
-    ]
+    ],
 }
+
 
 def predict_task_1():
     """
@@ -323,7 +314,7 @@ def predict_task_1():
     ap.add_argument("--debug", default=False, action="store_true")
     args = ap.parse_args()
 
-    logging.info(f"====RUNNING BRAIN INFARCT CLASSIFICATION PIPELINE====\n")
+    logging.info("====RUNNING BRAIN INFARCT CLASSIFICATION PIPELINE====\n")
     if not args.debug:
         logging.getLogger("anyBrainer").setLevel(logging.WARNING)
 
@@ -343,7 +334,7 @@ def predict_task_1():
     else:
         raise ValueError("Either SWI or T2* modality must be provided.")
 
-    logging.info(f"Preprocessing inputs...")
+    logging.info("Preprocessing inputs...")
     preprocess_inputs(
         inputs=[args.flair, args.adc, args.dwi_b1000, args.swi, args.t2s],
         mods=["flair", "adc", "dwi_b1000", "swi", "t2s"],
@@ -361,13 +352,21 @@ def predict_task_1():
     }
     for p in input_dict.values():
         if not p.exists():
-            raise FileNotFoundError(f"Cannot find preprocessed input {p.name}; "
-                                    f"check working directory {work_dir} or any "
-                                    f"preprocessing failures.")
-    logging.info(f"Successfully preprocessed inputs.")
+            raise FileNotFoundError(
+                f"Cannot find preprocessed input {p.name}; "
+                f"check working directory {work_dir} or any "
+                f"preprocessing failures."
+            )
+    logging.info("Successfully preprocessed inputs.")
 
-    predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_1_CONFIG["predict_transforms"]))
-    postprocess_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_1_CONFIG["postprocess_transforms"]))
+    predict_transforms = Compose(
+        UnitFactory.get_transformslist_from_kwargs(TASK_1_CONFIG["predict_transforms"])
+    )
+    postprocess_transforms = Compose(
+        UnitFactory.get_transformslist_from_kwargs(
+            TASK_1_CONFIG["postprocess_transforms"]
+        )
+    )
 
     # Load ensemble
     models = []
@@ -393,11 +392,15 @@ def predict_task_1():
                 m.freeze()
             except Exception:
                 pass
-            curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
+            curr = move_batch_to_device(
+                cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device
+            )
             logits = m.predict(curr, img_key="img", do_postprocess=False, invert=False)
             logits_cpu = logits.detach().float().cpu()
 
-            mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+            mean_logits = (
+                logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+            )
 
             m = m.to("cpu")
             torch.cuda.empty_cache()
@@ -406,13 +409,16 @@ def predict_task_1():
         out = cast(torch.Tensor, postprocess_transforms(mean_logits))
         prob = float(out.item())
 
-    logging.info(f"Ensemble prediction completed with probability {prob}. "
-                 f"Writing output to {args.output}...")
+    logging.info(
+        f"Ensemble prediction completed with probability {prob}. "
+        f"Writing output to {args.output}..."
+    )
 
     # Save
     write_probability(args.output, prob)
     logging.info(f"Output written to {args.output}.")
-    logging.info(f"====BRAIN INFARCT CLASSIFICATION PIPELINE COMPLETED====\n")
+    logging.info("====BRAIN INFARCT CLASSIFICATION PIPELINE COMPLETED====\n")
+
 
 def predict_task_2():
     """
@@ -427,7 +433,7 @@ def predict_task_2():
     ap.add_argument("--debug", default=False, action="store_true")
     args = ap.parse_args()
 
-    logging.info(f"====RUNNING BRAIN MENINGIOMA SEGMENTATION PIPELINE====\n")
+    logging.info("====RUNNING BRAIN MENINGIOMA SEGMENTATION PIPELINE====\n")
     if not args.debug:
         logging.getLogger("anyBrainer").setLevel(logging.WARNING)
 
@@ -447,7 +453,7 @@ def predict_task_2():
     else:
         raise ValueError("Either SWI or T2* modality must be provided.")
 
-    logging.info(f"Preprocessing inputs...")
+    logging.info("Preprocessing inputs...")
     _do_bet = True
     _do_reg = True
     preprocess_inputs(
@@ -466,14 +472,22 @@ def predict_task_2():
     }
     for p in input_dict.values():
         if not p.exists():
-            raise FileNotFoundError(f"Cannot find preprocessed input {p.name}; "
-                                    f"check working directory {work_dir} or any "
-                                    f"preprocessing failures.")
-    logging.info(f"Successfully preprocessed inputs.")
+            raise FileNotFoundError(
+                f"Cannot find preprocessed input {p.name}; "
+                f"check working directory {work_dir} or any "
+                f"preprocessing failures."
+            )
+    logging.info("Successfully preprocessed inputs.")
 
     # Load transforms
-    predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_2_CONFIG["predict_transforms"]))
-    postprocess_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_2_CONFIG["postprocess_transforms"]))
+    predict_transforms = Compose(
+        UnitFactory.get_transformslist_from_kwargs(TASK_2_CONFIG["predict_transforms"])
+    )
+    postprocess_transforms = Compose(
+        UnitFactory.get_transformslist_from_kwargs(
+            TASK_2_CONFIG["postprocess_transforms"]
+        )
+    )
 
     # Load ensemble
     models = []
@@ -490,7 +504,9 @@ def predict_task_2():
     device = get_device()
     mean_logits: torch.Tensor | None = None
     w = 1.0 / max(1, len(models))
-    cpu_batch = cast(dict[str, torch.Tensor], list_data_collate([predict_transforms(input_dict)]))
+    cpu_batch = cast(
+        dict[str, torch.Tensor], list_data_collate([predict_transforms(input_dict)])
+    )
     with torch.no_grad():
         logging.info(f"Running ensemble of {len(models)} models...")
         for m in tqdm(models):
@@ -499,41 +515,54 @@ def predict_task_2():
                 m.freeze()
             except Exception:
                 pass
-            curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
+            curr = move_batch_to_device(
+                cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device
+            )
             logits = m.predict(curr, img_key="img", do_postprocess=False, invert=True)
             logits_cpu = logits.detach().float().cpu()
-            mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+            mean_logits = (
+                logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+            )
 
             m = m.to("cpu")
             torch.cuda.empty_cache()
-    
+
     # Postprocess
-    cpu_batch['pred'] = cast(torch.Tensor, postprocess_transforms(mean_logits))
+    cpu_batch["pred"] = cast(torch.Tensor, postprocess_transforms(mean_logits))
 
     # Revert prediction
-    logging.info(f"Reverting predicted segmentation mask to original space...")
+    logging.info("Reverting predicted segmentation mask to original space...")
     inv = Invertd(
-        keys="pred", 
-        orig_keys="flair", 
-        transform=predict_transforms, 
+        keys="pred",
+        orig_keys="flair",
+        transform=predict_transforms,
         nearest_interp=True,
     )
-    logging.info(f"Reverting cropping, resampling, and orientation transforms...")
+    logging.info("Reverting cropping, resampling, and orientation transforms...")
     inv_batch = cast(
         dict[str, torch.Tensor],
-        list_data_collate([inv(d) for d in cast(list[dict], decollate_batch(cpu_batch))])
+        list_data_collate(
+            [inv(d) for d in cast(list[dict], decollate_batch(cpu_batch))]
+        ),
     )
-    logging.info(f"Cropping, resampling, and orientation transforms reverted; "
-                 f"reverting registration to template...")
-    pred_img = revert_preprocess(inv_batch['pred'][0], args.flair, work_dir, 
-                                 tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
-                                 do_reg=_do_reg)
+    logging.info(
+        "Cropping, resampling, and orientation transforms reverted; "
+        "reverting registration to template..."
+    )
+    pred_img = revert_preprocess(
+        inv_batch["pred"][0],
+        args.flair,
+        work_dir,
+        tmpl_path=TEMPL_DIR / "icbm_mni152_t2_09a_asym_bet.nii.gz",
+        do_reg=_do_reg,
+    )
     logging.info(f"Image reverted to original space; saving to {args.output}...")
 
     # Save
     pred_img.to_file(args.output)
     logging.info(f"Output written to {args.output}.")
-    logging.info(f"====BRAIN MENINGIOMA SEGMENTATION PIPELINE COMPLETED====\n")
+    logging.info("====BRAIN MENINGIOMA SEGMENTATION PIPELINE COMPLETED====\n")
+
 
 def predict_task_3():
     """
@@ -546,13 +575,13 @@ def predict_task_3():
     ap.add_argument("--debug", default=False, action="store_true")
     args = ap.parse_args()
 
-    logging.info(f"====RUNNING BRAIN AGE PREDICTION PIPELINE====\n")
+    logging.info("====RUNNING BRAIN AGE PREDICTION PIPELINE====\n")
     if not args.debug:
         logging.getLogger("anyBrainer").setLevel(logging.WARNING)
 
     work_dir = Path(os.getenv("ANYBRAINER_CACHE", "/tmp/anyBrainer"))
 
-    logging.info(f"Preprocessing inputs...")
+    logging.info("Preprocessing inputs...")
     preprocess_inputs(
         inputs=[args.t1, args.t2],
         mods=["t1", "t2"],
@@ -568,14 +597,22 @@ def predict_task_3():
     }
     for p in input_dict.values():
         if not p.exists():
-            raise FileNotFoundError(f"Cannot find preprocessed input {p.name}; "
-                                    f"check working directory {work_dir} or any "
-                                    f"preprocessing failures.")
-    logging.info(f"Successfully preprocessed inputs.")
+            raise FileNotFoundError(
+                f"Cannot find preprocessed input {p.name}; "
+                f"check working directory {work_dir} or any "
+                f"preprocessing failures."
+            )
+    logging.info("Successfully preprocessed inputs.")
 
     # Load transforms
-    predict_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_3_CONFIG["predict_transforms"]))
-    postprocess_transforms = Compose(UnitFactory.get_transformslist_from_kwargs(TASK_3_CONFIG["postprocess_transforms"]))
+    predict_transforms = Compose(
+        UnitFactory.get_transformslist_from_kwargs(TASK_3_CONFIG["predict_transforms"])
+    )
+    postprocess_transforms = Compose(
+        UnitFactory.get_transformslist_from_kwargs(
+            TASK_3_CONFIG["postprocess_transforms"]
+        )
+    )
 
     # Load ensemble
     models = []
@@ -601,34 +638,40 @@ def predict_task_3():
                 m.freeze()
             except Exception:
                 pass
-            curr = move_batch_to_device(cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device)
+            curr = move_batch_to_device(
+                cast(dict[str, torch.Tensor], deepcopy(cpu_batch)), device
+            )
             logits = m.predict(curr, img_key="img", do_postprocess=True, invert=False)
             logits_cpu = logits.detach().float().cpu()
 
-            mean_logits = logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+            mean_logits = (
+                logits_cpu * w if mean_logits is None else mean_logits + logits_cpu * w
+            )
 
             m = m.to("cpu")
             torch.cuda.empty_cache()
 
         out = float(cast(torch.Tensor, postprocess_transforms(mean_logits)).item())
-    
-    logging.info(f"Ensemble prediction completed with probability {out}. "
-                 f"Writing output to {args.output}...")
+
+    logging.info(
+        f"Ensemble prediction completed with probability {out}. "
+        f"Writing output to {args.output}..."
+    )
 
     # Save
     write_probability(args.output, out)
     logging.info(f"Output written to {args.output}.")
-    logging.info(f"====BRAIN AGE PREDICTION PIPELINE COMPLETED====\n")
+    logging.info("====BRAIN AGE PREDICTION PIPELINE COMPLETED====\n")
+
 
 def main():
-    """
-    Main function to run the inference pipeline.
-    """
+    """Main function to run the inference pipeline."""
     torch.set_num_threads(1)
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
     predict_task_3()
+
 
 if __name__ == "__main__":
     main()

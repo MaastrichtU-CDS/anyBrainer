@@ -10,12 +10,11 @@ from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.interfaces import ParameterScheduler
 
 logger = logging.getLogger(__name__)
-    
+
 
 @register(RK.PARAM_SCHEDULER)
 class StepwiseParameterScheduler(ParameterScheduler):
-    """
-    A general-purpose scheduler for interpolating any scalar parameter value
+    """A general-purpose scheduler for interpolating any scalar parameter value
     (e.g., loss weight, EMA momentum) over training steps.
 
     Args:
@@ -52,10 +51,12 @@ class StepwiseParameterScheduler(ParameterScheduler):
         self.end_value = float(end_value)
         self.mode = mode
 
-        logger.info(f"[StepwiseParameterScheduler] Initialized {self.param_name} "
-                    f"scheduler with: start_step={self.start_step}, end_step={self.end_step}, "
-                    f"start_value={self.start_value}, end_value={self.end_value}, "
-                    f"mode={self.mode}.")
+        logger.info(
+            f"[StepwiseParameterScheduler] Initialized {self.param_name} "
+            f"scheduler with: start_step={self.start_step}, end_step={self.end_step}, "
+            f"start_value={self.start_value}, end_value={self.end_value}, "
+            f"mode={self.mode}."
+        )
 
     def get_value(self, step: int) -> dict[str, float]:
         """Return the scheduled value at the given global step."""
@@ -67,14 +68,19 @@ class StepwiseParameterScheduler(ParameterScheduler):
         progress = (step - self.start_step) / (self.end_step - self.start_step)
 
         if self.mode == "linear":
-            return {self.param_name: self.start_value + 
-                    progress * (self.end_value - self.start_value)}
+            return {
+                self.param_name: self.start_value
+                + progress * (self.end_value - self.start_value)
+            }
         elif self.mode == "cosine":
             # Cosine interpolation from start_value to end_value
             import math
+
             cos_progress = 0.5 * (1 - math.cos(math.pi * progress))
-            return {self.param_name: self.start_value + cos_progress * 
-                    (self.end_value - self.start_value)}
+            return {
+                self.param_name: self.start_value
+                + cos_progress * (self.end_value - self.start_value)
+            }
         elif self.mode == "constant":
             return {self.param_name: self.start_value}
         else:

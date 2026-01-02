@@ -14,12 +14,13 @@ def check_allowed_types(kind: str, obj: object, allowed_types: tuple[Any, ...]) 
         return
 
     allowed_no_callable = tuple(t for t in allowed_types if t is not ABCCallable)
-    
+
     if allowed_no_callable:
         if isinstance(obj, type) and issubclass(obj, allowed_no_callable):
             return
-    
-    msg = (f"{obj!r} cannot be registered in {kind}. "
-           f"Allowed base(s): {allowed_types}")
+
+    msg = (
+        f"{obj!r} cannot be registered in {kind}. " f"Allowed base(s): {allowed_types}"
+    )
     logger.error(msg)
     raise TypeError(msg)

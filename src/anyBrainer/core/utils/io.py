@@ -25,13 +25,13 @@ def resolve_path(path: Path | str) -> Path:
     """Expand user and resolve path."""
     return Path(path).expanduser().resolve()
 
+
 def create_save_dirs(
     exp_dir: Path,
     new_version: bool,
     create_ckpt_dir: bool,
 ) -> None:
-    """
-    Create all required saving directories for an experiment.
+    """Create all required saving directories for an experiment.
 
     Args:
         exp_name: Name of the experiment.
@@ -43,20 +43,21 @@ def create_save_dirs(
 
     logs_dir = exp_dir / "logs"
     _create_dir(logs_dir, new_version)
-    
+
     if create_ckpt_dir:
         ckpt_dir = exp_dir / "checkpoints"
         _create_dir(ckpt_dir, new_version)
+
 
 def _create_dir(path: Path, new_version: bool) -> None:
     """Create a directory if it does not exist."""
     try:
         path.mkdir(parents=True, exist_ok=not new_version)
     except FileExistsError:
-        msg = (f"Directory {path} already exists; "
-               "delete it to create a new version.")
+        msg = f"Directory {path} already exists; " "delete it to create a new version."
         logger.error(msg)
         raise
+
 
 def load_model_from_ckpt(
     model_cls: type[pl.LightningModule],
@@ -64,16 +65,19 @@ def load_model_from_ckpt(
 ) -> pl.LightningModule | None:
     """Load a model from a checkpoint file."""
     if not ckpt_path.exists():
-        logger.warning(f"Checkpoint file {ckpt_path} does not exist; "
-                       "will create new model.")
+        logger.warning(
+            f"Checkpoint file {ckpt_path} does not exist; " "will create new model."
+        )
         return
-    
+
     try:
         return model_cls.load_from_checkpoint(ckpt_path)
     except Exception:
-        logger.exception(f"Failed to load model from checkpoint; "
-                         "will create new model.")
+        logger.exception(
+            "Failed to load model from checkpoint; " "will create new model."
+        )
         return
+
 
 def load_config(path: Path) -> dict[str, Any]:
     """Load a YAML or JSON file into a Python dict."""
@@ -87,6 +91,7 @@ def load_config(path: Path) -> dict[str, Any]:
         "Unsupported config format – use .yaml, .yml or .json",
     )
 
+
 def load_param_group_from_ckpt(
     model_instance: nn.Module,
     checkpoint_path: Path,
@@ -95,22 +100,21 @@ def load_param_group_from_ckpt(
     strict: bool = False,
     torch_load_kwargs: dict[str, Any] | None = None,
 ) -> tuple[nn.Module, dict[str, Any]]:
-    """
-    Load (optionally a subset of) parameters from a checkpoint into a module,
-    with optional prefix-based key renaming.
+    """Load (optionally a subset of) parameters from a checkpoint into a
+    module, with optional prefix-based key renaming.
 
     Args:
         model_instance: The module to load parameters into.
         checkpoint_path: The path to the checkpoint file.
         select_prefixes: A list of prefixes to select parameters from.
-        rename_map: A dictionary of old prefixes to new prefixes. 
+        rename_map: A dictionary of old prefixes to new prefixes.
         strict: Whether to raise an error if there are missing or unexpected keys.
         torch_load_kwargs: Additional keyword arguments to pass to `torch.load`.
 
     Returns:
         model_instance: The loaded module.
         stats: A dictionary of statistics.
-    
+
     Raises:
         FileNotFoundError: if ``checkpoint_path`` does not exist.
         TypeError: if the loaded checkpoint does not contain a dict-like state dict.
@@ -127,7 +131,11 @@ def load_param_group_from_ckpt(
     if select_prefixes:
         if isinstance(select_prefixes, str):
             select_prefixes = [select_prefixes]
-        selected = {k: v for k, v in state_dict.items() if any(k.startswith(p) for p in select_prefixes)}
+        selected = {
+            k: v
+            for k, v in state_dict.items()
+            if any(k.startswith(p) for p in select_prefixes)
+        }
         ignored = [k for k in state_dict if k not in selected]
     else:
         selected = dict(state_dict)
@@ -140,7 +148,7 @@ def load_param_group_from_ckpt(
             new_k = k
             for old, new in rename_map.items():
                 if k.startswith(old):
-                    new_k = new + k[len(old):]
+                    new_k = new + k[len(old) :]
                     break
             to_load[new_k] = v
     else:

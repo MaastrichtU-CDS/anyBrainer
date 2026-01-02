@@ -1,5 +1,8 @@
 """Blocks all outbound network calls from Python processes by default."""
-import os, socket, sys
+
+import os
+import socket
+import sys
 
 if os.environ.get("ALLOW_NET", "0") not in ("1", "true", "True"):
     _real_create_connection = socket.create_connection

@@ -18,12 +18,16 @@ from anyBrainer.registry import register, RegistryKind as RK
 
 logger = logging.getLogger(__name__)
 
+
 def _check_mismatch(pred: torch.Tensor, target: torch.Tensor) -> None:
     """Check if the shape of pred and target are the same."""
     if pred.shape != target.shape:
-        msg = f"Shape mismatch between `pred`: {pred.shape} and `target`: {target.shape}"
+        msg = (
+            f"Shape mismatch between `pred`: {pred.shape} and `target`: {target.shape}"
+        )
         logger.error(msg)
         raise ValueError(msg)
+
 
 @register(RK.UTIL)
 def top1_accuracy(
@@ -33,11 +37,11 @@ def top1_accuracy(
     is_logits: bool = False,
     threshold: float = 0.5,
 ) -> torch.Tensor:
-    """
-    Top-1 accuracy for binary or multiclass.
+    """Top-1 accuracy for binary or multiclass.
+
     logits: (B,) or (B,1) for binary; (B,C) for multiclass.
     targets: class indices (B,) or one-hot (B,C) if is_one_hot=True.
-    is_logits: set to True if `logits` are raw model outputs; set to 
+    is_logits: set to True if `logits` are raw model outputs; set to
         False if `logits` are post-processed (e.g. sigmoided, discretized)
     threshold: used if binary; for `is_logits==True`, only applied when != 0.5
     """
@@ -46,7 +50,7 @@ def top1_accuracy(
         x = logits.view(-1)
         if is_logits:
             if threshold == 0.5:
-                preds = (x >= 0).long() # sigmoid(x)>=0.5 <=> x>=0
+                preds = (x >= 0).long()  # sigmoid(x)>=0.5 <=> x>=0
             else:
                 preds = (x.sigmoid() >= threshold).long()
         else:
@@ -73,13 +77,12 @@ def top1_accuracy(
 
     return (preds == t).float().mean()
 
+
 @register(RK.UTIL)
 def effective_rank(
-    features: torch.Tensor, 
-    eps: float = 1e-12
+    features: torch.Tensor, eps: float = 1e-12
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Numerically-stable effective rank based on singular values.
+    """Numerically-stable effective rank based on singular values.
 
     Args:
     - features : Tensor, shape (N, D)
@@ -91,32 +94,32 @@ def effective_rank(
     """
     if features.ndim != 2:
         raise ValueError(f"Expected (N, D) got {features.shape}")
-    
+
     if features.shape[0] < 1:
         z = torch.zeros((), device=features.device)
         return z, z
 
     # centre features, but avoid float32 round-off in small batches
-    features = features.to(torch.float64) # promote precision
+    features = features.to(torch.float64)  # promote precision
     features -= features.mean(dim=0, keepdim=True)
 
     # singular values are eigenvalues of cov
-    svals = torch.linalg.svdvals(features) # shape (min(N, D),)
+    svals = torch.linalg.svdvals(features)  # shape (min(N, D),)
     svals = svals.clamp_min(eps)
 
-    probs   = svals / svals.sum()
+    probs = svals / svals.sum()
     entropy = -(probs * probs.log()).sum()
-    eff_r   = torch.exp(entropy)
-    
+    eff_r = torch.exp(entropy)
+
     return (
-        eff_r.to(dtype=torch.float32), 
+        eff_r.to(dtype=torch.float32),
         entropy.to(dtype=torch.float32),
     )
 
+
 @register(RK.UTIL)
 def feature_variance(features: torch.Tensor) -> torch.Tensor:
-    """
-    Compute variance of a feature matrix.
+    """Compute variance of a feature matrix.
 
     Args:
     - features : Tensor, shape (N, D)
@@ -135,22 +138,26 @@ def feature_variance(features: torch.Tensor) -> torch.Tensor:
 
     return features.var(dim=0, unbiased=False).mean()
 
+
 @register(RK.UTIL)
 def mse_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Mean squared error score."""
     _check_mismatch(pred, target)
     return torch.mean((pred - target) ** 2)
 
+
 @register(RK.UTIL)
 def rmse_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Root mean squared error score."""
     return torch.sqrt(mse_score(pred, target))
+
 
 @register(RK.UTIL)
 def mae_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Mean absolute error score."""
     _check_mismatch(pred, target)
     return torch.mean(torch.abs(pred - target))
+
 
 @register(RK.UTIL)
 def r2_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -160,6 +167,7 @@ def r2_score(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     if var == 0:
         return torch.tensor(0.0, device=pred.device)
     return 1.0 - torch.mean((pred - target) ** 2) / var
+
 
 @register(RK.UTIL)
 def pearsonr(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

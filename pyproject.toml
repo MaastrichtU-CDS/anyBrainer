@@ -35,12 +35,22 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "jupyter>=1.0.0",
+    "pytest>=6.0.0",
+    "pytest-cov",
+    "ruff",
+    "docformatter",
+    "interrogate",
+    "pre-commit",
+    "mypy",
+    "build",
+    "twine",
 ]
 test = [
     "pytest>=6.0.0",
     "flake8>=6.1.0",
     "black>=23.10.1",
 ]
+
 
 [project.scripts]
 anyBrainer = "anyBrainer.__main__:main"

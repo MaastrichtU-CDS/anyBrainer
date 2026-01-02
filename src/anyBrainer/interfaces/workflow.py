@@ -8,8 +8,10 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 
+
 class Workflow(ABC):
     """Interface for any workflow."""
+
     @abstractmethod
     def __init__(self, **extra):
         pass

@@ -27,7 +27,7 @@ from anyBrainer.core.utils import (
 from anyBrainer.core.engines.utils import (
     unpack_settings_for_train_workflow,
 )
-from anyBrainer.registry import register, get
+from anyBrainer.registry import register
 from anyBrainer.registry import RegistryKind as RK
 from anyBrainer.factories import (
     ModuleFactory,
@@ -38,19 +38,20 @@ from anyBrainer.interfaces import (
     LoggingManager,
 )
 
+
 @dataclass
 class TrainingSettings:
-    """
-    Training settings.
-    
+    """Training settings.
+
     Contains args that are primarily useful for orchestrating the components
-    of the workflow and remove duplication. 
-    
+    of the workflow and remove duplication.
+
     Note:
-    Avoids storing args that are too specific for particular applications; 
+    Avoids storing args that are too specific for particular applications;
     e.g. input volume patch_size -> inevitable duplication in transforms and
-    inferer kwargs. 
+    inferer kwargs.
     """
+
     project: str
     experiment: str
     root_dir: Path
@@ -92,8 +93,9 @@ class TrainingSettings:
         self.root_dir = resolve_path(self.root_dir)
         self.data_dir = resolve_path(self.data_dir)
         self.model_checkpoint = (
-            resolve_path(self.model_checkpoint) 
-            if self.model_checkpoint is not None else None
+            resolve_path(self.model_checkpoint)
+            if self.model_checkpoint is not None
+            else None
         )
         self.exp_dir: Path = self.root_dir / self.project / self.experiment
 
@@ -103,9 +105,8 @@ class TrainingSettings:
 
 @register(RK.WORKFLOW)
 class TrainWorkflow(Workflow):
-    """
-    Basic workflow for wrapping pytorch lightning trainer operations.
-    """
+    """Basic workflow for wrapping pytorch lightning trainer operations."""
+
     settings: TrainingSettings
     logging_manager: LoggingManager
     main_logger: logging.Logger
@@ -128,28 +129,28 @@ class TrainWorkflow(Workflow):
         ckpt_settings: dict[str, Any] | None = None,
         validation_settings: dict[str, Any] | None = None,
         **extra,
-    ):  
+    ):
         logging_settings = logging_settings or {}
         ckpt_settings = ckpt_settings or {}
         validation_settings = validation_settings or {}
 
         self.settings = TrainingSettings(
             **unpack_settings_for_train_workflow(
-                global_settings, 
-                logging_settings, 
+                global_settings,
+                logging_settings,
                 pl_datamodule_settings,
                 pl_module_settings,
                 pl_callback_settings,
                 pl_trainer_settings,
                 ckpt_settings,
-        ))
-    
-    def __setup(self):
-        """
-        Initializes the workflow components, including:
-        Logging, Datamodule, Model, Callbacks, Trainer
+            )
+        )
 
-        Also creates the target save directories. 
+    def __setup(self):
+        """Initializes the workflow components, including: Logging, Datamodule,
+        Model, Callbacks, Trainer.
+
+        Also creates the target save directories.
         """
         create_save_dirs(
             exp_dir=self.settings.exp_dir,
@@ -158,61 +159,78 @@ class TrainWorkflow(Workflow):
         )
         self.configure_environment()
         try:
-            self.logging_manager, self.main_logger, self.wandb_logger = self.setup_logging()
+            self.logging_manager, self.main_logger, self.wandb_logger = (
+                self.setup_logging()
+            )
         except ValueError:
-            logging.exception("[TrainWorkflow] Error in setup_logging(); ensure returns match the docstring.")
+            logging.exception(
+                "[TrainWorkflow] Error in setup_logging(); ensure returns match the docstring."
+            )
             raise
         try:
             self.datamodule = self.setup_datamodule()
         except ValueError:
-            self.main_logger.exception("[TrainWorkflow] Error in setup_datamodule(); ensure returns match the docstring.")
+            self.main_logger.exception(
+                "[TrainWorkflow] Error in setup_datamodule(); ensure returns match the docstring."
+            )
             raise
         try:
             self.model, self.ckpt_path = self.setup_model()
         except ValueError:
-            self.main_logger.exception("[TrainWorkflow] Error in setup_model(); ensure returns match the docstring.")
+            self.main_logger.exception(
+                "[TrainWorkflow] Error in setup_model(); ensure returns match the docstring."
+            )
             raise
         try:
             self.callbacks = self.setup_callbacks()
         except ValueError:
-            self.main_logger.exception("[TrainWorkflow] Error in setup_callbacks(); ensure returns match the docstring.")
+            self.main_logger.exception(
+                "[TrainWorkflow] Error in setup_callbacks(); ensure returns match the docstring."
+            )
             raise
         try:
             self.trainer = self.setup_trainer()
         except ValueError:
-            self.main_logger.exception("[TrainWorkflow] Error in setup_trainer(); ensure returns match the docstring.")
+            self.main_logger.exception(
+                "[TrainWorkflow] Error in setup_trainer(); ensure returns match the docstring."
+            )
             raise
         self.finalize_setup()
 
         if self.wandb_logger is not None and self.settings.wandb_watch_enable:
-            self.wandb_logger.watch(self.model, **(self.settings.wandb_watch_kwargs or {}))
-    
+            self.wandb_logger.watch(
+                self.model, **(self.settings.wandb_watch_kwargs or {})
+            )
+
     def configure_environment(self):
-        """
-        Configures the environment for the workflow.
+        """Configures the environment for the workflow.
 
         Override for custom environment configuration.
         """
         set_determinism(seed=self.settings.seed)
-        torch.set_float32_matmul_precision("high") # for H100
+        torch.set_float32_matmul_precision("high")  # for H100
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-    def setup_logging(self) -> tuple[LoggingManager, logging.Logger, WandbLogger | None]:
-        """
-        Returns logging configuration from self.settings.
-        
-        Will populate self.logging_manager, self.main_logger and self.wandb_logger.
+    def setup_logging(
+        self,
+    ) -> tuple[LoggingManager, logging.Logger, WandbLogger | None]:
+        """Returns logging configuration from self.settings.
+
+        Will populate self.logging_manager, self.main_logger and
+        self.wandb_logger.
 
         Override for custom logging configuration.
         """
         if self.settings.extra_logging_kwargs:
-            logging.warning("[TrainWorkflow] Identified extra_logging_kwargs; out-of-the-box "
-                            "TrainWorkflow cannot ensure they don't override explicitly "
-                            "set kwargs; unless custom logging manager is used.")
+            logging.warning(
+                "[TrainWorkflow] Identified extra_logging_kwargs; out-of-the-box "
+                "TrainWorkflow cannot ensure they don't override explicitly "
+                "set kwargs; unless custom logging manager is used."
+            )
 
         logging_config = {
-            "name": "DefaultLoggingManager", 
+            "name": "DefaultLoggingManager",
             "logs_root": self.settings.exp_dir / "logs",
             "worker_logs": self.settings.worker_logs,
             "dev_mode": self.settings.dev_mode,
@@ -224,26 +242,27 @@ class TrainWorkflow(Workflow):
             **(self.settings.extra_logging_kwargs or {}),
         }
         logging_manager = ModuleFactory.get_logging_manager_instance_from_kwargs(
-                logging_manager_kwargs=logging_config
-            )
+            logging_manager_kwargs=logging_config
+        )
         main_logger, wandb_logger = (
-            logging_manager.main_logger, 
-            logging_manager.wandb_logger
+            logging_manager.main_logger,
+            logging_manager.wandb_logger,
         )
         return logging_manager, main_logger, wandb_logger
 
     def setup_datamodule(self) -> pl.LightningDataModule:
-        """
-        Returns datamodule configuration from self.settings.
-        
+        """Returns datamodule configuration from self.settings.
+
         Will populate self.datamodule.
 
         Override for custom datamodule configuration.
         """
         if self.settings.extra_pl_datamodule_kwargs:
-            logging.warning("[TrainWorkflow] Identified extra_pl_datamodule_kwargs; out-of-the-box "
-                            "TrainWorkflow cannot ensure they don't override explicitly "
-                            "set kwargs; unless custom pl.LightningDataModule is used.")
+            logging.warning(
+                "[TrainWorkflow] Identified extra_pl_datamodule_kwargs; out-of-the-box "
+                "TrainWorkflow cannot ensure they don't override explicitly "
+                "set kwargs; unless custom pl.LightningDataModule is used."
+            )
 
         datamodule_config = {
             "name": self.settings.pl_datamodule_name,
@@ -270,8 +289,7 @@ class TrainWorkflow(Workflow):
         )
 
     def setup_model(self) -> tuple[pl.LightningModule, Path | None]:
-        """
-        Creates a new model instance from settings.
+        """Creates a new model instance from settings.
 
         If not `new_version` of the experiment or model checkpoint is provided,
         it attempts to find a checkpoint in the experiment directory. If not
@@ -286,27 +304,31 @@ class TrainWorkflow(Workflow):
         )
         if self.settings.new_version:
             return model, None
-        
-        ckpt_path = (self.settings.model_checkpoint or 
-                     self.settings.exp_dir / "checkpoints" / "last.ckpt")
-        
+
+        ckpt_path = (
+            self.settings.model_checkpoint
+            or self.settings.exp_dir / "checkpoints" / "last.ckpt"
+        )
+
         if not ckpt_path.exists():
-            self.main_logger.warning(f"[TrainWorkflow] Checkpoint file {ckpt_path} does not exist; "
-                                     "will create new model.")
+            self.main_logger.warning(
+                f"[TrainWorkflow] Checkpoint file {ckpt_path} does not exist; "
+                "will create new model."
+            )
             return model, None
 
         return model, ckpt_path
-        
+
     def setup_callbacks(self) -> list[pl.Callback]:
-        """
-        Returns callbacks configuration from settings.
+        """Returns callbacks configuration from settings.
 
         Will populate self.callbacks.
 
         Override for custom callbacks configuration.
         """
         callbacks_config = [
-            {"name": "ModelCheckpoint",
+            {
+                "name": "ModelCheckpoint",
                 "dirpath": self.settings.exp_dir / "checkpoints",
                 "filename": "{epoch:02d}",
                 "every_n_epochs": self.settings.save_every_n_epochs,
@@ -330,19 +352,18 @@ class TrainWorkflow(Workflow):
                 msg = f"[TrainWorkflow] Invalid callback type: {type(cb)}"
                 logging.error(msg)
                 raise ValueError(msg)
-        
+
         callbacks = cast(
             list[pl.Callback],
             UnitFactory.get_pl_callback_instances_from_kwargs(
                 callback_kwargs=callbacks_config
-            )
+            ),
         )
         callbacks.extend(cb_instantiated)
         return callbacks
-    
+
     def setup_trainer(self) -> pl.Trainer:
-        """
-        Returns trainer configuration from settings.
+        """Returns trainer configuration from settings.
 
         Will populate self.trainer.
 
@@ -355,19 +376,16 @@ class TrainWorkflow(Workflow):
             **(self.settings.pl_trainer_kwargs or {}),
         }
         return pl.Trainer(**trainer_config)
-    
+
     def finalize_setup(self):
-        """
-        Finalizes the setup of the workflow.
+        """Finalizes the setup of the workflow.
 
         Override for custom finalization.
         """
         pass
 
     def __call__(self):
-        """
-        Runs the training workflow.
-        """
+        """Runs the training workflow."""
         self.__setup()
 
         self.main_logger.info("\n[TrainWorkflow] TRAINING STARTED")
@@ -376,33 +394,38 @@ class TrainWorkflow(Workflow):
         start_time = time.time()
         train_stats = self.train_run()
         duration = time.time() - start_time
-        
+
         if self.wandb_logger is not None:
             self.wandb_logger.experiment.unwatch(self.model)
 
-        self.main_logger.info(f"\n[TrainWorkflow] TRAINING COMPLETED in {duration/60:.1f} min")
+        self.main_logger.info(
+            f"\n[TrainWorkflow] TRAINING COMPLETED in {duration/60:.1f} min"
+        )
         self.main_logger.info(self.train_end_summary(train_stats))
 
     def train_run(self) -> dict[str, Any]:
-        """
-        Runs the training workflow.
+        """Runs the training workflow.
 
         Override for custom training run.
         """
-        self.trainer.fit(self.model, datamodule=self.datamodule, ckpt_path=self.ckpt_path)
+        self.trainer.fit(
+            self.model, datamodule=self.datamodule, ckpt_path=self.ckpt_path
+        )
 
         train_stats = {
             "peak_mem_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
-            "peak_gpu_mem": (torch.cuda.max_memory_allocated() / 1024**2 
-                             if torch.cuda.is_available() else None),
-            "best_val_loss": self.trainer.callback_metrics.get("val/loss_best")
+            "peak_gpu_mem": (
+                torch.cuda.max_memory_allocated() / 1024**2
+                if torch.cuda.is_available()
+                else None
+            ),
+            "best_val_loss": self.trainer.callback_metrics.get("val/loss_best"),
         }
 
         return train_stats
-    
+
     def train_start_summary(self) -> str:
-        """
-        Formats the summary of the training workflow.
+        """Formats the summary of the training workflow.
 
         Override for custom training start summary.
         """
@@ -425,8 +448,7 @@ class TrainWorkflow(Workflow):
         )
 
     def train_end_summary(self, train_stats: dict[str, Any]) -> str:
-        """
-        Formats the summary of the training workflow.
+        """Formats the summary of the training workflow.
 
         Override for custom training end summary.
         """
@@ -438,14 +460,17 @@ class TrainWorkflow(Workflow):
             f"{'-'*60}"
             f"\n[TrainWorkflow] TRAINING SUMMARY\n"
             f"Peak Memory:      {peak_mem_mb:.02f} MB\n"
-            f"Peak GPU Memory:  {peak_gpu_mem:.02f} MB\n" if peak_gpu_mem is not None else "Peak GPU Memory:  N/A\n"
-            f"Best Val Loss:    {best_val_loss:.04f}\n" if best_val_loss is not None else "Best Val Loss:    N/A\n"
-            f"{'-'*60}"
+            f"Peak GPU Memory:  {peak_gpu_mem:.02f} MB\n"
+            if peak_gpu_mem is not None
+            else (
+                "Peak GPU Memory:  N/A\n" f"Best Val Loss:    {best_val_loss:.04f}\n"
+                if best_val_loss is not None
+                else "Best Val Loss:    N/A\n" f"{'-'*60}"
+            )
         )
 
     def close(self):
-        """
-        Close the workflow.
+        """Close the workflow.
 
         Override for custom workflow closing.
         """
@@ -457,18 +482,15 @@ class TrainWorkflow(Workflow):
 
 @register(RK.WORKFLOW)
 class CVWorkflow(Workflow):
-    """
-    Workflow for running cross-validation.
+    """Workflow for running cross-validation.
 
     Composes multiple `TrainWorkflow` instances, each running on a single split.
     Aggregates metrics from all splits.
     """
+
     def __init__(
-        self,
-        *,
-        val_settings: dict[str, Any] | None = None,
-        **train_workflow_kwargs
-    ):  
+        self, *, val_settings: dict[str, Any] | None = None, **train_workflow_kwargs
+    ):
         """
         Args:
             val_settings: Validation settings, optionally containing:
@@ -488,19 +510,25 @@ class CVWorkflow(Workflow):
         self.seeds = val_settings.get("seeds")
         if self.seeds is not None:
             if not isinstance(self.seeds, list) or len(self.seeds) != self.n_splits:
-                msg = (f"[CVWorkflow] seeds must be a list of length {self.n_splits}; "
-                       f"got {type(self.seeds)}")
+                msg = (
+                    f"[CVWorkflow] seeds must be a list of length {self.n_splits}; "
+                    f"got {type(self.seeds)}"
+                )
                 logging.error(msg)
                 raise ValueError(msg)
 
         self.aggregate_cb = UnitFactory.get_pl_callback_instances_from_kwargs(
-            callback_kwargs=[{"name": "MetricAggregator", "prefix": self.aggregate_metrics}]
+            callback_kwargs=[
+                {"name": "MetricAggregator", "prefix": self.aggregate_metrics}
+            ]
         )[0]
 
-        logging.info(f"[CVWorkflow] Initialized with the following settings: "
-                     f"val_mode: {self.val_mode}, n_splits: {self.n_splits}, "
-                     f"aggregate_metrics: {self.aggregate_metrics}, run_test: {self.run_test}")
-    
+        logging.info(
+            f"[CVWorkflow] Initialized with the following settings: "
+            f"val_mode: {self.val_mode}, n_splits: {self.n_splits}, "
+            f"aggregate_metrics: {self.aggregate_metrics}, run_test: {self.run_test}"
+        )
+
     def __call__(self):
         """Runs the cross-validation workflow."""
         for split_idx in range(self.start_idx, self.n_splits):
@@ -512,12 +540,14 @@ class CVWorkflow(Workflow):
         workflow = TrainWorkflow(**deepcopy(self.train_workflow_kwargs))
 
         # Split-specific settings
-        workflow.settings.experiment = f"{workflow.settings.experiment}_split_{split_idx}"
+        workflow.settings.experiment = (
+            f"{workflow.settings.experiment}_split_{split_idx}"
+        )
         workflow.settings.exp_dir = workflow.settings.exp_dir / f"split_{split_idx}"
         workflow.settings.val_mode = self.val_mode
         workflow.settings.n_splits = self.n_splits
         workflow.settings.current_split = split_idx
-        workflow.settings.pl_callback_kwargs.append(self.aggregate_cb) # type: ignore
+        workflow.settings.pl_callback_kwargs.append(self.aggregate_cb)  # type: ignore
         if self.seeds is not None:
             workflow.settings.seed = self.seeds[split_idx]
 
@@ -525,8 +555,8 @@ class CVWorkflow(Workflow):
         workflow.fit()
         if self.run_test:
             workflow.trainer.test(workflow.model, datamodule=workflow.datamodule)
-            
+
         if split_idx == self.n_splits - 1:
-            self.aggregate_cb.final_summary() # type: ignore[attr-defined]
-        
-        workflow.close() 
+            self.aggregate_cb.final_summary()  # type: ignore[attr-defined]
+
+        workflow.close()

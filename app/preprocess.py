@@ -16,44 +16,57 @@ from monai.utils.type_conversion import convert_to_numpy
 
 Task = Literal["task1", "task2", "task3"]
 
+
 class PreprocessError(RuntimeError):
     pass
+
 
 def _ensure_dir(p: Path) -> Path:
     p.mkdir(parents=True, exist_ok=True)
     return p
 
+
 def _load_nifti(path: Path) -> ants.ANTsImage:
     return ants.image_read(str(path))
+
 
 def _save_nifti(data: ants.ANTsImage, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     data.to_file(out_path)
 
+
 def _get_reg_transforms(
-    moving: ants.ANTsImage, 
-    template: ants.ANTsImage, 
+    moving: ants.ANTsImage,
+    template: ants.ANTsImage,
     transform: str = "Rigid",
 ) -> tuple[list[str], list[str]]:
-    registration = ants.registration(fixed=template, moving=moving, type_of_transform=transform)
-    fwd_transform = registration['fwdtransforms']
-    inv_transform = registration['invtransforms']
+    registration = ants.registration(
+        fixed=template, moving=moving, type_of_transform=transform
+    )
+    fwd_transform = registration["fwdtransforms"]
+    inv_transform = registration["invtransforms"]
     return fwd_transform, inv_transform
+
 
 def _apply_transforms(
     moving: ants.ANTsImage,
     target: ants.ANTsImage,
-    transformlist: list[str], 
+    transformlist: list[str],
     interp: str = "linear",
     which_to_invert: list[bool] | None = None,
 ) -> ants.ANTsImage:
     return ants.apply_transforms(
-        fixed=target, moving=moving, transformlist=transformlist, interpolator=interp, 
-        whichtoinvert=which_to_invert
+        fixed=target,
+        moving=moving,
+        transformlist=transformlist,
+        interpolator=interp,
+        whichtoinvert=which_to_invert,
     )
+
 
 def _apply_mask(image: ants.ANTsImage, mask: ants.ANTsImage) -> ants.ANTsImage:
     return ants.mask_image(image, mask)
+
 
 def _resolve_hdbet() -> str:
     p = os.environ.get("HDBET_BIN")
@@ -67,6 +80,7 @@ def _resolve_hdbet() -> str:
         return found
     raise PreprocessError("hd-bet CLI not found in container PATH.")
 
+
 def _ensure_hdbet_weights() -> Path:
     # hd-bet v2 looks in ~/hd-bet_params/release_2.0.0/...
     home = os.environ.get("HDBET_HOME", "/opt/hd-bet-home")
@@ -79,12 +93,13 @@ def _ensure_hdbet_weights() -> Path:
         )
     return root
 
+
 def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool = False):
-    """
-    hd-bet 2.x with single-input:
-      - `-o` MUST be a filename (not a directory).
-      - mask file is created by appending `_mask` to the base of `-o`.
-      - We pass a unique temp filename, then rename the produced mask to `out_mask`.
+    """Hd-bet 2.x with single-input:
+
+    - `-o` MUST be a filename (not a directory).
+    - mask file is created by appending `_mask` to the base of `-o`.
+    - We pass a unique temp filename, then rename the produced mask to `out_mask`.
     """
     bin_path = _resolve_hdbet()
     _ensure_hdbet_weights()
@@ -98,9 +113,12 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
 
     cmd = [
         bin_path,
-        "-i", str(image),
-        "-o", str(tmp_base),
-        "-device", device,
+        "-i",
+        str(image),
+        "-o",
+        str(tmp_base),
+        "-device",
+        device,
         "--save_bet_mask",
         "--no_bet_image",
         "--verbose",
@@ -112,9 +130,11 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
     env = dict(os.environ)
     env["HOME"] = os.environ.get("HDBET_HOME", "/opt/hd-bet-home")
     # belt & suspenders for offline
-    env.update({"http_proxy":"", "https_proxy":"", "NO_PROXY":"*"})
+    env.update({"http_proxy": "", "https_proxy": "", "NO_PROXY": "*"})
 
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+    proc = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env
+    )
     # Show logs even on success
     logging.info("[hd-bet] cmd: %s", " ".join(cmd))
     if proc.stdout.strip():
@@ -151,14 +171,16 @@ def _run_hdbet_cli(image: Path, out_mask: Path, device: str = "cpu", tta: bool =
     except Exception:
         pass
 
+
 def _numpy_to_ants(arr, target_img=None):
-    """Create an ANTs image from a numpy array with specific properties"""
+    """Create an ANTs image from a numpy array with specific properties."""
     new_img = ants.from_numpy(arr)
     if target_img is not None:
-        new_img.set_spacing(target_img.spacing) # Preserve meta-data of original image
+        new_img.set_spacing(target_img.spacing)  # Preserve meta-data of original image
         new_img.set_origin(target_img.origin)
         new_img.set_direction(target_img.direction)
     return new_img
+
 
 def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
     a = convert_to_numpy(pred, dtype=np.float32)  # preserves shape
@@ -168,6 +190,7 @@ def _tensor_to_3d_mask_binary(pred, threshold=0.5) -> np.ndarray:
         a = a[0]
     # now (H,W,D)
     return (a >= threshold).astype(np.uint8)
+
 
 def _collect_inv_transforms_with_flags(reg_dir: Path) -> tuple[list[str], list[bool]]:
     def idx(p: Path) -> int:
@@ -192,19 +215,19 @@ def _collect_inv_transforms_with_flags(reg_dir: Path) -> tuple[list[str], list[b
             flags.append(True if name.endswith(".mat") else False)
     return xforms, flags
 
+
 def preprocess_inputs(
     inputs: list[Path] | list[Path | None],
     mods: list[str],
-    work_dir: Path| None = None,
+    work_dir: Path | None = None,
     ref_mod: str = "flair",
     tmpl_path: Path = Path("templates/icbm_mni152_t1_09a_asym_bet.nii.gz"),
     do_bet: bool = True,
     do_reg: bool = True,
-    ) -> None:
-    """
-    Preprocess input images for FOMO25 tasks.
+) -> None:
+    """Preprocess input images for FOMO25 tasks.
 
-    Assumes all modalities are co-registered and on the same grid. 
+    Assumes all modalities are co-registered and on the same grid.
 
     Steps:
       1) Choose extraction reference (FLAIR for tasks 1/2, T1w for task 3).
@@ -231,7 +254,7 @@ def preprocess_inputs(
     """
     if len(inputs) != len(mods):
         raise ValueError("`inputs` and `mods` must be same length.")
-    
+
     # Skip optional inputs/mods
     mods = [m for m, p in zip(mods, inputs) if p is not None]
     inputs = cast(list[Path], [Path(p) for p in inputs if p is not None])
@@ -252,7 +275,7 @@ def preprocess_inputs(
     # Check template
     if do_reg and not tmpl_path.exists():
         raise FileNotFoundError(f"Template not found: {tmpl_path}")
-    
+
     # Map modalities to input paths
     mod2path: dict[str, Path] = {m.lower(): Path(p) for m, p in zip(mods, inputs)}
 
@@ -264,17 +287,21 @@ def preprocess_inputs(
         logging.info(f"Running hd-bet to get brain mask from {ref_path}...")
         mask_path = mask_dir / "brain_mask.nii.gz"
         use_gpu = torch.cuda.is_available()
-        _run_hdbet_cli(ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=False)
-        logging.info(f"hd-bet completed.")
+        _run_hdbet_cli(
+            ref_path, mask_path, device=("cuda" if use_gpu else "cpu"), tta=False
+        )
+        logging.info("hd-bet completed.")
         mask_img = _load_nifti(mask_path)
 
     # Registration to template
     if do_reg:
-        logging.info(f"Computing registration fields of {ref_path} to template {tmpl_path}...")
+        logging.info(
+            f"Computing registration fields of {ref_path} to template {tmpl_path}..."
+        )
         fixed = _load_nifti(tmpl_path)
         moving = _apply_mask(ref_img, mask_img) if do_bet else ref_img
         fwd, inv = _get_reg_transforms(moving, fixed)
-        logging.info(f"Registration fields computed.")
+        logging.info("Registration fields computed.")
         for i, t in enumerate(fwd):
             shutil.copy2(t, reg_dir / f"fwd_{i}{Path(t).suffix}")
         for i, t in enumerate(inv):
@@ -287,8 +314,10 @@ def preprocess_inputs(
         try:
             img = _load_nifti(img_path)
             if ref_spacing != img.spacing:
-                raise ValueError(f"Mismatched spacing: {ref_spacing} != {img.spacing} "
-                                 f"between modalities")
+                raise ValueError(
+                    f"Mismatched spacing: {ref_spacing} != {img.spacing} "
+                    f"between modalities"
+                )
             if do_bet:
                 img = _apply_mask(img, mask_img)
             if do_reg:
@@ -298,15 +327,15 @@ def preprocess_inputs(
         except Exception as e:
             raise PreprocessError(f"Failed to preprocess {img_path}: {e}")
 
+
 def revert_preprocess(
     pred: torch.Tensor,
     orig: str | Path,
-    work_dir: Path| None = None,
+    work_dir: Path | None = None,
     do_reg: bool = True,
     tmpl_path: Path = Path("templates/icbm_mni152_t2_09a_asym_bet.nii.gz"),
 ) -> ants.ANTsImage:
-    """
-    Revert preprocessing on predicted segmentation masks for FOMO25 tasks.
+    """Revert preprocessing on predicted segmentation masks for FOMO25 tasks.
 
     Assumes that following `predict_transforms` are already reversed:
     - Padding
@@ -314,7 +343,7 @@ def revert_preprocess(
     - Resampling
     - Orientation (flipping)
 
-    Steps: 
+    Steps:
     1) Convert to uint8 numpy array
     2) Load fwd/inv transforms from reg.mat
     3) Apply transforms to pred
@@ -336,15 +365,22 @@ def revert_preprocess(
     orig_img = _load_nifti(orig_path)
     pred_arr = _tensor_to_3d_mask_binary(pred)
     if do_reg:
-        inv_transforms, which_to_invert = _collect_inv_transforms_with_flags(work_dir / "reg")
+        inv_transforms, which_to_invert = _collect_inv_transforms_with_flags(
+            work_dir / "reg"
+        )
         if len(inv_transforms) == 0:
             raise FileNotFoundError("Inverse transforms not found.")
-        
+
         if not tmpl_path.exists():
             raise FileNotFoundError(f"Template not found: {tmpl_path}")
 
         tmpl_img = _load_nifti(tmpl_path)
         pred_img = _numpy_to_ants(pred_arr, tmpl_img)
-        return _apply_transforms(pred_img, orig_img, inv_transforms, 
-                                 interp='nearestNeighbor', which_to_invert=which_to_invert)
+        return _apply_transforms(
+            pred_img,
+            orig_img,
+            inv_transforms,
+            interp="nearestNeighbor",
+            which_to_invert=which_to_invert,
+        )
     return _numpy_to_ants(pred_arr, orig_img)

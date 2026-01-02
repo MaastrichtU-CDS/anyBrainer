@@ -5,7 +5,6 @@ __all__ = [
 ]
 
 import torch
-import torch.nn.functional as F
 
 from anyBrainer.registry import register, RegistryKind as RK
 
@@ -14,8 +13,7 @@ from anyBrainer.registry import register, RegistryKind as RK
 def compute_cl_stats(
     logits: torch.Tensor,
 ) -> dict[str, torch.Tensor]:
-    """
-    Compute contrastive learning statistics.
+    """Compute contrastive learning statistics.
 
     Args:
         logits: (B, 1 + K) - logits from the model (1 positive, K negatives)
@@ -26,7 +24,9 @@ def compute_cl_stats(
     """
     with torch.no_grad():
         # Mean negative similarity
-        finite_neg = torch.isfinite(logits[:, 1:]) # Only consider finite negatives (after masking)
+        finite_neg = torch.isfinite(
+            logits[:, 1:]
+        )  # Only consider finite negatives (after masking)
         neg_mean = (
             logits[:, 1:][finite_neg].mean()
             if finite_neg.any()

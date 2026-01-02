@@ -12,6 +12,7 @@ from anyBrainer.core.networks import (
 )
 from anyBrainer.core.inferers import SlidingWindowClassificationInferer
 
+
 @pytest.fixture(scope="module")
 def input_batch_classification():
     """Input batch for the model."""
@@ -24,11 +25,10 @@ def input_batch_classification():
 
 @pytest.fixture(autouse=True)
 def mock_swin_vit(monkeypatch):
-    """
-    Monkey-patch MONAI's SwinTransformer so every forward pass of the model
-    yields a synthetic tensor that matches the bottleneck dimensions, given 
-    a feature_size of 48 and 4 stages.
-    """
+    """Monkey-patch MONAI's SwinTransformer so every forward pass of the model
+    yields a synthetic tensor that matches the bottleneck dimensions, given a
+    feature_size of 48 and 4 stages."""
+
     def _dummy_call(self, *args, **kwargs):
         # Create data with the shape the pipeline expects
         gen = torch.Generator().manual_seed(42)
@@ -36,6 +36,7 @@ def mock_swin_vit(monkeypatch):
         return x
 
     monkeypatch.setattr(SwinViT, "forward", _dummy_call, raising=True)
+
 
 def _compute_num_patches(
     image_size: Sequence[int],
@@ -58,6 +59,7 @@ def _compute_num_patches(
     total_patches = math.prod(n_patches_per_dim)
     return total_patches
 
+
 class TestSlidingWindowClassificationInferer:
     @pytest.fixture
     def model(self):
@@ -76,7 +78,7 @@ class TestSlidingWindowClassificationInferer:
             mlp_activations="GELU",
             mlp_activation_kwargs={"dropout": 0.3},
         )
-    
+
     def model_mid_fusion(self):
         """Model fixture for mid-fusion."""
         return Swinv2ClassifierMidFusion(
@@ -89,7 +91,7 @@ class TestSlidingWindowClassificationInferer:
             n_classes=2,
             n_fusion=2,
         )
-    
+
     @pytest.mark.parametrize("overlap", [0.0, 0.25, 0.5, 0.75])
     def test_sliding_window_shape(self, model, input_batch_classification, overlap):
         """Test that the model is properly initialized."""
@@ -105,7 +107,7 @@ class TestSlidingWindowClassificationInferer:
         )
         preds = inferer(input_batch_classification["img_0"], model)
         assert preds.shape == (8, n_patches, 2)
-    
+
     @pytest.mark.parametrize("overlap", [0.0, 0.25, 0.5, 0.75])
     def test_sliding_window_weighted(self, model, input_batch_classification, overlap):
         """Test that the model is properly initialized."""
@@ -116,8 +118,10 @@ class TestSlidingWindowClassificationInferer:
         )
         preds = inferer(input_batch_classification["img_0"], model)
         assert preds.shape == (8, 2)
-    
-    @pytest.mark.parametrize("mode", ["noisy_or", "lse", "topk", "mean", "weighted", "majority"])
+
+    @pytest.mark.parametrize(
+        "mode", ["noisy_or", "lse", "topk", "mean", "weighted", "majority"]
+    )
     def test_sliding_window_mil(self, model, input_batch_classification, mode):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(
@@ -127,7 +131,7 @@ class TestSlidingWindowClassificationInferer:
         )
         preds = inferer(input_batch_classification["img"], model)
         assert preds.shape == (8, 2)
-    
+
     def test_no_aggregation(self, model, input_batch_classification):
         """Test that the model is properly initialized."""
         inferer = SlidingWindowClassificationInferer(

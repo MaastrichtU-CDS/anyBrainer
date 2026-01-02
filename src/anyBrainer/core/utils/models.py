@@ -23,19 +23,27 @@ from anyBrainer.registry import register, RegistryKind as RK
 logger = logging.getLogger(__name__)
 
 _NO_DECAY_NORM_TYPES = (
-    nn.LayerNorm, nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
-    nn.GroupNorm, nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+    nn.LayerNorm,
+    nn.BatchNorm1d,
+    nn.BatchNorm2d,
+    nn.BatchNorm3d,
+    nn.GroupNorm,
+    nn.InstanceNorm1d,
+    nn.InstanceNorm2d,
+    nn.InstanceNorm3d,
 )
 
 # Common Swin/ViT params that should not decay
 _NO_DECAY_NAME_KEYWORDS = {
-    "pos_embed",                       # ViT / Swin absolute pos embed
-    "absolute_pos_embed",              # some impls
-    "relative_position_bias_table",    # Swin v1/v2
-    "rel_pos_bias",                    # alt naming
-    "logit_scale",                     # sometimes present in CLIP-like heads
-    "gamma", "beta",                   # norm-style params in some impls
+    "pos_embed",  # ViT / Swin absolute pos embed
+    "absolute_pos_embed",  # some impls
+    "relative_position_bias_table",  # Swin v1/v2
+    "rel_pos_bias",  # alt naming
+    "logit_scale",  # sometimes present in CLIP-like heads
+    "gamma",
+    "beta",  # norm-style params in some impls
 }
+
 
 def count_model_params(model: nn.Module, trainable: bool = False):
     """Count model parameters."""
@@ -44,43 +52,54 @@ def count_model_params(model: nn.Module, trainable: bool = False):
     else:
         return sum(p.numel() for p in model.parameters())
 
+
 def summarize_model_params(model: nn.Module) -> str:
     """Show summary of all model parameters and buffers."""
     out_msg = "\n#Model parameters#\n"
     for name, param in model.named_parameters():
         out_msg += f"{name:60s} | shape={tuple(param.shape)} | requires_grad={param.requires_grad}\n"
-        
-    out_msg += f"\n#Model buffers#\n"
+
+    out_msg += "\n#Model buffers#\n"
     for name, b in model.named_buffers():
         out_msg += f"{name:55s} {tuple(b.shape)}\n"
-        
-    out_msg += f"\n#Model summary#\n"
+
+    out_msg += "\n#Model summary#\n"
     out_msg += f"Total parameters: {count_model_params(model)}\n"
     out_msg += f"Trainable parameters: {count_model_params(model, trainable=True)}\n"
-    out_msg += f"Non-trainable parameters: {count_model_params(model, trainable=False)}\n"
-    
+    out_msg += (
+        f"Non-trainable parameters: {count_model_params(model, trainable=False)}\n"
+    )
+
     return out_msg
+
 
 def get_total_grad_norm(model: nn.Module) -> torch.Tensor:
     """Get total gradient norm."""
     total_norm = torch.norm(
-        torch.stack([
-            p.grad.detach().norm(2)
-            for p in model.parameters()
-            if p.grad is not None
-        ]), p=2,
+        torch.stack(
+            [p.grad.detach().norm(2) for p in model.parameters() if p.grad is not None]
+        ),
+        p=2,
     )
     return total_norm
 
-def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,
-                   a: float = -2., b: float = 2.) -> torch.Tensor:
-    """
-    Fills `tensor` with values drawn from a truncated N(mean, std) distribution.
+
+def _trunc_normal_(
+    tensor: torch.Tensor,
+    mean: float = 0.0,
+    std: float = 1.0,
+    a: float = -2.0,
+    b: float = 2.0,
+) -> torch.Tensor:
+    """Fills `tensor` with values drawn from a truncated N(mean, std)
+    distribution.
+
     Modifies `tensor` in-place.
     """
+
     def norm_cdf(x: float) -> float:
         """Cumulative distribution function for the standard normal."""
-        return (1. + math.erf(x / math.sqrt(2.))) / 2.
+        return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
     l = norm_cdf((a - mean) / std)
     u = norm_cdf((b - mean) / std)
@@ -88,22 +107,24 @@ def _trunc_normal_(tensor: torch.Tensor, mean: float = 0., std: float = 1.,
     with torch.no_grad():
         tensor.uniform_(2 * l - 1, 2 * u - 1)
         tensor.erfinv_()
-        tensor.mul_(std * math.sqrt(2.))
+        tensor.mul_(std * math.sqrt(2.0))
         tensor.add_(mean)
         tensor.clamp_(min=a, max=b)
 
     return tensor
 
+
 @register(RK.UTIL)
-def init_swin_v2(model: nn.Module,
-                                  *,
-                                  proj_std: float = 0.02,
-                                  conv_mode: str = "fan_out",
-                                  zero_init_residual: bool = False) -> None:
-    """
-    Weight initialisation for a Swinv2-style ViT that contains
-    linear projection layers and (optionally 3 x 3) residual convolutions
-    before each Swinv2 block.
+def init_swin_v2(
+    model: nn.Module,
+    *,
+    proj_std: float = 0.02,
+    conv_mode: str = "fan_out",
+    zero_init_residual: bool = False,
+) -> None:
+    """Weight initialisation for a Swinv2-style ViT that contains linear
+    projection layers and (optionally 3 x 3) residual convolutions before each
+    Swinv2 block.
 
     Args:
         model : nn.Module
@@ -116,6 +137,7 @@ def init_swin_v2(model: nn.Module,
             If True, the *last* conv in every residual branch is zero-initialised,
             encouraging the residual path to start as identity.
     """
+
     # helper to decide whether a conv is "last" in a residual branch
     def _is_last_residual_conv(m: nn.Conv2d | nn.Conv3d) -> bool:
         # convention: last conv in residual conv stack ends with ".2"
@@ -139,10 +161,19 @@ def init_swin_v2(model: nn.Module,
                 nn.init.zeros_(m.bias)
 
         # Normalisation layers
-        elif isinstance(m, (nn.LayerNorm, nn.GroupNorm, nn.BatchNorm1d,
-                            nn.BatchNorm2d, nn.BatchNorm3d)):
+        elif isinstance(
+            m,
+            (
+                nn.LayerNorm,
+                nn.GroupNorm,
+                nn.BatchNorm1d,
+                nn.BatchNorm2d,
+                nn.BatchNorm3d,
+            ),
+        ):
             nn.init.ones_(m.weight)
             nn.init.zeros_(m.bias)
+
 
 def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
     """Get optimizer learning rates."""
@@ -151,6 +182,7 @@ def get_optimizer_lr(optimizers: list[optim.Optimizer]) -> dict[str, float]:
         for i, opt in enumerate(optimizers)
         for j, group in enumerate(opt.param_groups)
     }
+
 
 def get_parameter_groups_from_prefixes(
     model: nn.Module,
@@ -162,14 +194,16 @@ def get_parameter_groups_from_prefixes(
 ) -> list[tuple[str, nn.Parameter]] | list[nn.Parameter]:
     if prefixes is None:
         named = [
-            (n, p) for n, p in model.named_parameters()
+            (n, p)
+            for n, p in model.named_parameters()
             if (p.requires_grad or not trainable_only)
         ]
     else:
         if isinstance(prefixes, str):
             prefixes = [prefixes]
         named = [
-            (n, p) for n, p in model.named_parameters()
+            (n, p)
+            for n, p in model.named_parameters()
             if any(n.startswith(pref) for pref in prefixes)
             and (p.requires_grad or not trainable_only)
         ]
@@ -180,6 +214,7 @@ def get_parameter_groups_from_prefixes(
 
     return named if return_named else [p for _, p in named]
 
+
 def is_no_decay_param(
     name: str,
     module: nn.Module | None,
@@ -187,8 +222,7 @@ def is_no_decay_param(
     extra_prefixes: Sequence[str] | None,
     auto_no_weight_decay: bool,
 ) -> bool:
-    """
-    Determine if a parameter should not receive weight decay.
+    """Determine if a parameter should not receive weight decay.
 
     Args:
         name: The name of the parameter.
@@ -199,8 +233,10 @@ def is_no_decay_param(
     """
     # Normalize names
     name = name.lower()
-    extra_prefixes = tuple(p.lower() for p in extra_prefixes) if extra_prefixes else None
-    
+    extra_prefixes = (
+        tuple(p.lower() for p in extra_prefixes) if extra_prefixes else None
+    )
+
     if extra_prefixes and name.startswith(extra_prefixes):
         return True
 
@@ -221,6 +257,7 @@ def is_no_decay_param(
 
     return False
 
+
 def split_decay_groups_from_params(
     model: nn.Module,
     params: list[tuple[str, nn.Parameter]],
@@ -237,9 +274,13 @@ def split_decay_groups_from_params(
     for name, p in params:
         mod_name = name.rsplit(".", 1)[0] if "." in name else ""
         module = model.get_submodule(mod_name) if mod_name else model
-        if is_no_decay_param(name, module, extra_prefixes=no_weight_decay_prefixes, 
-                             auto_no_weight_decay=auto_no_weight_decay):
-            no_decay.append(p)   # append the Parameter
+        if is_no_decay_param(
+            name,
+            module,
+            extra_prefixes=no_weight_decay_prefixes,
+            auto_no_weight_decay=auto_no_weight_decay,
+        ):
+            no_decay.append(p)  # append the Parameter
         else:
             decay.append(p)
     return decay, no_decay
