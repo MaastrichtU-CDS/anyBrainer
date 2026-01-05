@@ -5,6 +5,8 @@ __all__ = [
     "Swinv2Classifier",
     "Swinv2ClassifierMidFusion",
     "Swinv2LateFusionFPNDecoder",
+    "SwinMIM",
+    "Multimodal3DSwinMIMFPN",
 ]
 
 import logging
@@ -29,8 +31,12 @@ from anyBrainer.core.networks.blocks import (
     ClassificationHead,
     FusionHead,
     FPNLightDecoder3D,
+    FPNDecoder3DFeaturesOnly,
+    VoxelShuffleHead3D,
     MaskToken,
     PartialUnetrBasicBlock,
+    MultimodalPatchEmbed,
+    MultimodalPatchEmbedAdapter,
 )
 
 logger = logging.getLogger(__name__)
@@ -553,7 +559,8 @@ class Swinv2LateFusionFPNDecoder(nn.Module):
         # FPN decoder args
         out_channels: int = 1,
         width: int = 32,
-        norm: str = "instance",
+        norm: Literal["instance", "group", "batch"] = "instance",
+        norm_kwargs: dict[str, Any] | None = None,
     ):
         super().__init__()
 
@@ -580,6 +587,7 @@ class Swinv2LateFusionFPNDecoder(nn.Module):
             out_channels=out_channels,
             width=width,
             norm=norm,
+            norm_kwargs=norm_kwargs,
         )
 
         self.n_late_fusion = n_late_fusion
@@ -594,7 +602,7 @@ class Swinv2LateFusionFPNDecoder(nn.Module):
             f"depths={depths}, num_heads={num_heads}, window_size={window_size}, "
             f"patch_size={patch_size}, feature_size={feature_size}, use_v2={use_v2}, "
             f"extra_swin_kwargs={extra_swin_kwargs}. Decoder initialized with in_feats={in_feats}, "
-            f"out_channels={out_channels}, width={width}, norm={norm}."
+            f"out_channels={out_channels}, width={width}, norm={norm}, norm_kwargs={norm_kwargs}."
         )
 
     def _reshape_input(self, x: torch.Tensor) -> torch.Tensor:
@@ -694,11 +702,13 @@ class Swinv2LateFusionFPNDecoder(nn.Module):
 
 @register(RK.NETWORK)
 class SwinMIM(SwinViT):
-    """SwinViT V2 (with residual convolutions) for Masked Image Modeling.
+    """`SwinTransformer` v2 (with residual convolutions) for Masked Image
+    Modeling.
 
     Replaces the `UnetResBlock` in each layer with a `PartialUnetResBlock`, which
     contains partial convolutions and mask-aware normalization to prevent contamination
-    of feature intensities and statistics from adjacent masked patches.
+    of feature intensities and statistics from adjacent masked patches. In addition,
+    it supports a custom channel-specific patch embedding for multimodal inputs via mid-fusion.
 
     See `PartialUnetResBlock`, `PartialConv`, and `MaskedInstanceNorm` documentation
     for more details.
@@ -724,6 +734,7 @@ class SwinMIM(SwinViT):
         use_v2: bool = True,
         spatial_dims: int = 3,
         extra_swin_kwargs: dict[str, Any] | None = None,
+        merge_mode: Literal["and", "or"] = "and",
     ):
         extra_swin_kwargs = extra_swin_kwargs or {}
 
@@ -763,6 +774,12 @@ class SwinMIM(SwinViT):
         self.in_channels = in_channels
         self.spatial_dims = spatial_dims
         self.mask_tokenizer = MaskToken(embed_dim)
+
+        if merge_mode not in ("and", "or"):
+            msg = f"[{self.__class__.__name__}] merge_mode must be 'and' or 'or', got {merge_mode}."
+            logger.error(msg)
+            raise ValueError(msg)
+        self.merge_mode = merge_mode
 
         logger.info(
             f"[{self.__class__.__name__}] Encoder initialized with in_channels={in_channels}, "
@@ -885,7 +902,9 @@ class SwinMIM(SwinViT):
         if self.use_v2:
             x0, m0 = self.layers1c[0](x0.contiguous(), mask=mask)
             x0 = self.mask_tokenizer.apply(x0, m0)
-            m1 = merge_mask_nd(m0)  # mirror patch merging for subsequent level
+            m1 = merge_mask_nd(
+                m0, mode=self.merge_mode
+            )  # mirror patch merging for subsequent level
         x1 = self.layers1[0](x0.contiguous())
         x1_out = self.proj_out(x1, normalize)
 
@@ -894,7 +913,7 @@ class SwinMIM(SwinViT):
         if self.use_v2:
             x1, m1 = self.layers2c[0](x1.contiguous(), mask=m1)
             x1 = self.mask_tokenizer.apply(x1, m1)
-            m2 = merge_mask_nd(m1)
+            m2 = merge_mask_nd(m1, mode=self.merge_mode)
         x2 = self.layers2[0](x1.contiguous())
         x2_out = self.proj_out(x2, normalize)
 
@@ -902,7 +921,7 @@ class SwinMIM(SwinViT):
         if self.use_v2:
             x2, m2 = self.layers3c[0](x2.contiguous(), mask=m2)
             x2 = self.mask_tokenizer.apply(x2, m2)
-            m3 = merge_mask_nd(m2)
+            m3 = merge_mask_nd(m2, mode=self.merge_mode)
         x3 = self.layers3[0](x2.contiguous())
         x3_out = self.proj_out(x3, normalize)
 
@@ -918,11 +937,12 @@ class SwinMIM(SwinViT):
 
 @register(RK.NETWORK)
 class SwinSimMIM(SwinViT):
-    """SwinViT V2 (with residual convolutions) for SimMIM-style pre-training.
+    """`SwinTransformer` v2 (with residual convolutions) for SimMIM-style pre-
+    training.
 
-    Contrary to `SwinMIM`, this model uses a mask token to replace masked
-    patches after patch embedding but does not employ mask-aware convolutions
-    and normalization.
+    Unlike `SwinMIM`, this model uses a mask token to replace masked patches
+    after patch embedding but does not employ mask-aware convolutions and
+    normalization.
     """
 
     def __init__(
@@ -1004,6 +1024,98 @@ class SwinSimMIM(SwinViT):
         return [x0_out, x1_out, x2_out, x3_out, x4_out]
 
 
-class SwinMIMFPN(nn.Module):
-    """SwinViT V2 (with residual convolutions) for Masked Image Modeling with a
-    FPN decoder."""
+@register(RK.NETWORK)
+class Multimodal3DSwinMIMFPN(nn.Module):
+    """`SwinTransformer` v2 (with residual convolutions) for 3D Masked Image
+    Modeling with a FPN decoder and multimodal patch embedding support.
+
+    See `SwinMIM`, `FPNLightDecoder3D`, and `MultimodalPatchEmbed` for more details
+    on the input arguments and `forward()` contract.
+
+    If `use_vanilla_swin` is True, the model uses the original MONAI SwinViT encoder
+    without mask-aware layers for SimMIM-style pre-training.
+    """
+
+    def __init__(
+        self,
+        *,
+        # SwinViT encoder args
+        in_channels: int = 1,
+        patch_size: int | Sequence[int] = 2,
+        depths: Sequence[int] = (2, 2, 6, 2),
+        num_heads: Sequence[int] = (3, 6, 12, 24),
+        window_size: Sequence[int] | int = 7,
+        embed_dim: int = 48,
+        use_v2: bool = True,
+        extra_swin_kwargs: dict[str, Any] | None = None,
+        use_vanilla_swin: bool = False,
+        merge_mode: Literal["and", "or"] = "and",
+        # Multimodal patch embedding args
+        inject_modality_tokens: Sequence[bool] | bool = False,
+        expected_modalities: Sequence[set[str]] | set[str] | None = None,
+        fusion: Literal["none", "conv1x1"] = "none",
+        # FPN decoder args
+        fpn_out_channels: int = 1,
+        fpn_width: int = 32,
+        fpn_norm: Literal["instance", "group", "batch"] = "instance",
+        fpn_norm_kwargs: dict[str, Any] | None = None,
+    ):
+        super().__init__()
+
+        # Build encoder
+        enc = SwinMIM if not use_vanilla_swin else SwinSimMIM
+        encoder_kwargs = {
+            "in_channels": in_channels,
+            "patch_size": patch_size,
+            "depths": depths,
+            "num_heads": num_heads,
+            "window_size": window_size,
+            "embed_dim": embed_dim,
+            "use_v2": use_v2,
+            "spatial_dims": 3,
+            "extra_swin_kwargs": extra_swin_kwargs,
+        }
+        if enc == SwinMIM:
+            encoder_kwargs["merge_mode"] = merge_mode
+        self.encoder = enc(**encoder_kwargs)
+
+        # Multimodal patch embedding
+        patch_embed = MultimodalPatchEmbed(
+            patch_size=patch_size,
+            in_chans=in_channels,
+            embed_dim=embed_dim,
+            spatial_dims=3,
+            inject_modality_tokens=inject_modality_tokens,
+            expected_modalities=expected_modalities,
+            fusion=fusion,
+        )
+        self.encoder.patch_embed = MultimodalPatchEmbedAdapter(patch_embed)
+
+        # Build decoder: FPN + voxel shuffle head
+        self.fpn = FPNDecoder3DFeaturesOnly(
+            in_feats=[embed_dim * 2**i for i in range(len(depths) + 1)],
+            width=fpn_width,
+            norm=fpn_norm,
+            norm_kwargs=fpn_norm_kwargs,
+        )
+
+        self.head = VoxelShuffleHead3D(
+            in_ch=fpn_width,
+            out_ch=in_channels,
+            up=patch_size,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        normalize: bool = True,
+        *,
+        mask: torch.Tensor | None = None,
+        modality: Sequence[str] | None = None,
+    ) -> torch.Tensor:
+        cast(MultimodalPatchEmbedAdapter, self.encoder.patch_embed).set_modality(
+            modality
+        )
+        enc_feats = self.encoder(x, normalize, mask=mask)
+        fpn_feats = self.fpn(enc_feats)
+        return self.head(fpn_feats)

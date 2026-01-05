@@ -4,8 +4,18 @@ __all__ = [
     "ProjectionHead",
     "ClassificationHead",
     "FusionHead",
-    "ConvBNAct3d",
+    "ConvNormAct3d",
     "FPNLightDecoder3D",
+    "FPNDecoder3DFeaturesOnly",
+    "VoxelShuffleHead3D",
+    "MaskToken",
+    "PartialConv",
+    "MaskedInstanceNorm",
+    "MaskedInstanceNorm3d",
+    "PartialUnetResBlock",
+    "PartialUnetrBasicBlock",
+    "MultimodalPatchEmbed",
+    "MultimodalPatchEmbedAdapter",
 ]
 
 import logging
@@ -22,6 +32,7 @@ from monai.networks.blocks.patchembedding import PatchEmbed
 from anyBrainer.core.networks.utils import (
     get_mlp_head_args,
     voxel_shuffle_3d,
+    upsample_to_3d,
     center_pad_mask_like,
 )
 from anyBrainer.core.utils import ensure_tuple_dim
@@ -41,7 +52,7 @@ class ProjectionHead(nn.Module):
         activation: str = "GELU",
         *,
         activation_kwargs: dict[str, Any] | None = None,
-    ):
+    ) -> None:
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool3d(1)
 
@@ -91,7 +102,7 @@ class ClassificationHead(nn.Module):
         activation: Sequence[str] | str = "GELU",
         *,
         activation_kwargs: Sequence[dict[str, Any]] | dict[str, Any] | None = None,
-    ):
+    ) -> None:
         super().__init__()
         self.global_pool = nn.AdaptiveAvgPool3d(1)
 
@@ -162,7 +173,7 @@ class FusionHead(nn.Module):
         self,
         n_fusion: int,
         mod_only: bool = False,
-    ):
+    ) -> None:
         super().__init__()
         self.n_fusion = n_fusion
         self.mod_only = mod_only
@@ -209,8 +220,11 @@ class FusionHead(nn.Module):
         return x
 
 
-class ConvBNAct3d(nn.Module):
-    """Convolutional block with normalization and activation."""
+class ConvNormAct3d(nn.Module):
+    """
+    Convolutional block with normalization and activation applied
+    in the order: conv -> norm -> act.
+    """
 
     def __init__(
         self,
@@ -219,30 +233,59 @@ class ConvBNAct3d(nn.Module):
         k: int = 3,
         s: int = 1,
         p: int = 1,
-        norm: str = "instance",
-        act: str = "SiLU",
-        *,
+        norm: Literal["instance", "group", "batch"] = "instance",
+        act: Literal["relu", "gelu", "leaky_relu"] = "gelu",
+        norm_kwargs: dict[str, Any] | None = None,
         act_kwargs: dict[str, Any] | None = None,
     ):
-        if act_kwargs is None:
-            act_kwargs = {}
-
+        """
+        Args:
+            in_ch: Number of input channels
+            out_ch: Number of output channels
+            k: Kernel size
+            s: Stride
+            p: Padding
+            norm: Normalization layer
+            act: Activation function
+            norm_kwargs: Keyword arguments for the normalization layer
+            act_kwargs: Keyword arguments for the activation function
+        """
         super().__init__()
-        if norm == "instance":
-            Norm = nn.InstanceNorm3d
-        elif norm == "group":
-            Norm = lambda c: nn.GroupNorm(num_groups=min(8, c), num_channels=c)
-        else:
-            Norm = nn.BatchNorm3d
-
-        self.block = nn.Sequential(
-            nn.Conv3d(in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False),
-            Norm(out_ch),
-            UnitFactory.get_activation_from_kwargs({"name": act, **act_kwargs}),
+        # Conv
+        self.conv = nn.Conv3d(
+            in_ch, out_ch, kernel_size=k, stride=s, padding=p, bias=False
         )
 
-    def forward(self, x):
-        return self.block(x)
+        # Norm
+        norm_kwargs = norm_kwargs or {}
+        if norm == "instance":
+            self.norm = nn.InstanceNorm3d(out_ch, **norm_kwargs)
+        elif norm == "group":
+            n = norm_kwargs.pop("num_groups", 8)
+            self.norm = nn.GroupNorm(
+                num_groups=min(n, out_ch), num_channels=out_ch, **norm_kwargs
+            )
+        elif norm == "batch":
+            self.norm = nn.BatchNorm3d(out_ch, **norm_kwargs)
+        else:
+            raise ValueError(f"Invalid normalization layer: {norm}")
+
+        # Act
+        act_kwargs = act_kwargs or {}
+        if act == "relu":
+            self.act = nn.ReLU(**act_kwargs)
+        elif act == "gelu":
+            self.act = nn.GELU(**act_kwargs)
+        elif act == "leaky_relu":
+            self.act = nn.LeakyReLU(**act_kwargs)
+        else:
+            raise ValueError(f"Invalid activation function: {act}")
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
 
 
 class FPNLightDecoder3D(nn.Module):
@@ -258,13 +301,16 @@ class FPNLightDecoder3D(nn.Module):
         in_chans: int,
         out_channels: int,
         width: int = 32,
-        norm: str = "instance",
-    ):
+        norm: Literal["instance", "group", "batch"] = "instance",
+        norm_kwargs: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__()
         assert len(in_feats) == 5, "Need 5 scales [f1..f5]"
         f1, f2, f3, f4, f5 = in_feats
 
-        self.in_stem = ConvBNAct3d(in_chans, width, k=3, p=1, norm=norm)
+        self.in_stem = ConvNormAct3d(
+            in_chans, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+        )
 
         self.lat1 = nn.Conv3d(f1, width, kernel_size=1, bias=False)
         self.lat2 = nn.Conv3d(f2, width, kernel_size=1, bias=False)
@@ -273,11 +319,21 @@ class FPNLightDecoder3D(nn.Module):
         self.lat5 = nn.Conv3d(f5, width, kernel_size=1, bias=False)
 
         # one light smooth per pyramid level after lateral+topdown add
-        self.smooth4 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
-        self.smooth3 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
-        self.smooth2 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
-        self.smooth1 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
-        self.smooth0 = ConvBNAct3d(width, width, k=3, p=1, norm=norm)
+        self.smooth4 = ConvNormAct3d(
+            width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+        )
+        self.smooth3 = ConvNormAct3d(
+            width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+        )
+        self.smooth2 = ConvNormAct3d(
+            width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+        )
+        self.smooth1 = ConvNormAct3d(
+            width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+        )
+        self.smooth0 = ConvNormAct3d(
+            width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+        )
 
         # head on the finest map (keeps params tiny)
         self.head = nn.Conv3d(width, out_channels, kernel_size=1)
@@ -307,6 +363,77 @@ class FPNLightDecoder3D(nn.Module):
         return self.head(p0)  # logits at full res
 
 
+class FPNDecoder3DFeaturesOnly(nn.Module):
+    """FPN that fuses 5 encoder scales (high->low: f1..f5) into a narrow
+    feature map at f1 resolution."""
+
+    def __init__(
+        self,
+        in_feats: Sequence[int],
+        width: int = 32,
+        norm: Literal["instance", "group", "batch"] = "instance",
+        norm_kwargs: dict[str, Any] | None = None,
+        use_smooth: bool = True,
+    ) -> None:
+        super().__init__()
+        assert len(in_feats) == 5, "Need 5 scales [f1..f5]"
+        f1, f2, f3, f4, f5 = in_feats
+
+        # Laterals (1x1x1) to common width
+        self.lat1 = nn.Conv3d(f1, width, kernel_size=1, bias=False)
+        self.lat2 = nn.Conv3d(f2, width, kernel_size=1, bias=False)
+        self.lat3 = nn.Conv3d(f3, width, kernel_size=1, bias=False)
+        self.lat4 = nn.Conv3d(f4, width, kernel_size=1, bias=False)
+        self.lat5 = nn.Conv3d(f5, width, kernel_size=1, bias=False)
+
+        # Optional light 3x3x3 smoothing after top-down adds
+        if use_smooth:
+            self.smooth4 = ConvNormAct3d(
+                width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+            )
+            self.smooth3 = ConvNormAct3d(
+                width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+            )
+            self.smooth2 = ConvNormAct3d(
+                width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+            )
+            self.smooth1 = ConvNormAct3d(
+                width, width, k=3, p=1, norm=norm, norm_kwargs=norm_kwargs
+            )
+        else:
+            self.smooth4 = self.smooth3 = self.smooth2 = self.smooth1 = nn.Identity()
+
+    def forward(self, feats: list[torch.Tensor]) -> torch.Tensor:
+        """
+        Args:
+            feats: list of 5 tensors [f1,f2,f3,f4,f5] with shapes
+                   f1: (B,C1,D1,H1,W1) ... f5: (B,C5,D5,H5,W5), where
+                   D1,H1,W1 are the finest token grid (typically image/P).
+        Returns:
+            p1: fused features at f1 resolution, shape (B, width, D1, H1, W1)
+        """
+        if len(feats) != 5:
+            raise ValueError(
+                f"[{self.__class__.__name__}] Expected 5 features, got {len(feats)}."
+            )
+        f1, f2, f3, f4, f5 = feats
+
+        p5 = self.lat5(f5)
+        p4 = self.lat4(f4) + upsample_to_3d(p5, f4)
+        p4 = self.smooth4(p4)
+
+        p3 = self.lat3(f3) + upsample_to_3d(p4, f3)
+        p3 = self.smooth3(p3)
+
+        p2 = self.lat2(f2) + upsample_to_3d(p3, f2)
+        p2 = self.smooth2(p2)
+
+        p1 = self.lat1(f1) + upsample_to_3d(p2, f1)
+        p1 = self.smooth1(p1)
+
+        return p1
+
+
 class VoxelShuffleHead3D(nn.Module):
     """Voxel shuffle head for 3D tensors.
 
@@ -314,7 +441,7 @@ class VoxelShuffleHead3D(nn.Module):
     then gets original spatial dimensions back via voxel shuffle.
     """
 
-    def __init__(self, in_ch: int, out_ch: int, up: Sequence[int] | int):
+    def __init__(self, in_ch: int, out_ch: int, up: Sequence[int] | int) -> None:
         """
         Args:
             in_ch: Number of input channels
@@ -331,7 +458,7 @@ class VoxelShuffleHead3D(nn.Module):
 
 
 class MaskToken(nn.Module):
-    def __init__(self, embed_dim: int, std: float = 0.02):
+    def __init__(self, embed_dim: int, std: float = 0.02) -> None:
         super().__init__()
         self.mask_token = nn.Parameter(torch.zeros(embed_dim))
         with torch.no_grad():
@@ -369,7 +496,7 @@ class PartialConv(nn.Module):
         invalid only if all channels are masked.
     """
 
-    def __init__(self, conv: MONAIConv):
+    def __init__(self, conv: MONAIConv) -> None:
         super().__init__()
 
         if not hasattr(conv, "conv"):
@@ -497,7 +624,7 @@ class MaskedInstanceNorm(nn.Module):
         affine: bool = True,
         *,
         eps: float = 1e-5,
-    ):
+    ) -> None:
         """
         Args:
             num_features: Number of features (channels) in the input tensor.
@@ -601,7 +728,7 @@ class PartialUnetResBlock(nn.Module):
     masked and unmasked patch features.
     """
 
-    def __init__(self, unet_res_block: MONAIUnetResBlock):
+    def __init__(self, unet_res_block: MONAIUnetResBlock) -> None:
         super().__init__()
 
         if not isinstance(unet_res_block, MONAIUnetResBlock):
@@ -712,7 +839,7 @@ class PartialUnetrBasicBlock(nn.Module):
       - If mask is provided: returns (Tensor, mask_out)
     """
 
-    def __init__(self, unetr_basic_block: MONAIUnetrBasicBlock):
+    def __init__(self, unetr_basic_block: MONAIUnetrBasicBlock) -> None:
         super().__init__()
         if not isinstance(unetr_basic_block, MONAIUnetrBasicBlock):
             msg = (
@@ -756,7 +883,8 @@ class MultimodalPatchEmbed(nn.Module):
     introduce a modality-specific token for each channel-modality combination,
     in case more than a single modality is expected per channel.
 
-    Output is channel-first: (B, embed_dim, *patch_grid).
+    Notes:
+        - Output is channel-first: (B, embed_dim, *patch_grid).
     """
 
     def __init__(
@@ -769,7 +897,7 @@ class MultimodalPatchEmbed(nn.Module):
         inject_modality_tokens: Sequence[bool] | bool = False,
         expected_modalities: Sequence[set[str]] | set[str] | None = None,
         fusion: Literal["none", "conv1x1"] = "none",
-    ):
+    ) -> None:
         """
         Args:
             patch_size: Patch size for the patch embedding.
@@ -820,8 +948,10 @@ class MultimodalPatchEmbed(nn.Module):
                 msg = f"[{self.__class__.__name__}] `expected_modalities` must be a list/tuple of length in_chans."
                 logger.error(msg)
                 raise ValueError(msg)
-            if not all(isinstance(s, set) for s in expected_modalities):
-                msg = f"[{self.__class__.__name__}] `expected_modalities` must be a sequence of sets."
+            if not all(isinstance(s, set) for s in expected_modalities) or any(
+                len(s) == 0 for s in expected_modalities
+            ):
+                msg = f"[{self.__class__.__name__}] `expected_modalities` must be a sequence of non-empty sets."
                 logger.error(msg)
                 raise ValueError(msg)
 
@@ -919,3 +1049,36 @@ class MultimodalPatchEmbed(nn.Module):
 
         y = torch.cat(outs, dim=1)  # (B, embed_dim, *grid)
         return self.fusion(y)
+
+
+class MultimodalPatchEmbedAdapter(PatchEmbed):
+    """Adapter that enables drop-in replacement of the `MultimodalPatchEmbed`
+    module in the `SwinTransformer` base class.
+
+    This is done by removing the need for a `modality` argument in the `forward()` method
+    of the `MultimodalPatchEmbed` module and subclassing `PatchEmbed`.
+    """
+
+    def __init__(self, mm_embed: MultimodalPatchEmbed) -> None:
+        if not isinstance(mm_embed, MultimodalPatchEmbed):
+            msg = (
+                f"[{self.__class__.__name__}] Expected `mm_embed` to be an "
+                f"instance of `MultimodalPatchEmbed`, got {type(mm_embed)}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        super().__init__(
+            patch_size=mm_embed.patch_size,
+            in_chans=mm_embed.in_channels,
+            embed_dim=mm_embed.embed_dim,
+            spatial_dims=mm_embed.spatial_dims,
+        )
+        self.mm_embed = mm_embed
+        self._modality: Sequence[str] | None = None
+
+    def set_modality(self, modality: Sequence[str] | None = None) -> None:
+        self._modality = modality
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.mm_embed(x, modality=self._modality)

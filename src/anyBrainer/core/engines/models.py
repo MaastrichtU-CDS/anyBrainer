@@ -469,6 +469,18 @@ class CLwAuxModel(BaseModel):
         )
 
 
+class MultimodalMIMModel(BaseModel):
+    """Multimodal MIM-style pre-training model with a hybrid conv-transformer
+    architecture."""
+
+    def __init__(self, **base_model_kwargs) -> None:
+        super().__init__(**base_model_kwargs)
+
+    def training_step(self, batch: dict, batch_idx: int):
+        """Training step."""
+        outputs = self.model(batch["img"], batch["mask"])
+
+
 @register(RK.PL_MODULE)
 class ClassificationModel(BaseModel):
     """Generic model that can be used for any classification task.

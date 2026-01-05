@@ -87,10 +87,17 @@ def get_mlp_head_args(
     return dropouts, hidden_dims, activations, activation_kwargs
 
 
+def upsample_to_3d(
+    x: torch.Tensor, ref: torch.Tensor, mode: str = "trilinear"
+) -> torch.Tensor:
+    """Upsample x to the same spatial dimensions as ref."""
+    return F.interpolate(x, size=ref.shape[-3:], mode=mode, align_corners=False)
+
+
 def voxel_shuffle_3d(x: torch.Tensor, r: Sequence[int] | int) -> torch.Tensor:
     """Voxel shuffle operation for 3D tensors.
 
-    Can be used to convert a tesnor in the patch grid back to the original
+    Can be used to convert a tensor in the patch grid back to the original
     voxel grid.
 
     Args:

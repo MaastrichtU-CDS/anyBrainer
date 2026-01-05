@@ -2,6 +2,7 @@
 
 __all__ = [
     "CreateRandomMaskd",
+    "CreateRandomPatchGridMaskd",
     "SaveReconstructionTargetd",
     "CreateEmptyMaskd",
     "GetKeyQueryd",
@@ -12,7 +13,7 @@ __all__ = [
     "UnscalePredsIfNeeded",
 ]
 
-from typing import Literal, Sequence, Any
+from typing import Literal, Sequence, Any, cast
 from collections.abc import Hashable
 import logging
 import math
@@ -332,7 +333,7 @@ class SlidingWindowPatch(Transform):
         )
 
         self.padding_mode = padding_mode
-        self.padding_side = padding_side
+        self.padding_side: Literal["right", "left", "both"] = padding_side
         self.spatial_dims = spatial_dims
         self.slices: list[tuple[slice, ...]] = []  # will be populated by __call__()
 
@@ -368,7 +369,7 @@ class SlidingWindowPatch(Transform):
         else:
             stride = tuple(
                 max(1, int(round(p * (1.0 - o))))
-                for p, o in zip(self.patch_size, self.overlap)
+                for p, o in zip(self.patch_size, cast(tuple[float, ...], self.overlap))
             )  # type: ignore[arg-type]
             target_dims = min_target_dims
 
@@ -539,3 +540,243 @@ class UnscalePredsIfNeeded(Transform):
             out = out + center_t
 
         return out
+
+
+class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
+    """
+    Creates a random mask at patch-grid resolution:
+      mask shape = (embed_dim, gd, gh, gw)
+      mask values: 1 = masked, 0 = visible
+
+    Supports:
+      - shared masked patches across all modalities (all embed dims)
+      - unique masked patches per modality slice of embed_dim
+
+    Note:
+        This transform assumes that patch embedding is performed by MONAI's
+        `PatchEmbed` module.
+    """
+
+    backend = [TransformBackends.TORCH]
+
+    def __init__(
+        self,
+        keys: Sequence[str] = ("img",),
+        mask_key: str = "mask",
+        spatial_dims: int = 3,
+        patch_size: Sequence[int] | int = (2, 2, 2),
+        embed_dim: int = 48,
+        n_modalities: int = 1,
+        mask_ratio_shared: float | Sequence[float] = 0.0,
+        mask_ratio_unique: float | Sequence[float] = 0.6,
+        mask_size: int | Sequence[int] = 4,
+        allow_missing_keys: bool = False,
+    ) -> None:
+        """
+        Args:
+            keys: typically ("img",)
+            mask_key: where to store the mask
+            spatial_dims: number of spatial dimensions
+            patch_size: `PatchEmbed` patch_size (e.g., (2,2,2))
+            embed_dim: `PatchEmbed` embed_dim (e.g., 48)
+            n_modalities: number of modalities (e.g., '2' for 'T1w' and 'FLAIR')
+            mask_ratio_shared: Mask ratio or range of ratios for patches that
+                are masked across all modalities.
+            mask_ratio_unique: Mask ratio or range of ratios for patches that
+                are uniquely masked for each modality.
+            mask_size: mask block size in voxels (int or list of ints)
+        """
+        super().__init__(keys, allow_missing_keys)
+
+        self.mask_key = mask_key
+
+        if spatial_dims not in (2, 3):
+            msg = f"[{self.__class__.__name__}] spatial_dims must be 2 or 3, got {spatial_dims}"
+            logger.error(msg)
+            raise ValueError(msg)
+        self.spatial_dims = spatial_dims
+
+        self.patch_size = ensure_tuple_dim(patch_size, self.spatial_dims)
+
+        if not isinstance(n_modalities, int) or n_modalities <= 0:
+            msg = f"[{self.__class__.__name__}] `n_modalities` must be a positive integer, got {n_modalities}"
+            logger.error(msg)
+            raise ValueError(msg)
+        self.n_modalities = n_modalities
+
+        if not isinstance(embed_dim, int) or embed_dim % self.n_modalities != 0:
+            msg = (
+                f"[{self.__class__.__name__}] `embed_dim` must be a positive integer and divisible by "
+                f"`n_modalities`; got embed_dim={embed_dim} and n_modalities={self.n_modalities}"
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        self.embed_dim = embed_dim
+
+        self.mask_ratio_shared = ensure_tuple_dim(mask_ratio_shared, 2)
+        self.mask_ratio_unique = ensure_tuple_dim(mask_ratio_unique, 2)
+
+        if (
+            self.mask_ratio_shared[-1] + self.n_modalities * self.mask_ratio_unique[-1]
+            > 1.0
+        ):
+            msg = (
+                f"Invalid mask ratios: max total ratio (shared + sum of unique) exceeds 1; got "
+                f"({self.mask_ratio_shared[-1]} + {self.n_modalities}*{self.mask_ratio_unique[-1]}) = "
+                f"{self.mask_ratio_shared[-1] + self.n_modalities * self.mask_ratio_unique[-1]}"
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if not isinstance(mask_size, (list, tuple)):
+            if not isinstance(mask_size, int):
+                msg = f"[{self.__class__.__name__}] `mask_size` must be an integer or a sequence of integers."
+                logger.error(msg)
+                raise ValueError(msg)
+            mask_size = [mask_size]
+
+        self.mask_size_candidates = [
+            ensure_tuple_dim(int(size), self.spatial_dims) for size in mask_size
+        ]
+
+    def _make_patch_masks(
+        self,
+        patch_grid: tuple[int, ...],
+        mask_block: tuple[int, ...],
+        ratio_shared: float,
+        ratio_unique: Sequence[float],
+    ) -> torch.Tensor:
+        """
+        Returns patch-grid mask: shape (n_modalities, *patch_grid), values: 1=masked, 0=visible
+        Masks are a combination of controlled shared and unique per-modality masked patches.
+        A random offset is applied to avoid fixed grid alignment across dataset entries.
+        """
+        # Random offset for grid alignment; sample from [0, mask_block) per dimension
+        offset = tuple(int(self.R.randint(0, b)) for b in mask_block)
+        mod_order = self.R.permutation(self.n_modalities)
+
+        # ------- SHARED MASK (ALL MODALITIES) -------
+        # Get total number of mask blocks to cover patch grid with offset
+        n_blocks = [
+            (p + o + b - 1) // b for p, o, b in zip(patch_grid, offset, mask_block)
+        ]
+        total_blocks = cast(int, np.prod(n_blocks))
+
+        # Get total number of blocks to mask
+        n_mask = int(round(total_blocks * ratio_shared))
+        n_mask = max(0, min(total_blocks, n_mask))
+
+        # block-level mask: 1 = masked
+        block_mask = torch.zeros((total_blocks,), dtype=torch.bool)
+        if n_mask > 0:
+            idx = torch.as_tensor(self.R.choice(total_blocks, n_mask, replace=False))
+            block_mask[idx] = True
+
+        # ------- UNIQUE MASK (PER MODALITY) -------
+        # Get total number of blocks to mask per modality
+        shared_mask = block_mask.clone()
+        all_masks = [torch.zeros_like(block_mask) for _ in range(self.n_modalities)]
+        for i in mod_order:
+            # Get starting modality mask
+            modality_mask = shared_mask.clone()
+
+            # Get indices still available (unmasked so far)
+            unmasked_indices = torch.where(~block_mask)[0]
+            n_available = len(unmasked_indices)
+
+            if n_available > 0 and ratio_unique[i] > 0:
+                n_mask = int(round(total_blocks * ratio_unique[i]))
+                n_mask = min(n_mask, n_available)
+
+                if n_mask > 0:
+                    idx = torch.as_tensor(
+                        self.R.choice(n_available, n_mask, replace=False)
+                    )
+                    block_mask[unmasked_indices[idx]] = True
+                    modality_mask[unmasked_indices[idx]] = True
+
+            # Snapshot current cumulative mask for this modality
+            all_masks[i] = (modality_mask).view(tuple(n_blocks))
+
+        # Stack: (n_modalities, *n_blocks)
+        block_masks = torch.stack(all_masks, dim=0)
+
+        # Expand blocks to patch-grid: (n_modalities, *n_blocks)
+        patch_masks = block_masks
+        for i, bi in enumerate(mask_block):
+            patch_masks = patch_masks.repeat_interleave(bi, i + 1)
+
+        # Crop with offset: [offset : offset + patch_grid] per spatial dim
+        slices = (slice(None),) + tuple(
+            slice(o, o + p) for o, p in zip(offset, patch_grid)
+        )
+        patch_masks = patch_masks[slices]
+
+        return patch_masks.to(torch.bool)
+
+    def randomize(self) -> tuple[tuple[int, ...], float, Sequence[float]]:
+        # Sample mask size
+        ms = self.mask_size_candidates[
+            int(self.R.randint(0, len(self.mask_size_candidates)))
+        ]
+
+        # Sample shared mask ratio
+        r_shared = float(
+            self.R.uniform(self.mask_ratio_shared[0], self.mask_ratio_shared[1])
+        )
+
+        # Sample per-modality mask ratio
+        r_unique = self.R.uniform(
+            self.mask_ratio_unique[0], self.mask_ratio_unique[1], size=self.n_modalities
+        ).tolist()
+
+        return ms, r_shared, r_unique
+
+    def __call__(self, data: dict[str, Any]) -> dict[str, Any]:
+        d = dict(data)
+
+        for key in self.key_iterator(d):  # type: ignore[arg-type]
+            img = d[key]
+            if img.ndim < 1 + self.spatial_dims:
+                msg = (
+                    f"[{self.__class__.__name__}] Expected at least (C, *spatial_dims) dimensions "
+                    f"({1 + self.spatial_dims}D), but got {img.ndim}D tensor."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
+
+            spatial_orig = img.shape[-self.spatial_dims :]
+
+            # `PatchEmbed`-style padding: pad at the end to multiples of patch_size
+            spatial_padded = [
+                s if s % p == 0 else s + (p - s % p)
+                for s, p in zip(spatial_orig, self.patch_size)
+            ]
+            patch_grid = tuple(s // p for s, p in zip(spatial_padded, self.patch_size))
+
+            # Sample mask size, shared mask ratio, and unique mask ratios
+            ms, r_shared, r_unique = self.randomize()
+
+            # Convert to patch-grid block size from mask size in voxels
+            mask_block = tuple(
+                max(1, (m + p - 1) // p) for m, p in zip(ms, self.patch_size)
+            )
+
+            # Get per-modality patch masks; also consumes random state `self.R`
+            masks = self._make_patch_masks(patch_grid, mask_block, r_shared, r_unique)
+
+            channels_per_mod = self.embed_dim // self.n_modalities
+
+            # Expand to (n_modalities, channels_per_mod, *patch_grid)
+            rep = (1, channels_per_mod) + (1,) * self.spatial_dims
+            mask = masks.unsqueeze(1).repeat(*rep)
+
+            # Collapse to (embed_dim, *patch_grid)
+            mask = mask.reshape(self.embed_dim, *patch_grid)
+
+            if isinstance(img, MetaTensor):
+                d[self.mask_key] = MetaTensor(mask, meta=img.meta)
+            else:
+                d[self.mask_key] = mask
+
+        return d
