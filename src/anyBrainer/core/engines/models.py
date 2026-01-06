@@ -37,6 +37,7 @@ from anyBrainer.core.engines.utils import (
     setup_all_mixins,
     scale_labels_if_needed,
     unscale_preds_if_needed,
+    mask_to_image_grid,
 )
 from anyBrainer.core.utils import (
     summarize_model_params,
@@ -46,6 +47,7 @@ from anyBrainer.core.utils import (
     feature_variance,
     callable_name,
     pad_to_size,
+    ensure_tuple_dim,
 )
 from anyBrainer.config import resolve_fn, resolve_metric
 from anyBrainer.registry import RegistryKind as RK
@@ -469,6 +471,7 @@ class CLwAuxModel(BaseModel):
         )
 
 
+@register(RK.PL_MODULE)
 class MultimodalMIMModel(BaseModel):
     """Multimodal MIM-style pre-training model with a hybrid conv-transformer
     architecture."""
@@ -476,9 +479,164 @@ class MultimodalMIMModel(BaseModel):
     def __init__(self, **base_model_kwargs) -> None:
         super().__init__(**base_model_kwargs)
 
-    def training_step(self, batch: dict, batch_idx: int):
+        if isinstance(self.loss_fn, list):
+            msg = (
+                f"[{self.__class__.__name__}] expected a single loss function for MIM-style"
+                f"reconstruction, but got n={len(self.loss_fn)}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        def _infer_attr(name: str) -> Any:
+            enc = getattr(self.model, "encoder", None)
+            if enc is not None and hasattr(enc, name):
+                return getattr(enc, name)
+            if hasattr(self.model, name):
+                return getattr(self.model, name)
+            return None
+
+        self.spatial_dims = _infer_attr("spatial_dims")
+        if self.spatial_dims not in (2, 3):
+            msg = f"[{self.__class__.__name__}] Cannot infer valid `spatial_dims` (2/3) from model."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.embed_dim = _infer_attr("embed_dim")
+        if not isinstance(self.embed_dim, int) or self.embed_dim <= 0:
+            msg = f"[{self.__class__.__name__}] Cannot infer valid `embed_dim` from model."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        patch_size = _infer_attr("patch_size")
+        if patch_size is None:
+            msg = f"[{self.__class__.__name__}] Cannot infer `patch_size` from model."
+            logger.error(msg)
+            raise ValueError(msg)
+        self.patch_size = ensure_tuple_dim(patch_size, self.spatial_dims)
+
+        self.in_channels = _infer_attr("in_channels")
+        if not isinstance(self.in_channels, int) or self.in_channels <= 0:
+            msg = f"[{self.__class__.__name__}] Cannot infer valid `in_channels` from model."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if self.embed_dim % self.in_channels != 0:
+            msg = (
+                f"[{self.__class__.__name__}] embed_dim ({self.embed_dim}) must be divisible by "
+                f"in_channels ({self.in_channels})."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.channels_per_mod = self.embed_dim // self.in_channels
+
+    def _expand_mask_to_embed_dim(self, mask: torch.Tensor) -> torch.Tensor:
+        """(B, in_channels, *patch_grid) -> (B, embed_dim, *patch_grid),
+        bool."""
+        if mask.ndim != 2 + self.spatial_dims:
+            msg = (
+                f"[{self.__class__.__name__}] Expected `mask` to have {2 + self.spatial_dims} dims "
+                f"(B, C, *patch_grid), got shape {tuple(mask.shape)}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        B, C, *patch_grid = mask.shape
+        if C != self.in_channels:
+            msg = f"[{self.__class__.__name__}] Expected mask channels={self.in_channels}, got {C}."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        m = mask != 0
+        m = m.unsqueeze(2)  # (B, C, 1, *pg)
+
+        # (B, C, channels_per_mod, *pg)
+        rep = (1, 1, self.channels_per_mod) + (1,) * self.spatial_dims
+        m = m.repeat(*rep)
+
+        # (B, embed_dim, *pg)
+        m = m.reshape(B, self.embed_dim, *patch_grid)
+        return m
+
+    def compute_loss(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        target: torch.Tensor,
+        image_grid: tuple[int, ...],
+        mode: Literal["train", "val", "test"],
+    ) -> torch.Tensor:
+        """Compute MIM-style reconstruction loss."""
+        # Patch-grid mask for the model (B, embed_dim, *patch_grid)
+        m_patch = self._expand_mask_to_embed_dim(mask)
+
+        # Image-grid mask for intensity-level loss (B, in_channels, *image_grid)
+        m_img = mask_to_image_grid(
+            mask,
+            patch_size=cast(tuple[int, ...], self.patch_size),
+            image_grid=image_grid,
+        )
+
+        out = self.model(x, m_patch)
+
+        # Expect out and target to be same shape and align with `m_img`.
+        if out.shape != target.shape:
+            msg = (
+                f"[{self.__class__.__name__}] Output/target shape mismatch: out={tuple(out.shape)} "
+                f"target={tuple(target.shape)}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        if out.shape != m_img.shape:
+            msg = (
+                f"[{self.__class__.__name__}] Mask/output shape mismatch: mask={tuple(m_img.shape)} "
+                f"out={tuple(out.shape)}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        loss_fn = cast(Callable[..., torch.Tensor], self.loss_fn)
+        loss = loss_fn(out[m_img], target[m_img])
+
+        self.log(
+            f"{mode}/loss",
+            loss,
+            on_step=(mode == "train"),
+            on_epoch=True,
+            prog_bar=False,
+            sync_dist=sync_dist_safe(self),
+        )
+        return loss
+
+    def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
-        outputs = self.model(batch["img"], batch["mask"])
+        return self.compute_loss(
+            x=batch["img"],
+            mask=batch["mask"],
+            target=batch["target"],
+            image_grid=batch["img"].shape[-self.spatial_dims :],
+            mode="train",
+        )
+
+    def validation_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Validation step."""
+        return self.compute_loss(
+            x=batch["img"],
+            mask=batch["mask"],
+            target=batch["target"],
+            image_grid=batch["img"].shape[-self.spatial_dims :],
+            mode="val",
+        )
+
+    def test_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Test step."""
+        return self.compute_loss(
+            x=batch["img"],
+            mask=batch["mask"],
+            target=batch["target"],
+            image_grid=batch["img"].shape[-self.spatial_dims :],
+            mode="test",
+        )
 
 
 @register(RK.PL_MODULE)

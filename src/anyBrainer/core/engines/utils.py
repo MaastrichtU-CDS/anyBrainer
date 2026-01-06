@@ -296,80 +296,45 @@ def unscale_preds_if_needed(preds: torch.Tensor, meta: dict) -> torch.Tensor:
     return preds
 
 
-def patch_to_image_grid(
+def mask_to_image_grid(
     mask: torch.Tensor,
     *,
-    out_ch: int,
     patch_size: Sequence[int],
     image_grid: Sequence[int],
 ) -> torch.Tensor:
-    """Convert patch-grid masks to image-grid masks.
+    """Patch-grid (per-modality) mask -> image-grid mask for intensity
+    reconstruction.
 
     Args:
-        mask:
-            Tensor of shape (B, embed_dim, *patch_grid). Nonzero = masked.
-
-        out_ch:
-            Number of output channels (modalities) to produce.
-            Must divide embed_dim.
-
-        patch_size:
-            Patch size per spatial dim used by PatchEmbed, e.g. (2,2,2) or (16,16).
-            Length defines spatial_dims.
-
-        image_grid:
-            Original image spatial shape BEFORE PatchEmbed padding, e.g. (D,H,W) or (H,W).
+        mask: (B, out_ch, *patch_grid), values 1=masked, 0=visible.
+        patch_size: `PatchEmbed` patch_size per spatial dim (len 2 or 3).
+        image_grid: Original image spatial shape (before `PatchEmbed` padding).
 
     Returns:
-        mask_img:
-            Tensor of shape (B, out_ch, *image_grid), dtype=torch.uint8, values 0/1.
-            1 = masked, 0 = visible.
+        mask_img: (B, out_ch, *image_grid), uint8, values 1=masked.
     """
-    if mask.ndim < 3:
-        msg = f"mask must be (B, embed_dim, *patch_grid), got shape={tuple(mask.shape)}"
-        logger.error(msg)
-        raise ValueError(msg)
-
-    B, embed_dim = int(mask.shape[0]), int(mask.shape[1])
     spatial_dims = len(patch_size)
-
     if spatial_dims not in (2, 3):
-        msg = f"`patch_size` must have length 2 or 3, got {spatial_dims}"
+        msg = f"patch_size must have length 2 or 3, got {spatial_dims}"
         logger.error(msg)
         raise ValueError(msg)
+
     if len(image_grid) != spatial_dims:
-        raise ValueError(
-            f"image_grid must have length {spatial_dims}, got {len(image_grid)}"
-        )
-    if out_ch <= 0:
-        raise ValueError(f"out_ch must be positive, got {out_ch}")
-    if embed_dim % out_ch != 0:
-        raise ValueError(
-            f"embed_dim ({embed_dim}) must be divisible by out_ch ({out_ch})"
-        )
+        msg = f"image_grid must have length {spatial_dims}, got {len(image_grid)}"
+        logger.error(msg)
+        raise ValueError(msg)
 
-    # Sanity check on patch_grid rank
     if mask.ndim != 2 + spatial_dims:
-        raise ValueError(
-            f"mask must have {2 + spatial_dims} dims (B, embed_dim, *patch_grid), got {mask.ndim}"
-        )
+        msg = f"mask must have {2 + spatial_dims} dims (B,out_ch,*patch_grid), got {mask.ndim}"
+        logger.error(msg)
+        raise ValueError(msg)
 
-    E = embed_dim // out_ch  # embedding channels per output channel
+    m = mask != 0  # ensure binary 0/1
 
-    # (B, embed_dim, *pg) -> (B, out_ch, E, *pg)
-    m = mask.reshape(B, out_ch, E, *mask.shape[2:])
-
-    # per-channel masked if sum over dedicated embedding slice > 0
-    # (B, out_ch, *pg), values 0/1
-    m_pg = (m.sum(dim=2) > 0).to(torch.uint8)
-
-    # upsample patch-grid -> voxel-grid via nearest neighbor repeat
-    m_img = m_pg
+    # nearest-neighbor voxelization: repeat each patch token to patch_size voxels
     for ax, r in enumerate(patch_size):
-        m_img = m_img.repeat_interleave(int(r), dim=2 + ax)
+        m = m.repeat_interleave(int(r), dim=2 + ax)
 
-    # crop to original image grid (unpadded)
+    # crop back to original unpadded image size
     slices = (slice(None), slice(None)) + tuple(slice(0, int(s)) for s in image_grid)
-    m_img = m_img[slices]
-
-    return m_img
+    return m[slices]

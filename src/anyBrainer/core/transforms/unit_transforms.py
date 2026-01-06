@@ -765,18 +765,9 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
             # Get per-modality patch masks; also consumes random state `self.R`
             masks = self._make_patch_masks(patch_grid, mask_block, r_shared, r_unique)
 
-            channels_per_mod = self.embed_dim // self.n_modalities
-
-            # Expand to (n_modalities, channels_per_mod, *patch_grid)
-            rep = (1, channels_per_mod) + (1,) * self.spatial_dims
-            mask = masks.unsqueeze(1).repeat(*rep)
-
-            # Collapse to (embed_dim, *patch_grid)
-            mask = mask.reshape(self.embed_dim, *patch_grid)
-
             if isinstance(img, MetaTensor):
-                d[self.mask_key] = MetaTensor(mask, meta=img.meta)
+                d[self.mask_key] = MetaTensor(masks, meta=img.meta)
             else:
-                d[self.mask_key] = mask
+                d[self.mask_key] = masks
 
         return d
