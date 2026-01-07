@@ -18,7 +18,9 @@ from anyBrainer.core.transforms.unit_transforms import (
     RandImgKeyd,
     ClipNonzeroPercentilesd,
     UnscalePredsIfNeeded,
+    CreateRandomPatchGridMaskd,
 )
+from anyBrainer.core.utils.visualization import plot_npy_volumes
 
 
 @pytest.mark.parametrize(
@@ -388,3 +390,74 @@ class TestUnscalePredsIfNeeded:
         out = UnscalePredsIfNeeded(scale_range=(20, 90), center=65)(pred)
         assert 30 <= out <= 100
         assert out == pred * 35 + 65
+
+
+class TestCreateRandomPatchGridMaskd:
+    @pytest.fixture
+    def input_data(self):
+        return {"img": torch.randn(3, 96, 96, 96)}
+
+    def test_output_shape(self, input_data):
+        out = CreateRandomPatchGridMaskd(keys=["img"], in_channels=3)(input_data)
+        assert out["mask"].shape == (3, 48, 48, 48)
+
+    @pytest.mark.parametrize(
+        "mask_ratio_shared, mask_ratio_unique",
+        [
+            (0.5, 0.1),
+            (0.7, 0.1),
+            (0.1, 0.2),
+            (0.0, 0.3),
+            (0.6, 0.0),
+        ],
+    )
+    def test_mask_ratio(self, input_data, mask_ratio_shared, mask_ratio_unique):
+        out = CreateRandomPatchGridMaskd(
+            keys=["img"],
+            in_channels=3,
+            mask_ratio_shared=mask_ratio_shared,
+            mask_ratio_unique=mask_ratio_unique,
+        )(input_data)
+        expected_mask_ratio = mask_ratio_shared + mask_ratio_unique
+        assert torch.isclose(
+            out["mask"].float().mean(), torch.tensor(expected_mask_ratio), atol=0.01
+        )  # +/- 1%
+
+    @pytest.mark.parametrize(
+        "patch_size, input_size",
+        [
+            ((2, 2, 2), (24, 24, 24)),
+            ((3, 3, 3), (32, 32, 32)),
+            ((4, 4, 4), (35, 35, 35)),
+        ],
+    )
+    def test_matches_patch_embed(self, patch_size, input_size):
+        input_data = {"img": torch.randn(3, *input_size)}
+
+        from monai.networks.blocks.patchembedding import PatchEmbed
+
+        ref = PatchEmbed(patch_size=patch_size, in_chans=3)(
+            input_data["img"].unsqueeze(0)
+        )
+
+        out = CreateRandomPatchGridMaskd(
+            keys=["img"],
+            in_channels=3,
+            patch_size=patch_size,
+        )(input_data)
+
+        assert out["mask"].shape[-3:] == ref.shape[-3:]
+
+    @pytest.mark.viz
+    def test_visualize_mask(self, input_data):
+        out = CreateRandomPatchGridMaskd(
+            keys=["img"], in_channels=3, patch_size=(2, 2, 2), mask_size=16
+        )(input_data)
+        out_per_ch = torch.unbind(out["mask"], dim=0)
+        out_dict = {f"ch_{i}": out_per_ch[i] for i in range(3)}
+
+        from monai.transforms.utility.dictionary import ToNumpyd
+
+        out_dict = ToNumpyd(keys=["ch_0", "ch_1", "ch_2"])(out_dict)  # type: ignore[arg-type]
+
+        plot_npy_volumes(out_dict, title="Mask")  # type: ignore[arg-type]

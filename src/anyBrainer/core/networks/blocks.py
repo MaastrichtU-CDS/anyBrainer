@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 import logging
-from typing import Any, Literal, Sequence, overload
+from typing import Any, Literal, Sequence, overload, cast
 
 import torch
 import torch.nn as nn
@@ -671,8 +671,8 @@ class MaskedInstanceNorm(nn.Module):
 
         B, C, *spatial_dims = x.shape
         if mask is None:
-            mean = x.mean(dim=spatial_dims, keepdim=True)
-            var = x.var(dim=spatial_dims, keepdim=True, unbiased=False)
+            mean = x.mean(dim=tuple(range(2, x.ndim)), keepdim=True)
+            var = x.var(dim=tuple(range(2, x.ndim)), keepdim=True, unbiased=False)
             y = (x - mean) / torch.sqrt(var + self.eps)
         else:
             if mask.device != x.device:
@@ -993,14 +993,15 @@ class MultimodalPatchEmbed(nn.Module):
         self,
         x: torch.Tensor,
         *,
-        modality: Sequence[str] | None = None,
+        modality: Sequence[str | None] | None = None,
     ) -> torch.Tensor:
         """Iterate over input channels and apply a modality-aware patch
         embedding.
 
         Args:
             x: Input tensor of shape (B, C, *spatial_dims).
-            modality: Sequence of modality names for each channel.
+            modality: Sequence of modality names for each channel. Set entry
+                to None for channels with no injection of modality tokens.
 
         Returns:
             torch.Tensor: Output tensor of shape (B, embed_dim, *patch_grid).
@@ -1034,10 +1035,16 @@ class MultimodalPatchEmbed(nn.Module):
             yi = self.patch_embeds[i](x[:, i : i + 1])
 
             # Add token if configured and available
-            if modality is not None and self.inject_modality_tokens[i]:
-                key = f"ch{i}:{modality[i]}"
+            if self.inject_modality_tokens[i]:
+                mod_i = cast(Sequence[str | None], modality)[i]
+                if mod_i is None:
+                    msg = f"[{self.__class__.__name__}] Expected modality for channel {i}, but got None."
+                    logger.error(msg)
+                    raise ValueError(msg)
+
+                key = f"ch{i}:{mod_i}"
                 if key not in self.modality_tokens:
-                    msg = f"[{self.__class__.__name__}] Could not find modality token for ch{i}:{modality[i]}."
+                    msg = f"[{self.__class__.__name__}] Could not find modality token for ch{i}:{mod_i}."
                     logger.error(msg)
                     raise RuntimeError(msg)
 

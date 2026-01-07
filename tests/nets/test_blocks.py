@@ -8,6 +8,9 @@ from anyBrainer.core.networks.blocks import (
     ClassificationHead,
     FusionHead,
     FPNLightDecoder3D,
+    PartialConv,
+    MaskedInstanceNorm,
+    MultimodalPatchEmbed,
 )
 
 
@@ -243,3 +246,262 @@ class TestFPNLightDecoder3D:
                     torch.randn(4, 192, 8, 8, 8),
                 ],
             )
+
+
+class TestPartialConv:
+    @pytest.fixture
+    def conv(self):
+        from monai.networks.blocks.convolutions import Convolution
+
+        return Convolution(
+            spatial_dims=3, in_channels=24, out_channels=24, kernel_size=3
+        )
+
+    @pytest.fixture
+    def input(self):
+        return torch.randn(2, 24, 32, 32, 32)
+
+    @pytest.fixture
+    def mask(self):
+        return torch.randn(2, 24, 32, 32, 32) > 0.5
+
+    def test_matches_shape(self, conv, input, mask):
+        out = PartialConv(conv=conv)(input, mask=mask)
+        ref_out = conv(input)
+        assert out.shape == ref_out.shape
+
+    def test_no_op_mask_none(self, conv, input):
+        out = PartialConv(conv=conv)(input)
+        ref_out = conv(input)
+        assert torch.allclose(out, ref_out)
+
+    def test_norm_values(self, conv, input, mask):
+        out = PartialConv(conv=conv)(input, mask=mask)
+        ref_out = conv(input)
+        assert torch.allclose(out[~mask].mean(), ref_out[~mask].mean(), atol=0.01)
+        assert torch.allclose(out[~mask].std(), ref_out[~mask].std(), atol=0.01)
+
+
+class TestMaskedInstanceNorm:
+    @pytest.fixture
+    def norm(self):
+        return MaskedInstanceNorm(num_features=24)
+
+    @pytest.fixture
+    def input(self):
+        return torch.randn(2, 24, 32, 32, 32)
+
+    @pytest.fixture
+    def mask(self):
+        return torch.randn(2, 24, 32, 32, 32) > 0.5
+
+    def test_matches_shape(self, norm, input, mask):
+        out = norm(input, mask=mask)
+        ref_out = norm(input)
+        assert out.shape == ref_out.shape
+
+    def test_no_op_mask_none(self, norm, input):
+        out = norm(input)
+        ref_out = norm(input)
+        assert torch.allclose(out, ref_out)
+
+    def test_norm_values(self, norm, input, mask):
+        out = norm(input, mask=mask)
+        ref_out = norm(input)
+        assert torch.allclose(out[~mask].mean(), ref_out[~mask].mean(), atol=0.01)
+        assert torch.allclose(out[~mask].std(), ref_out[~mask].std(), atol=0.01)
+
+    def test_affine(self, norm, input, mask):
+        norm = MaskedInstanceNorm(num_features=24, affine=True)
+        out = norm(input, mask=mask)
+        assert out.shape == input.shape
+        assert norm.weight is not None
+        assert norm.bias is not None
+
+
+class TestMultiModalPatchEmbed:
+    @pytest.fixture
+    def embed(self):
+        return MultimodalPatchEmbed(patch_size=2, in_chans=2, embed_dim=24)
+
+    @pytest.fixture
+    def input(self):
+        return torch.randn(2, 2, 32, 32, 32)
+
+    def test_output_shape(self, embed, input):
+        out = embed(input)
+        assert out.shape == (2, 24, 16, 16, 16)
+        assert len(embed.patch_embeds) == 2
+
+    def test_output_shape_single_channel(self, input):
+        embed = MultimodalPatchEmbed(patch_size=2, in_chans=1, embed_dim=24)
+        out = embed(input[:, 0:1])
+        assert out.shape == (2, 24, 16, 16, 16)
+        assert len(embed.patch_embeds) == 1
+
+    def test_fusion(self, input, embed):
+        embed_fusion = MultimodalPatchEmbed(
+            patch_size=2, in_chans=2, embed_dim=24, fusion="conv1x1"
+        )
+        out_fusion = embed_fusion(input)
+        out_nonfusion = embed(input)
+        assert out_fusion.shape == out_nonfusion.shape
+        assert not torch.allclose(out_fusion, out_nonfusion, atol=0.01)
+
+    @pytest.mark.parametrize(
+        "inject, expected",
+        [
+            (
+                [True, False],
+                {"mod1", "mod2"},
+            ),  # mod1 and mod2 only for ch0; ignores ch1
+            ([True, False], [{"mod1", "mod2"}, {"mod1", "mod2"}]),  # same as above
+            (
+                [False, True],
+                {"mod1", "mod2"},
+            ),  # mod1 and mod2 only for ch1; ignores ch0
+            ([True, True], {"mod1", "mod2"}),  # mod1 and mod2 for both channels
+            (True, [{"mod1", "mod2"}, {"mod1", "mod2"}]),  # same as above
+        ],
+    )
+    def test_modality_tokens_init(self, inject, expected):
+        embed = MultimodalPatchEmbed(
+            patch_size=2,
+            in_chans=2,
+            embed_dim=24,
+            inject_modality_tokens=inject,
+            expected_modalities=expected,
+        )
+        # Modality tokens for each channels
+        if (isinstance(inject, list) and all(inject)) or (
+            isinstance(inject, bool) and inject
+        ):
+            assert len(embed.modality_tokens) == 4
+            assert set(embed.modality_tokens.keys()) == {
+                "ch0:mod1",
+                "ch0:mod2",
+                "ch1:mod1",
+                "ch1:mod2",
+            }
+        elif isinstance(inject, list) and inject[0]:
+            assert len(embed.modality_tokens) == 2
+            assert set(embed.modality_tokens.keys()) == {"ch0:mod1", "ch0:mod2"}
+        elif isinstance(inject, list) and inject[1]:
+            assert len(embed.modality_tokens) == 2
+            assert set(embed.modality_tokens.keys()) == {"ch1:mod1", "ch1:mod2"}
+
+    @pytest.mark.parametrize(
+        "inject, expected",
+        [
+            (
+                [True, False],
+                {"mod1", "mod2"},
+            ),  # mod1 and mod2 only for ch0; ignores ch1
+            ([True, False], [{"mod1", "mod2"}, {"mod1", "mod2"}]),  # same as above
+            (
+                [False, True],
+                {"mod1", "mod2"},
+            ),  # mod1 and mod2 only for ch1; ignores ch0
+            ([True, True], {"mod1", "mod2"}),  # mod1 and mod2 for both channels
+            (True, [{"mod1", "mod2"}, {"mod1", "mod2"}]),  # same as above
+        ],
+    )
+    def test_modality_forward(self, inject, expected, embed, input):
+        ref_out = embed(input)
+
+        test_embed = MultimodalPatchEmbed(
+            patch_size=2,
+            in_chans=2,
+            embed_dim=24,
+            inject_modality_tokens=inject,
+            expected_modalities=expected,
+        )
+        # Modality tokens for each channels
+        if (isinstance(inject, list) and all(inject)) or (
+            isinstance(inject, bool) and inject
+        ):
+            out = test_embed(input, modality=["mod1", "mod2"])
+            assert out.shape == ref_out.shape
+        elif isinstance(inject, list) and inject[0]:
+            out = test_embed(input, modality=["mod1", None])
+            assert out.shape == ref_out.shape
+        elif isinstance(inject, list) and inject[1]:
+            out = test_embed(input, modality=[None, "mod2"])
+            assert out.shape == ref_out.shape
+
+    @pytest.mark.parametrize(
+        "inject, expected",
+        [
+            ([True], {"mod1", "mod2"}),  # fewer injection locations than in_channels
+            ([True, True, True], {"mod1", "mod2"}),  # more injection ...
+            (
+                [True, True],
+                None,
+            ),  # no need to inject token if not expecting specific modalities
+        ],
+    )
+    def test_modality_tokens_error_init(self, inject, expected):
+        with pytest.raises(ValueError):
+            embed = MultimodalPatchEmbed(
+                patch_size=2,
+                in_chans=2,
+                embed_dim=24,
+                inject_modality_tokens=inject,
+                expected_modalities=expected,
+            )
+
+    @pytest.mark.parametrize(
+        "modality",
+        [
+            ["mod1"],  # one modality instead of two
+            ["mod2"],  # same
+            None,  # modality not provided
+        ],
+    )
+    def test_modality_tokens_ValueError_forward(self, input, modality):
+        embed = MultimodalPatchEmbed(
+            patch_size=2,
+            in_chans=2,
+            embed_dim=24,
+            inject_modality_tokens=True,
+            expected_modalities={"mod1", "mod2"},
+        )
+        with pytest.raises(ValueError):
+            embed(input, modality=modality)
+
+    @pytest.mark.parametrize(
+        "modality",
+        [
+            ["mod3", "mod2"],  # not expecting 'mod3'
+        ],
+    )
+    def test_modality_tokens_RuntimeError_forward(self, input, modality):
+        embed = MultimodalPatchEmbed(
+            patch_size=2,
+            in_chans=2,
+            embed_dim=24,
+            inject_modality_tokens=True,
+            expected_modalities={"mod1", "mod2"},
+        )
+        with pytest.raises(RuntimeError):
+            embed(input, modality=modality)
+
+    @pytest.mark.parametrize(
+        "inject, expected",
+        [
+            ([False, False], None),  # no modality tokens
+            (False, {"mod1", "mod2"}),  # same as above
+        ],
+    )
+    def test_modality_tokens_ignore(self, embed, inject, expected, input):
+        embed_no_tok = MultimodalPatchEmbed(
+            patch_size=2,
+            in_chans=2,
+            embed_dim=24,
+            inject_modality_tokens=inject,
+            expected_modalities=expected,
+        )
+        out_no_tok = embed_no_tok(input)
+        out = embed(input)
+        assert set(embed_no_tok.modality_tokens.keys()) == set()
+        assert out.shape == out_no_tok.shape

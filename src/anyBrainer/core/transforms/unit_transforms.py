@@ -545,12 +545,11 @@ class UnscalePredsIfNeeded(Transform):
 class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
     """
     Creates a random mask at patch-grid resolution:
-      mask shape = (embed_dim, gd, gh, gw)
+      mask shape = (in_channels, *patch_grid)
       mask values: 1 = masked, 0 = visible
 
-    Supports:
-      - shared masked patches across all modalities (all embed dims)
-      - unique masked patches per modality slice of embed_dim
+    Supports shared masked patches across all channels, as well
+    as unique masked patches per channel.
 
     Note:
         This transform assumes that patch embedding is performed by MONAI's
@@ -565,25 +564,24 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
         mask_key: str = "mask",
         spatial_dims: int = 3,
         patch_size: Sequence[int] | int = (2, 2, 2),
-        embed_dim: int = 48,
-        n_modalities: int = 1,
-        mask_ratio_shared: float | Sequence[float] = 0.0,
-        mask_ratio_unique: float | Sequence[float] = 0.6,
+        in_channels: int = 1,
+        mask_ratio_shared: float | Sequence[float] = 0.5,
+        mask_ratio_unique: float | Sequence[float] = 0.1,
         mask_size: int | Sequence[int] = 4,
         allow_missing_keys: bool = False,
     ) -> None:
         """
         Args:
-            keys: typically ("img",)
-            mask_key: where to store the mask
+            keys: keys to generate the mask for (typically "img"). If multiple keys are
+                provided, only the last key will be used; others will be overwritten.
+            mask_key: key to store the generated mask.
             spatial_dims: number of spatial dimensions
             patch_size: `PatchEmbed` patch_size (e.g., (2,2,2))
-            embed_dim: `PatchEmbed` embed_dim (e.g., 48)
-            n_modalities: number of modalities (e.g., '2' for 'T1w' and 'FLAIR')
+            in_channels: number of input channels (e.g., '2' for 'T1w' and 'FLAIR')
             mask_ratio_shared: Mask ratio or range of ratios for patches that
-                are masked across all modalities.
+                are masked across all channels.
             mask_ratio_unique: Mask ratio or range of ratios for patches that
-                are uniquely masked for each modality.
+                are uniquely masked for each channel.
             mask_size: mask block size in voxels (int or list of ints)
         """
         super().__init__(keys, allow_missing_keys)
@@ -598,32 +596,23 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
 
         self.patch_size = ensure_tuple_dim(patch_size, self.spatial_dims)
 
-        if not isinstance(n_modalities, int) or n_modalities <= 0:
-            msg = f"[{self.__class__.__name__}] `n_modalities` must be a positive integer, got {n_modalities}"
+        if not isinstance(in_channels, int) or in_channels <= 0:
+            msg = f"[{self.__class__.__name__}] `in_channels` must be a positive integer, got {in_channels}"
             logger.error(msg)
             raise ValueError(msg)
-        self.n_modalities = n_modalities
-
-        if not isinstance(embed_dim, int) or embed_dim % self.n_modalities != 0:
-            msg = (
-                f"[{self.__class__.__name__}] `embed_dim` must be a positive integer and divisible by "
-                f"`n_modalities`; got embed_dim={embed_dim} and n_modalities={self.n_modalities}"
-            )
-            logger.error(msg)
-            raise ValueError(msg)
-        self.embed_dim = embed_dim
+        self.in_channels = in_channels
 
         self.mask_ratio_shared = ensure_tuple_dim(mask_ratio_shared, 2)
         self.mask_ratio_unique = ensure_tuple_dim(mask_ratio_unique, 2)
 
         if (
-            self.mask_ratio_shared[-1] + self.n_modalities * self.mask_ratio_unique[-1]
+            self.mask_ratio_shared[-1] + self.in_channels * self.mask_ratio_unique[-1]
             > 1.0
         ):
             msg = (
                 f"Invalid mask ratios: max total ratio (shared + sum of unique) exceeds 1; got "
-                f"({self.mask_ratio_shared[-1]} + {self.n_modalities}*{self.mask_ratio_unique[-1]}) = "
-                f"{self.mask_ratio_shared[-1] + self.n_modalities * self.mask_ratio_unique[-1]}"
+                f"({self.mask_ratio_shared[-1]} + {self.in_channels}*{self.mask_ratio_unique[-1]}) = "
+                f"{self.mask_ratio_shared[-1] + self.in_channels * self.mask_ratio_unique[-1]}"
             )
             logger.error(msg)
             raise ValueError(msg)
@@ -647,15 +636,15 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
         ratio_unique: Sequence[float],
     ) -> torch.Tensor:
         """
-        Returns patch-grid mask: shape (n_modalities, *patch_grid), values: 1=masked, 0=visible
-        Masks are a combination of controlled shared and unique per-modality masked patches.
-        A random offset is applied to avoid fixed grid alignment across dataset entries.
+        Returns patch-grid mask: shape (in_channels, *patch_grid); values: 1=masked, 0=visible.
+        Masks are a combination of controlled shared and unique per-channel masked patches.
+        A random offset is applied to avoid fixed grid alignment across different images.
         """
         # Random offset for grid alignment; sample from [0, mask_block) per dimension
         offset = tuple(int(self.R.randint(0, b)) for b in mask_block)
-        mod_order = self.R.permutation(self.n_modalities)
+        ch_order = self.R.permutation(self.in_channels)
 
-        # ------- SHARED MASK (ALL MODALITIES) -------
+        # ------- SHARED MASK (ALL CHANNELS) -------
         # Get total number of mask blocks to cover patch grid with offset
         n_blocks = [
             (p + o + b - 1) // b for p, o, b in zip(patch_grid, offset, mask_block)
@@ -672,13 +661,13 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
             idx = torch.as_tensor(self.R.choice(total_blocks, n_mask, replace=False))
             block_mask[idx] = True
 
-        # ------- UNIQUE MASK (PER MODALITY) -------
-        # Get total number of blocks to mask per modality
+        # ------- UNIQUE MASK (PER CHANNEL) -------
+        # Get total number of blocks to mask per channel
         shared_mask = block_mask.clone()
-        all_masks = [torch.zeros_like(block_mask) for _ in range(self.n_modalities)]
-        for i in mod_order:
-            # Get starting modality mask
-            modality_mask = shared_mask.clone()
+        all_masks = [torch.zeros_like(block_mask) for _ in range(self.in_channels)]
+        for i in ch_order:
+            # Get starting channel mask
+            channel_mask = shared_mask.clone()
 
             # Get indices still available (unmasked so far)
             unmasked_indices = torch.where(~block_mask)[0]
@@ -693,15 +682,15 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
                         self.R.choice(n_available, n_mask, replace=False)
                     )
                     block_mask[unmasked_indices[idx]] = True
-                    modality_mask[unmasked_indices[idx]] = True
+                    channel_mask[unmasked_indices[idx]] = True
 
-            # Snapshot current cumulative mask for this modality
-            all_masks[i] = (modality_mask).view(tuple(n_blocks))
+            # Snapshot current cumulative mask for this channel
+            all_masks[i] = (channel_mask).view(tuple(n_blocks))
 
-        # Stack: (n_modalities, *n_blocks)
+        # Stack: (in_channels, *n_blocks)
         block_masks = torch.stack(all_masks, dim=0)
 
-        # Expand blocks to patch-grid: (n_modalities, *n_blocks)
+        # Expand blocks to patch-grid: (in_channels, *n_blocks)
         patch_masks = block_masks
         for i, bi in enumerate(mask_block):
             patch_masks = patch_masks.repeat_interleave(bi, i + 1)
@@ -725,9 +714,9 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
             self.R.uniform(self.mask_ratio_shared[0], self.mask_ratio_shared[1])
         )
 
-        # Sample per-modality mask ratio
+        # Sample per-channel mask ratio
         r_unique = self.R.uniform(
-            self.mask_ratio_unique[0], self.mask_ratio_unique[1], size=self.n_modalities
+            self.mask_ratio_unique[0], self.mask_ratio_unique[1], size=self.in_channels
         ).tolist()
 
         return ms, r_shared, r_unique
@@ -745,7 +734,12 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
                 logger.error(msg)
                 raise ValueError(msg)
 
-            spatial_orig = img.shape[-self.spatial_dims :]
+            C, *spatial_orig = img.shape[-self.spatial_dims - 1 :]
+
+            if C != self.in_channels:
+                msg = f"[{self.__class__.__name__}] Expected {self.in_channels} channel(s), got {C}."
+                logger.error(msg)
+                raise ValueError(msg)
 
             # `PatchEmbed`-style padding: pad at the end to multiples of patch_size
             spatial_padded = [
@@ -762,7 +756,7 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
                 max(1, (m + p - 1) // p) for m, p in zip(ms, self.patch_size)
             )
 
-            # Get per-modality patch masks; also consumes random state `self.R`
+            # Get per-channel patch masks; also consumes random state `self.R`
             masks = self._make_patch_masks(patch_grid, mask_block, r_shared, r_unique)
 
             if isinstance(img, MetaTensor):
