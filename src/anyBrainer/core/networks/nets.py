@@ -1052,7 +1052,7 @@ class Multimodal3DSwinMIMFPN(nn.Module):
         merge_mode: Literal["and", "or"] = "and",
         # Multimodal patch embedding args
         inject_modality_tokens: Sequence[bool] | bool = False,
-        expected_modalities: Sequence[set[str]] | set[str] | None = None,
+        expected_modalities: Sequence[Sequence[str]] | Sequence[str] | None = None,
         fusion: Literal["none", "conv1x1"] = "none",
         # FPN decoder args
         fpn_out_channels: int = 1,

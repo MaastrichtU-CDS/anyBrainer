@@ -623,7 +623,7 @@ class MultimodalDataModule(BaseDataModule):
 
     def __init__(
         self,
-        modalities_per_ch: Sequence[set[str]],
+        modalities_per_ch: Sequence[Sequence[str]],
         distinct_modalities: bool = False,
         distinct_acquisitions: bool = True,
         **base_module_kwargs,
@@ -632,24 +632,33 @@ class MultimodalDataModule(BaseDataModule):
         Args:
             modalities_per_ch: list of allowed modality sets per channel position.
                 Example for 2-channel model:
-                    [ {"T1w","FLAIR","T2w"}, {"T1w","FLAIR","T2w"} ]
+                    [{"T1w","FLAIR","T2w"}, {"T1w","FLAIR","T2w"}]
                 This will create all ordered 2-tuples from available acquisitions matching each set.
             distinct_modalities: if True, disallow same modality appearing in two channels.
             distinct_acquisitions: if True, disallow same acquisition appearing in two channels.
         """
         super().__init__(**base_module_kwargs)
 
-        if len(modalities_per_ch) == 0:
+        if (
+            not isinstance(modalities_per_ch, (list, tuple))
+            or len(modalities_per_ch) == 0
+        ):
             msg = "`modalities_per_ch` must be a non-empty sequence"
             logger.error(msg)
             raise ValueError(msg)
 
-        if not all(isinstance(s, set) for s in modalities_per_ch):
-            msg = "`modalities_per_ch` must be a sequence of sets"
+        if all(isinstance(m, str) for m in modalities_per_ch):
+            self.modalities_per_ch = [{m} for m in modalities_per_ch]
+        elif all(isinstance(m, (list, tuple)) for m in modalities_per_ch):
+            self.modalities_per_ch = [set(m) for m in modalities_per_ch]
+        else:
+            msg = (
+                "`modalities_per_ch` must be Sequence[str] or Sequence[Sequence[str]], "
+                f"got mixed types: {modalities_per_ch}"
+            )
             logger.error(msg)
             raise ValueError(msg)
 
-        self.modalities_per_ch = modalities_per_ch
         self.distinct_modalities = distinct_modalities
         self.distinct_acquisitions = distinct_acquisitions
 

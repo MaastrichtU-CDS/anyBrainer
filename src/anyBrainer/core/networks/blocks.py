@@ -895,7 +895,7 @@ class MultimodalPatchEmbed(nn.Module):
         spatial_dims: int = 3,
         *,
         inject_modality_tokens: Sequence[bool] | bool = False,
-        expected_modalities: Sequence[set[str]] | set[str] | None = None,
+        expected_modalities: Sequence[Sequence[str]] | Sequence[str] | None = None,
         fusion: Literal["none", "conv1x1"] = "none",
     ) -> None:
         """
@@ -927,11 +927,6 @@ class MultimodalPatchEmbed(nn.Module):
         inject = ensure_tuple_dim(inject_modality_tokens, in_chans)
         self.inject_modality_tokens = tuple(bool(v) for v in inject)
 
-        # Normalize expected_modalities to list-of-sets per channel, if provided
-        if isinstance(expected_modalities, set):
-            expected_modalities = [expected_modalities] * in_chans
-        self.expected_modalities = expected_modalities
-
         if any(self.inject_modality_tokens) and expected_modalities is None:
             msg = (
                 f"[{self.__class__.__name__}] `expected_modalities` must be provided when "
@@ -948,10 +943,17 @@ class MultimodalPatchEmbed(nn.Module):
                 msg = f"[{self.__class__.__name__}] `expected_modalities` must be a list/tuple of length in_chans."
                 logger.error(msg)
                 raise ValueError(msg)
-            if not all(isinstance(s, set) for s in expected_modalities) or any(
-                len(s) == 0 for s in expected_modalities
-            ):
-                msg = f"[{self.__class__.__name__}] `expected_modalities` must be a sequence of non-empty sets."
+
+            # Normalize `expected_modalities` to list-of-sets per channel
+            if all(isinstance(m, str) for m in expected_modalities):
+                self.expected_modalities = [{m} for m in expected_modalities]
+            elif all(isinstance(m, (list, tuple)) for m in expected_modalities):
+                self.expected_modalities = [set(m) for m in expected_modalities]
+            else:
+                msg = (
+                    f"[{self.__class__.__name__}] `expected_modalities` must be a sequence of strings "
+                    f"or sequences of strings."
+                )
                 logger.error(msg)
                 raise ValueError(msg)
 
@@ -1044,7 +1046,7 @@ class MultimodalPatchEmbed(nn.Module):
 
                 key = f"ch{i}:{mod_i}"
                 if key not in self.modality_tokens:
-                    msg = f"[{self.__class__.__name__}] Could not find modality token for ch{i}:{mod_i}."
+                    msg = f"[{self.__class__.__name__}] Could not find modality token for {key}."
                     logger.error(msg)
                     raise RuntimeError(msg)
 
