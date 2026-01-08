@@ -59,6 +59,7 @@ from anyBrainer.core.engines.mixins import (
     WeightInitMixin,
     HParamsMixin,
     InfererMixin,
+    ArtifactsMixin,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class BaseModel(
     ParamSchedulerMixin,
     InfererMixin,
     HParamsMixin,
+    ArtifactsMixin,
     CoreLM,
 ):
     """High-level LightningModule that wires together all standard mixins.
@@ -111,6 +113,7 @@ class BaseModel(
         weights_init_settings: dict[str, Any] | None = None,
         inference_settings: dict[str, Any] | None = None,
         ignore_hparams: list[str] | None = None,
+        artifacts_settings: dict[str, Any] | None = None,
         **extra,
     ):
         if not model_kwargs:
@@ -135,6 +138,7 @@ class BaseModel(
             weights_init_settings=weights_init_settings,
             inference_settings=inference_settings,
             ignore_hparams=ignore_hparams,
+            artifacts_settings=artifacts_settings,
             **extra,
         )
 
@@ -606,6 +610,20 @@ class MultimodalMIMModel(BaseModel):
             prog_bar=False,
             sync_dist=sync_dist_safe(self),
         )
+
+        if (
+            mode == "train"
+            and self.log_every_n_steps
+            and self.global_step % self.log_every_n_steps == 0
+        ):
+            self.log_tensors_dict(
+                {
+                    "train/input": x.detach().masked_fill(m_img, 0.0),
+                    "train/pred": out,
+                    "train/target": target,
+                }
+            )
+
         return loss
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:

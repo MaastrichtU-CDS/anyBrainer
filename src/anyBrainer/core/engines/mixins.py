@@ -9,6 +9,7 @@ __all__ = [
     "OptimConfigMixin",
     "WeightInitMixin",
     "HParamsMixin",
+    "ArtifactsMixin",
 ]
 
 import logging
@@ -816,7 +817,12 @@ class ArtifactsMixin(PLModuleMixin):
         log_every_n_steps = artifacts_settings.get("log_every_n_steps", 0)
         log_max_n_items = artifacts_settings.get("log_max_n_items", 0)
 
-        if log_every_n_steps < 0 or log_max_n_items < 0:
+        if (
+            not isinstance(log_every_n_steps, int)
+            or not isinstance(log_max_n_items, int)
+            or log_every_n_steps < 0
+            or log_max_n_items < 0
+        ):
             msg = f"[{self.__class__.__name__}] `log_every_n_steps` and `log_max_n_items` must be positive integers."
             logger.error(msg)
             raise ValueError(msg)
@@ -857,11 +863,11 @@ class ArtifactsMixin(PLModuleMixin):
         if self.logger is None:  # type: ignore[attr-defined]
             return
 
-        step = int(current_step)
+        current_step = int(current_step)
         if (
-            int(self.log_every_n_steps) == 0
-            or int(self.log_max_n_items) == 0
-            or step % int(self.log_every_n_steps) != 0
+            not self.log_every_n_steps
+            or not self.log_max_n_items
+            or current_step % self.log_every_n_steps != 0
         ):
             return
 
@@ -901,13 +907,13 @@ class ArtifactsMixin(PLModuleMixin):
             import wandb
 
             self.logger.experiment.log(  # type: ignore[attr-defined]
-                {k: wandb.Image(v) for k, v in log_dict.items()}, step=step
+                {k: wandb.Image(v) for k, v in log_dict.items()}, step=current_step
             )
             return
 
         if self.logger.__class__.__name__.lower().startswith("tensorboard"):  # type: ignore[attr-defined]
             for k, v in log_dict.items():
                 self.logger.experiment.add_image(  # type: ignore[attr-defined]
-                    k, v.unsqueeze(0), global_step=step
+                    k, v.unsqueeze(0), global_step=current_step
                 )
             return
