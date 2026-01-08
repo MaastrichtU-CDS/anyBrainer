@@ -1011,7 +1011,7 @@ class MultimodalPatchEmbed(nn.Module):
             logger.error(msg)
             raise ValueError(msg)
 
-        B, C, *spatial = x.shape
+        C = x.shape[1]
         if C != self.in_channels:
             msg = (
                 f"[{self.__class__.__name__}] Expected C={self.in_channels}, got C={C}."
@@ -1019,13 +1019,13 @@ class MultimodalPatchEmbed(nn.Module):
             logger.error(msg)
             raise ValueError(msg)
 
-        if any(self.inject_modality_tokens) and modality is None:
-            msg = f"[{self.__class__.__name__}] `modality` must be provided when modality tokens are enabled."
-            logger.error(msg)
-            raise ValueError(msg)
-
-        if modality is not None and len(modality) != C:
-            msg = f"[{self.__class__.__name__}] Expected {C} modalities, got {len(modality)}."
+        if any(self.inject_modality_tokens) and (
+            modality is None or len(modality) != C
+        ):
+            msg = (
+                f"[{self.__class__.__name__}] `modality` must be provided when `inject_modality_tokens` is True "
+                f"and match the number of channels ({C}); got {modality}."
+            )
             logger.error(msg)
             raise ValueError(msg)
 

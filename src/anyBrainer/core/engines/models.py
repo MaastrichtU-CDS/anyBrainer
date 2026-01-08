@@ -568,6 +568,7 @@ class MultimodalMIMModel(BaseModel):
         mask: torch.Tensor,
         target: torch.Tensor,
         image_grid: tuple[int, ...],
+        modalities: dict[str, str],
         mode: Literal["train", "val", "test"],
     ) -> torch.Tensor:
         """Compute MIM-style reconstruction loss."""
@@ -581,7 +582,12 @@ class MultimodalMIMModel(BaseModel):
             image_grid=image_grid,
         )
 
-        out = self.model(x, m_patch)
+        # Sort modalities by channel index
+        modalities_sorted = tuple(
+            v for _, v in sorted(modalities.items(), key=lambda kv: int(kv[0][3:]))
+        )
+
+        out = self.model(x, m_patch, modality=modalities_sorted)
 
         # Expect out and target to be same shape and align with `m_img`.
         if out.shape != target.shape:
@@ -633,6 +639,7 @@ class MultimodalMIMModel(BaseModel):
             mask=batch["mask"],
             target=batch["target"],
             image_grid=batch["img"].shape[-self.spatial_dims :],
+            modalities={k: v for k, v in batch.items() if k.startswith("mod")},
             mode="train",
         )
 
@@ -643,6 +650,7 @@ class MultimodalMIMModel(BaseModel):
             mask=batch["mask"],
             target=batch["target"],
             image_grid=batch["img"].shape[-self.spatial_dims :],
+            modalities={k: v for k, v in batch.items() if k.startswith("mod")},
             mode="val",
         )
 
@@ -653,6 +661,7 @@ class MultimodalMIMModel(BaseModel):
             mask=batch["mask"],
             target=batch["target"],
             image_grid=batch["img"].shape[-self.spatial_dims :],
+            modalities={k: v for k, v in batch.items() if k.startswith("mod")},
             mode="test",
         )
 
