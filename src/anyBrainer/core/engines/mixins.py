@@ -426,15 +426,15 @@ class OptimConfigMixin(PLModuleMixin):
                     named_params = cast(
                         list[tuple[str, nn.Parameter]],
                         get_parameter_groups_from_prefixes(
-                            self.model,
-                            group_cfg.pop("param_group_prefix", None),  # type: ignore[attr-defined]
+                            self.model,  # type: ignore[attr-defined]
+                            group_cfg.pop("param_group_prefix", None),
                             return_named=True,
                         ),
                     )
                     wd_params, no_wd_params = split_decay_groups_from_params(
-                        self.model,
+                        self.model,  # type: ignore[attr-defined]
                         named_params,
-                        auto_no_weight_decay=auto_no_wd,  # type: ignore[attr-defined]
+                        auto_no_weight_decay=auto_no_wd,
                         no_weight_decay_prefixes=extra_nd_prefixes,
                     )
                     # duplicate group: same hparams, but WD=0 for the no-decay subset
@@ -456,15 +456,15 @@ class OptimConfigMixin(PLModuleMixin):
                 named_params = cast(
                     list[tuple[str, nn.Parameter]],
                     get_parameter_groups_from_prefixes(
-                        self.model,
+                        self.model,  # type: ignore[attr-defined]
                         prefix,
-                        return_named=True,  # type: ignore[attr-defined]
+                        return_named=True,
                     ),
                 )
                 wd_params, no_wd_params = split_decay_groups_from_params(
-                    self.model,
+                    self.model,  # type: ignore[attr-defined]
                     named_params,
-                    auto_no_weight_decay=auto_no_wd,  # type: ignore[attr-defined]
+                    auto_no_weight_decay=auto_no_wd,
                     no_weight_decay_prefixes=extra_nd_prefixes,
                 )
                 base = {
@@ -791,3 +791,123 @@ class HParamsMixin(PLModuleMixin):
             f"[{self.__class__.__name__}] Lightning module initialized with following "
             f"hyperparameters (`pl_module.hparams`): \n{pl_module.hparams}"
         )
+
+
+@register(RK.PL_MODULE_MIXIN)
+class ArtifactsMixin(PLModuleMixin):
+    """Adds support for saving and loading artifacts."""
+
+    def setup_mixin(
+        self,
+        artifacts_settings: dict[str, Any] | None,
+        **kwargs,
+    ) -> None:
+        """Configure logging of artifacts (now supporting only tensors) at
+        regular intervals."""
+        if not isinstance(artifacts_settings, (dict, type(None))):
+            msg = (
+                f"[{self.__class__.__name__}] `artifacts_settings` must be a dict, "
+                f"got {type(artifacts_settings).__name__}."
+            )
+            logger.error(msg)
+            raise TypeError(msg)
+
+        artifacts_settings = artifacts_settings or {}
+        log_every_n_steps = artifacts_settings.get("log_every_n_steps", 0)
+        log_max_n_items = artifacts_settings.get("log_max_n_items", 0)
+
+        if log_every_n_steps < 0 or log_max_n_items < 0:
+            msg = f"[{self.__class__.__name__}] `log_every_n_steps` and `log_max_n_items` must be positive integers."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.log_every_n_steps = log_every_n_steps
+        self.log_max_n_items = log_max_n_items
+
+    @torch.no_grad()
+    def log_tensors_dict(self, tensors_dict: dict[str, torch.Tensor]) -> None:
+        """Log a dictionary of tensors."""
+        current_step = getattr(self, "global_step", None)
+        if current_step is None:
+            msg = (
+                f"[{self.__class__.__name__}] Expected attribute 'global_step' "
+                "before calling ArtifactsMixin.log_tensors_dict()."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if not hasattr(self, "log_every_n_steps") or not hasattr(
+            self, "log_max_n_items"
+        ):
+            msg = (
+                f"[{self.__class__.__name__}] Expected attributes 'log_every_n_steps' and 'log_max_n_items' "
+                "before calling ArtifactsMixin.log_tensors_dict()."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if not hasattr(self, "logger"):
+            msg = (
+                f"[{self.__class__.__name__}] Expected attribute 'logger' "
+                "before calling ArtifactsMixin.log_tensors_dict()."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if self.logger is None:  # type: ignore[attr-defined]
+            return
+
+        step = int(current_step)
+        if (
+            int(self.log_every_n_steps) == 0
+            or int(self.log_max_n_items) == 0
+            or step % int(self.log_every_n_steps) != 0
+        ):
+            return
+
+        if not isinstance(tensors_dict, dict) or not all(
+            isinstance(v, torch.Tensor) for v in tensors_dict.values()
+        ):
+            msg = f"[{self.__class__.__name__}] `tensors_dict` must be a dictionary of tensors."
+            logger.error(msg)
+            raise TypeError(msg)
+
+        log_dict: dict[str, torch.Tensor] = {}
+        for k, v in tensors_dict.items():
+            # Limit items
+            n = min(v.shape[0], self.log_max_n_items)
+            v = v[:n]
+
+            # Get mid slice of last dimension if 3D
+            if v.ndim - 2 == 3:  # 3D
+                img_slice = v[..., v.shape[-1] // 2].detach().float().cpu()
+            elif v.ndim - 2 == 2:  # 2D
+                img_slice = v.detach().float().cpu()
+            else:
+                msg = (
+                    f"[{self.__class__.__name__}] Expected tensor (B, C, *spatial_dims) with 2 or 3 "
+                    f"spatial dimensions; got {v.ndim - 2}."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
+
+            # Convert to loggable format: get unique 2D images for
+            # each batch item-channel pair (for the first `n` batch items).
+            for i in range(n):
+                for ch in range(v.shape[1]):
+                    log_dict[f"{k}_idx{i}_ch{ch}"] = img_slice[i, ch]
+
+        if self.logger.__class__.__name__.lower().startswith("wandb"):  # type: ignore[attr-defined]
+            import wandb
+
+            self.logger.experiment.log(  # type: ignore[attr-defined]
+                {k: wandb.Image(v) for k, v in log_dict.items()}, step=step
+            )
+            return
+
+        if self.logger.__class__.__name__.lower().startswith("tensorboard"):  # type: ignore[attr-defined]
+            for k, v in log_dict.items():
+                self.logger.experiment.add_image(  # type: ignore[attr-defined]
+                    k, v.unsqueeze(0), global_step=step
+                )
+            return
