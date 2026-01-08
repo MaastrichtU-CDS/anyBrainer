@@ -24,6 +24,7 @@ __all__ = [
 
 import logging
 from pathlib import Path
+from itertools import product
 from typing import Callable, Literal, Any, TYPE_CHECKING, cast, Sequence
 from collections import Counter
 
@@ -608,14 +609,127 @@ class ContrastiveDataModule(BaseDataModule):
 
 
 class MultimodalDataModule(BaseDataModule):
-    """DataModule for any multimodal task."""
+    """DataModule for any multimodal task.
+
+    Creates data list of dicts grouped by session.
+
+    For each session, builds all ordered combinations of acquisitions
+    for each input channel. Each channel position k has an allowed set
+    of modalities (`modalities_per_ch[k]`). Each acquisition (img_i,
+    mod_i) is treated as unique; multiple acquisitions of the same
+    modality produce multiple unique candidates and therefore multiple
+    dataset entries.
+    """
 
     def __init__(
         self,
-        modalities: list[str],
+        modalities_per_ch: Sequence[set[str]],
+        distinct_modalities: bool = False,
+        distinct_acquisitions: bool = True,
         **base_module_kwargs,
     ):
+        """
+        Args:
+            modalities_per_ch: list of allowed modality sets per channel position.
+                Example for 2-channel model:
+                    [ {"T1w","FLAIR","T2w"}, {"T1w","FLAIR","T2w"} ]
+                This will create all ordered 2-tuples from available acquisitions matching each set.
+            distinct_modalities: if True, disallow same modality appearing in two channels.
+            distinct_acquisitions: if True, disallow same acquisition appearing in two channels.
+        """
         super().__init__(**base_module_kwargs)
+
+        if len(modalities_per_ch) == 0:
+            msg = "`modalities_per_ch` must be a non-empty sequence"
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if not all(isinstance(s, set) for s in modalities_per_ch):
+            msg = "`modalities_per_ch` must be a sequence of sets"
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.modalities_per_ch = modalities_per_ch
+        self.distinct_modalities = distinct_modalities
+        self.distinct_acquisitions = distinct_acquisitions
+
+    def process_data_list(self, data_list: list[Path]) -> list[Any]:
+        """Create data list of dicts for multimodal pretraining.
+
+        Returns a list of dicts, one per generated combination of modalities,
+        each containing (for n channels):
+            {
+                "sub_id": ...,
+                "ses_id": ...,
+                "ch1": <filepath>,
+                ...
+                "chN": <filepath>,
+                "mod1": <modality string>,
+                ...
+                "modN": <modality string>,
+            }
+        """
+        grouped_data = group_data(group_by="session", data_list=data_list)
+
+        list_of_dicts: list[dict[str, Any]] = []
+
+        for session_files in tqdm(
+            grouped_data["grouped_data"].values(), desc="Creating data list"
+        ):
+            if not session_files:
+                continue
+
+            # Get per-channel lists of eligible files for the given session
+            # (as indices to access metadata)
+            candidates: list[list[int]] = []
+            for allowed in self.modalities_per_ch:
+                idxs = [
+                    i
+                    for i, md in enumerate(session_files)
+                    if md.get("modality") in allowed
+                ]
+                candidates.append(idxs)
+
+            # Skip sessions that cannot satisfy all channels
+            if any(len(idxs) == 0 for idxs in candidates):
+                continue
+
+            # Enumerate all ordered combinations
+            for comb in product(*candidates):
+                # Prevent re-using the same acquisition/file across channels
+                if self.distinct_acquisitions and len(set(comb)) != len(
+                    self.modalities_per_ch
+                ):
+                    continue
+
+                # Prevent repeating modalities across channels
+                if self.distinct_modalities:
+                    mods = [session_files[i]["modality"] for i in comb]
+                    if len(set(mods)) != len(self.modalities_per_ch):
+                        continue
+
+                # Build dataset entry
+                first = session_files[comb[0]]
+                entry: dict[str, Any] = {
+                    "sub_id": first["sub_id"],
+                    "ses_id": first["ses_id"],
+                }
+
+                for k, i in enumerate(comb, start=1):
+                    md = session_files[i]
+                    entry[f"ch{k}"] = md["file_name"]
+                    entry[f"mod{k}"] = md["modality"]
+
+                list_of_dicts.append(entry)
+
+        logger.info(
+            get_summary_msg(
+                grouped_data["subjects"],
+                grouped_data["sessions"],
+                grouped_data["modality_counts"],
+            )
+        )
+        return list_of_dicts
 
 
 @register(RK.DATAMODULE)

@@ -126,7 +126,10 @@ def group_data(
 ) -> dict[str, Any]:
     """Group data by a given key.
 
-    Assumes that filename contains: sub_x_ses_y_ModalityName_CountIfMoreThanOne.npy
+    Assumes that filename contains: sub_x/ses_y/ModalityName_CountIfMoreThanOne.npy
+
+    Returns:
+        dict with keys: {'sub_id', 'ses_id', 'modality', 'file_name'}
     """
     grouped_data = defaultdict(list)
     subjects = set()

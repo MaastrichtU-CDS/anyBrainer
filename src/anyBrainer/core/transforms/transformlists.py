@@ -46,6 +46,9 @@ from monai.transforms import (
     KeepLargestConnectedComponent,
     EnsureType,
     Flipd,
+    ToTensord,
+    EnsureChannelFirstd,
+    CenterSpatialCropd,
 )
 
 from .unit_transforms import (
@@ -57,6 +60,7 @@ from .unit_transforms import (
     RandImgKeyd,
     ClipNonzeroPercentilesd,
     UnscalePredsIfNeeded,
+    CreateRandomPatchGridMaskd,
 )
 
 from anyBrainer.registry import register, RegistryKind as RK
@@ -1243,3 +1247,160 @@ def get_flip_tta(
             ]
         )
     return [Compose(tta) for tta in tta_list]
+
+
+@register(RK.TRANSFORM)
+def get_mim_transforms(
+    keys: Sequence[str] = ("volume",),
+    input_size: int | Sequence[int] = 128,
+    patch_size: int | Sequence[int] = (2, 2, 2),
+    mask_ratio_shared: float | Sequence[float] = 0.5,
+    mask_ratio_unique: float | Sequence[float] = 0.1,
+    mask_size: int | Sequence[int] = 16,
+    val_mode: bool = False,
+) -> list[Callable]:
+    """Get MIM transforms for training or validation.
+
+    Stores transformed image, reconstruction target and mask in `img`, `target` and
+    `mask` keys, respectively.
+
+    Args:
+        keys: Keys to apply the transforms to.
+        input_size: Target size of returned tensors.
+        patch_size: Patch size for `CreateRandomPatchGridMaskd`.
+        mask_ratio_shared: Mask ratio or range of ratios for patches that
+            are masked across all channels.
+        mask_ratio_unique: Mask ratio or range of ratios for patches that
+            are uniquely masked for each channel.
+        mask_size: Mask block size in voxels (int or list of ints).
+        val_mode: Whether to use validation mode.
+
+    Returns:
+        A composable transform list.
+    """
+    # Standardize inputs
+    transforms = [
+        ToTensord(keys=keys, track_meta=False),
+        EnsureChannelFirstd(keys=keys, channel_dim=0),
+    ]
+
+    # Spatial augmentations
+    if not val_mode:
+        transforms.extend(
+            [
+                RandFlipd(keys=keys, prob=0.5, spatial_axis=0),
+                RandFlipd(keys=keys, prob=0.5, spatial_axis=1),
+                RandAffined(
+                    keys=keys,
+                    rotate_range=(0.3, 0.3, 0.3),
+                    scale_range=(0.1, 0.1, 0.1),
+                    shear_range=(0.3, 0.3, 0.3),
+                    mode="bilinear",
+                    padding_mode="border",
+                    prob=1.0,
+                ),
+            ]
+        )
+
+    # Get reconstruction target
+    for key in keys:
+        transforms.extend(
+            [
+                SaveReconstructionTargetd(keys=[key], recon_key=f"{key}_target"),
+            ]
+        )
+
+    # Intensity augmentations
+    if not val_mode:
+        for key in keys:
+            transforms.extend(
+                [
+                    RandScaleIntensityFixedMeand(keys=key, factors=0.1, prob=0.8),
+                    RandGaussianNoised(keys=key, std=0.01, prob=0.3),
+                ]
+            )
+            # Simulate artifacts
+            transforms.extend(
+                [
+                    OneOf(
+                        transforms=[
+                            RandGaussianSmoothd(
+                                keys=key,
+                                sigma_x=(0.5, 1.0),
+                                sigma_y=(0.5, 1.0),
+                                sigma_z=(0.5, 1.0),
+                                prob=0.7,
+                            ),
+                            RandBiasFieldd(keys=key, coeff_range=(0.0, 0.05), prob=0.7),
+                            RandGibbsNoised(keys=key, alpha=(0.2, 0.4), prob=0.7),
+                        ],
+                        weights=[1.0, 1.0, 1.0],
+                    ),
+                ]
+            )
+            # Simulate different acquisitions
+            transforms.extend(
+                [
+                    OneOf(
+                        transforms=[
+                            RandAdjustContrastd(keys=key, gamma=(0.9, 1.1), prob=1.0),
+                            RandSimulateLowResolutiond(
+                                keys=key, prob=0.5, zoom_range=(0.8, 1.0)
+                            ),
+                        ],
+                        weights=[1.0, 1.0],
+                    ),
+                ]
+            )
+
+    # Pad and crop to match `input_size` for volume(s) and target
+    keys_with_recon = list(keys) + [f"{key}_target" for key in keys]
+    transforms.extend(
+        [
+            SpatialPadd(keys=keys_with_recon, spatial_size=input_size, mode="edge"),
+        ]
+    )
+    if not val_mode:
+        transforms.extend(
+            [
+                RandSpatialCropd(keys=keys_with_recon, roi_size=input_size),
+            ]
+        )
+    else:
+        transforms.extend(
+            [
+                CenterSpatialCropd(keys=keys_with_recon, roi_size=input_size),
+            ]
+        )
+
+    # Concatenate and store transformed image and target
+    transforms.extend(
+        [
+            ConcatItemsd(
+                keys=keys,
+                name="img",
+            ),
+            ConcatItemsd(
+                keys=[f"{key}_target" for key in keys],
+                name="target",
+            ),
+            DeleteItemsd(keys_with_recon),
+        ]
+    )
+
+    # Generate and store mask
+    transforms.extend(
+        [
+            CreateRandomPatchGridMaskd(
+                keys="img",
+                mask_key="mask",
+                patch_size=patch_size,
+                in_channels=len(keys),
+                mask_ratio_shared=mask_ratio_shared,
+                mask_ratio_unique=mask_ratio_unique,
+                mask_size=mask_size,
+            ),
+        ]
+    )
+
+    return transforms
