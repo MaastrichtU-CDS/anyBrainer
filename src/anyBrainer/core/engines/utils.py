@@ -95,6 +95,7 @@ def unpack_settings_for_train_workflow(
         "save_logs": logging_settings.get("save_logs", True),
         "dev_mode": logging_settings.get("dev_mode", False),
         "enable_wandb": logging_settings.get("wandb_enable", True),
+        "wandb_entity": logging_settings.get("wandb_entity", None),
         "wandb_watch_enable": logging_settings.get("wandb_watch_enable", False),
         "wandb_watch_kwargs": logging_settings.get("wandb_watch_kwargs"),
         "pl_datamodule_name": pl_datamodule_settings.get(

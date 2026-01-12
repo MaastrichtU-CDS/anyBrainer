@@ -30,6 +30,7 @@ class LoggingSettings:
     num_workers: int
     sync_timeout: float = 5.0
     wandb_project: str = "anyBrainer"
+    wandb_entity: str | None = None
     save_logs: bool = True
 
     def __post_init__(self):
@@ -47,6 +48,7 @@ class DefaultLoggingManager(LoggingManager):
                 project=self.settings.wandb_project,
                 name=self.settings.experiment,
                 dir=self.settings.logs_root,
+                entity=self.settings.wandb_entity,
             )
         else:
             self.wandb_logger = None

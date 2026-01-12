@@ -60,6 +60,7 @@ class TrainingSettings:
     dev_mode: bool
     save_logs: bool
     enable_wandb: bool
+    wandb_entity: str | None
     wandb_watch_enable: bool
     wandb_watch_kwargs: dict[str, Any]
     pl_datamodule_name: str
@@ -238,6 +239,7 @@ class TrainWorkflow(Workflow):
             "save_logs": self.settings.save_logs,
             "enable_wandb": self.settings.enable_wandb,
             "wandb_project": self.settings.project,
+            "wandb_entity": self.settings.wandb_entity,
             "experiment": self.settings.experiment,
             "num_workers": self.settings.num_workers,
             **(self.settings.extra_logging_kwargs or {}),
