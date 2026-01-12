@@ -816,7 +816,7 @@ class ArtifactsMixin(PLModuleMixin):
 
         artifacts_settings = artifacts_settings or {}
         log_every_n_steps = artifacts_settings.get("log_every_n_steps", 0)
-        log_max_n_items = artifacts_settings.get("log_max_n_items", 0)
+        log_max_n_items = artifacts_settings.get("log_max_n_items", 1)
 
         if (
             not isinstance(log_every_n_steps, int)
