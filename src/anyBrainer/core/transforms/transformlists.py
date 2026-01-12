@@ -1279,9 +1279,8 @@ def get_mim_transforms(
         A composable transform list.
     """
     # Standardize inputs
-    transforms = [
-        ToTensord(keys=keys, track_meta=False),
-        EnsureChannelFirstd(keys=keys, channel_dim=0),
+    transforms: list[Callable] = [
+        LoadImaged(keys=keys, reader="NumpyReader", ensure_channel_first=True),
     ]
 
     # Spatial augmentations
