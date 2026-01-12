@@ -373,10 +373,12 @@ class TrainWorkflow(Workflow):
 
         Override for custom trainer configuration.
         """
+        from lightning.pytorch.strategies import DDPStrategy
         trainer_config = {
             "logger": self.wandb_logger,
             "callbacks": self.callbacks,
             "reload_dataloaders_every_n_epochs": 1,
+            "strategy": DDPStrategy(find_unused_parameters=True),
             **(self.settings.pl_trainer_kwargs or {}),
         }
         return pl.Trainer(**trainer_config)
