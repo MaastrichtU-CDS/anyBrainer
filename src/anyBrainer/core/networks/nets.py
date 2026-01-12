@@ -1055,7 +1055,6 @@ class Multimodal3DSwinMIMFPN(nn.Module):
         expected_modalities: Sequence[Sequence[str]] | Sequence[str] | None = None,
         fusion: Literal["none", "conv1x1"] = "none",
         # FPN decoder args
-        fpn_out_channels: int = 1,
         fpn_width: int = 32,
         fpn_norm: Literal["instance", "group", "batch"] = "instance",
         fpn_norm_kwargs: dict[str, Any] | None = None,
