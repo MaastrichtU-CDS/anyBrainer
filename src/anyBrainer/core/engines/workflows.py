@@ -199,7 +199,11 @@ class TrainWorkflow(Workflow):
             raise
         self.finalize_setup()
 
-        if self.wandb_logger is not None and self.settings.wandb_watch_enable:
+        if (
+            self.wandb_logger is not None
+            and self.settings.wandb_watch_enable
+            and getattr(self.trainer, "is_global_zero", True)
+        ):
             self.wandb_logger.watch(
                 self.model, **(self.settings.wandb_watch_kwargs or {})
             )

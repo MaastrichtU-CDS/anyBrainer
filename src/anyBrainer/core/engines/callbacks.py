@@ -20,6 +20,7 @@ import torch.nn as nn
 from torch.optim.swa_utils import AveragedModel
 import torch.optim as optim
 from torch.nn.modules.batchnorm import _BatchNorm
+import torch.distributed as dist
 import lightning.pytorch as pl
 from lightning.pytorch.utilities import rank_zero_only
 
@@ -42,14 +43,13 @@ logger = logging.getLogger(__name__)
 class UpdateDatamoduleEpoch(pl.Callback):
     """Callback to update the datamodule's _current_epoch attribute."""
 
-    @rank_zero_only
     def on_train_epoch_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         """Sync the current epoch between the trainer and the datamodule."""
-        if trainer.datamodule is None or not hasattr(
-            trainer.datamodule, "_current_epoch"
-        ):  # pyright: ignore
+        if trainer.datamodule is None or not hasattr( # type: ignore[attr-defined]
+            trainer.datamodule, "_current_epoch" # type: ignore[attr-defined]
+        ):
             logger.warning(
                 "Datamodule does not have _current_epoch attribute. "
                 "This is likely due to a custom datamodule that does not "
@@ -82,7 +82,7 @@ class LogLR(pl.Callback):
             on_step=True,
             on_epoch=False,
             prog_bar=False,
-            sync_dist=sync_dist_safe(pl_module),
+            sync_dist=False,
         )
 
 
@@ -90,7 +90,6 @@ class LogLR(pl.Callback):
 class LogGradNorm(pl.Callback):
     """Callback to log the gradient norm for all parameters in the model."""
 
-    @rank_zero_only
     def on_train_batch_end(
         self,
         trainer: pl.Trainer,
@@ -101,13 +100,21 @@ class LogGradNorm(pl.Callback):
         dataloader_idx: int = 0,
     ) -> None:
         """Log the gradient norm."""
+        g = get_total_grad_norm(pl_module).detach()
+
+        # Reduce across ranks ->  global L2: sqrt(sum_ranks(g^2))
+        if dist.is_available() and dist.is_initialized():
+            g2 = g.float().pow(2)
+            dist.all_reduce(g2, op=dist.ReduceOp.SUM)
+            g = g2.sqrt()
+
         pl_module.log(
             "train/grad_norm",
-            get_total_grad_norm(pl_module),
+            g,
             on_step=True,
             on_epoch=False,
             prog_bar=False,
-            sync_dist=sync_dist_safe(pl_module),
+            sync_dist=False, # already reduced
         )
 
 
