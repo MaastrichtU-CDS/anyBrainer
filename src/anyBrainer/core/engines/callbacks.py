@@ -32,7 +32,6 @@ from anyBrainer.core.utils import (
     get_parameter_groups_from_prefixes,
 )
 from anyBrainer.core.engines.utils import (
-    sync_dist_safe,
     get_ckpt_callback,
 )
 
@@ -47,8 +46,8 @@ class UpdateDatamoduleEpoch(pl.Callback):
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         """Sync the current epoch between the trainer and the datamodule."""
-        if trainer.datamodule is None or not hasattr( # type: ignore[attr-defined]
-            trainer.datamodule, "_current_epoch" # type: ignore[attr-defined]
+        if trainer.datamodule is None or not hasattr(  # type: ignore[attr-defined]
+            trainer.datamodule, "_current_epoch"  # type: ignore[attr-defined]
         ):
             logger.warning(
                 "Datamodule does not have _current_epoch attribute. "
@@ -114,7 +113,7 @@ class LogGradNorm(pl.Callback):
             on_step=True,
             on_epoch=False,
             prog_bar=False,
-            sync_dist=False, # already reduced
+            sync_dist=False,  # already reduced
         )
 
 

@@ -8,11 +8,17 @@ from __future__ import annotations
 
 __all__ = [
     "plot_npy_volumes",
+    "to_uint8_image",
 ]
 
+import logging
+
 from numpy.typing import NDArray
+import torch
 
 import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
 
 
 def _get_mid_slices(volume: NDArray) -> tuple[int, int, int]:
@@ -155,3 +161,71 @@ def plot_npy_volumes(
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
     plt.show()
+
+
+def to_uint8_image(
+    img2d: torch.Tensor,
+    *,
+    clamp_val: tuple[float, float] | None = None,
+    clamp_perc: tuple[float, float] | None = None,
+    scale_to: tuple[float, float] | None = None,
+) -> torch.Tensor:
+    """Convert a 2D tensor to uint8 image (0..255) for logging (e.g.
+    wandb.Image).
+
+    Args:
+        img2d: (H, W) tensor (any dtype/device).
+        clamp_val: Optional (lo, hi) clamp applied before scaling.
+               Example for z-norm: (-3.0, 3.0)
+        clamp_perc: Optional (lo, hi) percentile clamp applied before scaling.
+               Example for 0.5th and 99.5th percentiles: (0.5, 99.5)
+        scale_to: Optional (lo, hi) defining the intensity window mapped to [0,255].
+               If provided, values <= lo map to 0, >= hi map to 255.
+               If not provided:
+                 - uses `clamp` as the window if clamp is set
+                 - else uses tensor min/max
+
+    Returns:
+        (H, W) torch.uint8 on CPU.
+    """
+    if img2d.ndim != 2:
+        raise ValueError(f"Expected (H,W), got shape={tuple(img2d.shape)}")
+
+    x = img2d.detach().to(dtype=torch.float32, device="cpu")
+    x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if clamp_val is not None:
+        c_lo, c_hi = float(clamp_val[0]), float(clamp_val[1])
+        if c_hi <= c_lo:
+            msg = f"Invalid clamp range: {clamp_val}, lo={c_lo} should be less than hi={c_hi}"
+            logger.error(msg)
+            raise ValueError(msg)
+        x = x.clamp(c_lo, c_hi)
+    elif clamp_perc is not None:
+        c_lo, c_hi = float(clamp_perc[0]), float(clamp_perc[1])
+        if c_hi <= c_lo:
+            msg = f"Invalid clamp range: {clamp_perc}, lo={c_lo} should be less than hi={c_hi}"
+            logger.error(msg)
+            raise ValueError(msg)
+        lo = torch.quantile(x, c_lo / 100.0).item()
+        hi = torch.quantile(x, c_hi / 100.0).item()
+        x = x.clamp(lo, hi)
+
+    if scale_to is not None:
+        lo, hi = float(scale_to[0]), float(scale_to[1])
+        if hi <= lo:
+            msg = (
+                f"Invalid scale range: {scale_to}, lo={lo} should be less than hi={hi}"
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+    else:
+        lo = float(x.min().item())
+        hi = float(x.max().item())
+        if hi <= lo + 1e-8:
+            return torch.zeros_like(x, dtype=torch.uint8)
+
+    # window -> [0,1] -> [0,255]
+    x = (x - lo) / (hi - lo + 1e-8)
+    x = (x * 255.0).clamp(0.0, 255.0)
+    return x.to(torch.uint8)

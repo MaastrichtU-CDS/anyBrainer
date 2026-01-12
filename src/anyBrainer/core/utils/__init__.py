@@ -5,3 +5,4 @@ from .models import *
 from .metrics import *
 from .misc import *
 from .mil import *
+from .visualization import *

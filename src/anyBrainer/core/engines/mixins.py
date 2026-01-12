@@ -36,6 +36,7 @@ from anyBrainer.core.utils import (
     get_parameter_groups_from_prefixes,
     split_decay_groups_from_params,
     apply_tta_monai_batch,
+    to_uint8_image,
 )
 from anyBrainer.config import resolve_fn, resolve_transform
 from anyBrainer.core.engines.utils import (
@@ -909,13 +910,23 @@ class ArtifactsMixin(PLModuleMixin):
             import wandb
 
             self.logger.experiment.log(  # type: ignore[attr-defined]
-                {k: wandb.Image(v) for k, v in log_dict.items()}, step=current_step
+                {
+                    k: wandb.Image(
+                        to_uint8_image(v, clamp_perc=(1.0, 99.0), scale_to=(0.0, 255.0))
+                    )
+                    for k, v in log_dict.items()
+                },
+                step=current_step,
             )
             return
 
         if self.logger.__class__.__name__.lower().startswith("tensorboard"):  # type: ignore[attr-defined]
             for k, v in log_dict.items():
                 self.logger.experiment.add_image(  # type: ignore[attr-defined]
-                    k, v.unsqueeze(0), global_step=current_step
+                    k,
+                    to_uint8_image(
+                        v, clamp_perc=(1.0, 99.0), scale_to=(0.0, 255.0)
+                    ).unsqueeze(0),
+                    global_step=current_step,
                 )
             return

@@ -18,7 +18,9 @@ def parse_filename_nested_nifti(file_path: Path | str) -> dict:
 
     file_name = file_path.name
     prefix = file_name.split(".")[0].split("_")[0]
-    modality = "unknown" if prefix == "scan" else prefix # special case for `scan*` files
+    modality = (
+        "unknown" if prefix == "scan" else prefix
+    )  # special case for `scan*` files
     ses_dir = file_path.parent
     sub_dir = ses_dir.parent
 
