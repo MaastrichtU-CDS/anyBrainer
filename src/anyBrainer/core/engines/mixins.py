@@ -18,6 +18,7 @@ from copy import deepcopy
 
 import torch
 import torch.nn as nn
+from lightning.pytorch.utilities import rank_zero_only
 from lightning.pytorch import LightningModule as plModule
 from monai.inferers.inferer import Inferer
 
@@ -830,6 +831,7 @@ class ArtifactsMixin(PLModuleMixin):
         self.log_every_n_steps = log_every_n_steps
         self.log_max_n_items = log_max_n_items
 
+    @rank_zero_only
     @torch.no_grad()
     def log_tensors_dict(self, tensors_dict: dict[str, torch.Tensor]) -> None:
         """Log a dictionary of tensors."""
