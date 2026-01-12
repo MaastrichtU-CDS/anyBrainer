@@ -28,7 +28,7 @@ class CosineAnnealingWithWarmup(_LRScheduler):
         last_epoch: int = -1,
         **kwargs,
     ):
-        """ " Cosine annealing with warmup scheduler.
+        """Cosine annealing with warmup scheduler.
 
         If `warmup_iters` and `total_iters` are lists, they must be of the same length as
         the number of optimizer parameter groups, and each value will be used for the

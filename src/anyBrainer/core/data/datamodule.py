@@ -608,6 +608,7 @@ class ContrastiveDataModule(BaseDataModule):
         return list_of_dicts
 
 
+@register(RK.DATAMODULE)
 class MultimodalDataModule(BaseDataModule):
     """DataModule for any multimodal task.
 
