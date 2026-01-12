@@ -168,8 +168,7 @@ def merge_mask_nd(
     if mode == "and":
         for s in slices[1:]:
             out = out & s
-
-    if mode == "or":
+    elif mode == "or":
         for s in slices[1:]:
             out = out | s
     else:
