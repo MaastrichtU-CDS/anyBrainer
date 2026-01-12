@@ -458,6 +458,11 @@ class VoxelShuffleHead3D(nn.Module):
 
 
 class MaskToken(nn.Module):
+    """Apply mask token to input tensor for masked image modeling.
+
+    Also adjusts mask token to match input tensor channels if needed.
+    """
+
     def __init__(self, embed_dim: int, std: float = 0.02) -> None:
         super().__init__()
         self.mask_token = nn.Parameter(torch.zeros(embed_dim))
@@ -478,8 +483,18 @@ class MaskToken(nn.Module):
         if mask.shape != x.shape:
             raise ValueError(f"mask must match x; got {mask.shape} vs {x.shape}")
 
-        # broadcast token to (1, C, 1, 1, 1...) matching x rank
-        tok = self.mask_token.view(1, -1, *([1] * (x.dim() - 2)))
+        C = x.shape[1]
+        base = self.mask_token.numel()
+
+        tok_1d = self.mask_token
+        if base != C:
+            if C % base != 0:
+                raise ValueError(
+                    f"mask_token has {base} channels but x has {C}; not divisible."
+                )
+            tok_1d = tok_1d.repeat_interleave(C // base)
+
+        tok = tok_1d.view(1, C, *([1] * (x.dim() - 2)))
         return torch.where(mask, tok, x)
 
 

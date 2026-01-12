@@ -176,7 +176,7 @@ def merge_mask_nd(
         logger.error(msg)
         raise ValueError(msg)
 
-    out = out.repeat_interleave(2, dim=1) # C -> 2C
+    out = out.repeat_interleave(2, dim=1)  # C -> 2C
     return out
 
 
