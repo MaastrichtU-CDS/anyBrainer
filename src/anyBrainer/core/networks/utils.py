@@ -168,16 +168,17 @@ def merge_mask_nd(
     if mode == "and":
         for s in slices[1:]:
             out = out & s
-        return out
 
     if mode == "or":
         for s in slices[1:]:
             out = out | s
-        return out
+    else:
+        msg = f"Unknown mode: {mode}."
+        logger.error(msg)
+        raise ValueError(msg)
 
-    msg = f"Unknown mode: {mode}."
-    logger.error(msg)
-    raise ValueError(msg)
+    out = out.repeat_interleave(2, dim=1) # C -> 2C
+    return out
 
 
 @torch.no_grad()
