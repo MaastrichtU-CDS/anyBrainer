@@ -618,15 +618,15 @@ class MultimodalMIMModel(BaseModel):
         )
 
         if (
-            mode == "train"
+            mode == "train" or mode == "val"
             and self.log_every_n_steps
             and self.global_step % self.log_every_n_steps == 0
         ):
             self.log_tensors_dict(
                 {
-                    "train/input": x.detach().masked_fill(m_img, 0.0),
-                    "train/pred": out,
-                    "train/target": target,
+                    f"{mode}/input": x.detach().masked_fill(m_img, 0.0),
+                    f"{mode}/pred": out,
+                    f"{mode}/target": target,
                 }
             )
 
