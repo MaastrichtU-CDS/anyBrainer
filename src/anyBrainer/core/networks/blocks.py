@@ -460,7 +460,8 @@ class VoxelShuffleHead3D(nn.Module):
 class MaskToken(nn.Module):
     """Apply mask token to input tensor for masked image modeling.
 
-    Also adjusts mask token to match input tensor channels if needed.
+    Also adjusts mask token to match input tensor channels if needed to
+    account for expanding channel dimension throughout the network.
     """
 
     def __init__(self, embed_dim: int, std: float = 0.02) -> None:
