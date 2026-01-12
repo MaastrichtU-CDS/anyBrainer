@@ -624,7 +624,7 @@ class MultimodalDataModule(BaseDataModule):
 
     def __init__(
         self,
-        modalities_per_ch: Sequence[Sequence[str]],
+        modalities_per_ch: Sequence[Sequence[str]] | Sequence[str],
         distinct_modalities: bool = False,
         distinct_acquisitions: bool = True,
         **base_module_kwargs,
