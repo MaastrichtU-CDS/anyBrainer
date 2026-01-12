@@ -838,7 +838,7 @@ class SwinMIM(SwinViT):
                 logger.error(msg)
                 raise ValueError(msg)
 
-            B_m, C_m, _ = mask.shape
+            B_m, C_m, *_ = mask.shape
 
             if C_m != model.embed_dim:
                 msg = (
