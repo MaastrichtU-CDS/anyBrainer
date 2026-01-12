@@ -587,7 +587,7 @@ class MultimodalMIMModel(BaseModel):
             v for _, v in sorted(modalities.items(), key=lambda kv: int(kv[0][3:]))
         )
 
-        out = self.model(x, m_patch, modality=modalities_sorted)
+        out = self.model(x, mask=m_patch, modality=modalities_sorted)
 
         # Expect out and target to be same shape and align with `m_img`.
         if out.shape != target.shape:
