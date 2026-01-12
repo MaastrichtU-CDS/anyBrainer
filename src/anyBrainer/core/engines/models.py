@@ -618,7 +618,7 @@ class MultimodalMIMModel(BaseModel):
         )
 
         if (
-            mode == "train" or mode == "val"
+            mode in ["train", "val"]
             and self.log_every_n_steps
             and self.global_step % self.log_every_n_steps == 0
         ):
