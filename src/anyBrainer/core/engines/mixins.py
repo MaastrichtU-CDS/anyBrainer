@@ -912,7 +912,7 @@ class ArtifactsMixin(PLModuleMixin):
             self.logger.experiment.log(  # type: ignore[attr-defined]
                 {
                     k: wandb.Image(
-                        to_uint8_image(v, clamp_perc=(1.0, 99.0), scale_to=(0.0, 255.0))
+                        to_uint8_image(v, clamp_perc=(1.0, 99.0))
                     )
                     for k, v in log_dict.items()
                 },
@@ -925,7 +925,7 @@ class ArtifactsMixin(PLModuleMixin):
                 self.logger.experiment.add_image(  # type: ignore[attr-defined]
                     k,
                     to_uint8_image(
-                        v, clamp_perc=(1.0, 99.0), scale_to=(0.0, 255.0)
+                        v, clamp_perc=(1.0, 99.0)
                     ).unsqueeze(0),
                     global_step=current_step,
                 )
