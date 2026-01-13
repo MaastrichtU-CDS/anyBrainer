@@ -337,7 +337,7 @@ class TrainWorkflow(Workflow):
             {
                 "name": "ModelCheckpoint",
                 "dirpath": self.settings.exp_dir / "checkpoints",
-                "filename": "{epoch:02d}",
+                "filename": "{epoch:02d}-{step}",
                 "every_n_epochs": self.settings.save_every_n_epochs,
                 "every_n_train_steps": self.settings.save_every_n_steps,
                 "save_top_k": self.settings.save_top_k,
