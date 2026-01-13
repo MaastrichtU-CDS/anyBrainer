@@ -663,6 +663,10 @@ class MultimodalDataModule(BaseDataModule):
         self.distinct_modalities = distinct_modalities
         self.distinct_acquisitions = distinct_acquisitions
 
+        logger.info(f"[{self.__class__.__name__}] initialized with modalities_per_ch: "
+                    f"{self.modalities_per_ch}, distinct_modalities: {self.distinct_modalities} and "
+                    f"distinct_acquisitions: {self.distinct_acquisitions}")
+
     def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """Create data list of dicts for multimodal pretraining.
 
