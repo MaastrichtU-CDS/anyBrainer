@@ -1110,7 +1110,7 @@ class Multimodal3DSwinMIMFPN(nn.Module):
         normalize: bool = True,
         *,
         mask: torch.Tensor | None = None,
-        modality: Sequence[str] | None = None,
+        modality: Sequence[Sequence[str | None]] | Sequence[str | None] | None = None,
     ) -> torch.Tensor:
         cast(MultimodalPatchEmbedAdapter, self.encoder.patch_embed).set_modality(
             modality

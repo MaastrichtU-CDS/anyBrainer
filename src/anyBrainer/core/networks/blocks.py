@@ -1160,9 +1160,14 @@ class MultimodalPatchEmbedAdapter(PatchEmbed):
             spatial_dims=mm_embed.spatial_dims,
         )
         self.mm_embed = mm_embed
-        self._modality: Sequence[str] | None = None
+        self._modality: Sequence[Sequence[str | None]] | Sequence[str | None] | None = (
+            None
+        )
 
-    def set_modality(self, modality: Sequence[str] | None = None) -> None:
+    def set_modality(
+        self,
+        modality: Sequence[Sequence[str | None]] | Sequence[str | None] | None = None,
+    ) -> None:
         self._modality = modality
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

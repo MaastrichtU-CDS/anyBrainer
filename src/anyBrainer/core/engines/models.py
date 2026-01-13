@@ -568,7 +568,7 @@ class MultimodalMIMModel(BaseModel):
         mask: torch.Tensor,
         target: torch.Tensor,
         image_grid: tuple[int, ...],
-        modalities: dict[str, str],
+        modalities: dict[str, list[str]],
         mode: Literal["train", "val", "test"],
     ) -> torch.Tensor:
         """Compute MIM-style reconstruction loss."""
