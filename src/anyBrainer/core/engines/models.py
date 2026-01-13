@@ -617,8 +617,8 @@ class MultimodalMIMModel(BaseModel):
             sync_dist=sync_dist_safe(self),
         )
 
-        if (
-            mode in ["train", "val"]
+        if mode in ["val", "test"] or (
+            mode == "train"
             and self.log_every_n_steps
             and self.global_step % self.log_every_n_steps == 0
         ):

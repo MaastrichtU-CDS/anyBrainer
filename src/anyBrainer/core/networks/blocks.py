@@ -482,7 +482,9 @@ class MaskToken(nn.Module):
         if mask.dtype != torch.bool:
             mask = mask.to(torch.bool)
         if mask.shape != x.shape:
-            raise ValueError(f"mask must match x; got {mask.shape} vs {x.shape}")
+            msg = f"[{self.__class__.__name__}] mask must match x; got {mask.shape} vs {x.shape}"
+            logger.error(msg)
+            raise ValueError(msg)
 
         C = x.shape[1]
         base = self.mask_token.numel()
@@ -490,9 +492,9 @@ class MaskToken(nn.Module):
         tok_1d = self.mask_token
         if base != C:
             if C % base != 0:
-                raise ValueError(
-                    f"mask_token has {base} channels but x has {C}; not divisible."
-                )
+                msg = f"mask_token has {base} channels but x has {C}; not divisible."
+                logger.error(msg)
+                raise ValueError(msg)
             tok_1d = tok_1d.repeat_interleave(C // base)
 
         tok = tok_1d.view(1, C, *([1] * (x.dim() - 2)))
@@ -986,17 +988,21 @@ class MultimodalPatchEmbed(nn.Module):
             ]
         )
 
-        # Optional modality tokens: keyed by "ch{i}:{mod}"
-        self.modality_tokens = nn.ParameterDict()
+        # Build per-channel embedding layers and mod->idx mappings for efficient lookup
+        self._mod_to_idx: dict[int, dict[str, int]] = {}
+        self.mod_embeddings = nn.ModuleDict()
+
         if expected_modalities is not None:
             for i in range(in_chans):
                 if not self.inject_modality_tokens[i]:
                     continue
-                for mod in expected_modalities[i]:
-                    key = f"ch{i}:{mod}"
-                    tok = nn.Parameter(torch.zeros(self.embed_dim_per_ch))
-                    nn.init.trunc_normal_(tok, std=0.02)
-                    self.modality_tokens[key] = tok
+
+                mods = sorted(expected_modalities[i])
+                self._mod_to_idx[i] = {mod: idx for idx, mod in enumerate(mods)}
+
+                emb = nn.Embedding(len(mods), self.embed_dim_per_ch)
+                nn.init.trunc_normal_(emb.weight, std=0.02)
+                self.mod_embeddings[f"ch{i}"] = emb
 
         # Optional mid-fusion projection
         if fusion == "conv1x1":
@@ -1005,21 +1011,38 @@ class MultimodalPatchEmbed(nn.Module):
         elif fusion == "none":
             self.fusion = nn.Identity()
         else:
-            raise ValueError(f"Unknown fusion: {fusion}")
+            msg = f"[{self.__class__.__name__}] Unknown fusion: {fusion}."
+            logger.error(msg)
+            raise ValueError(msg)
 
     def forward(
         self,
         x: torch.Tensor,
         *,
-        modality: Sequence[str | None] | None = None,
+        modality: Sequence[str | None] | Sequence[Sequence[str | None]] | None = None,
     ) -> torch.Tensor:
         """Iterate over input channels and apply a modality-aware patch
         embedding.
 
+        The `modality` entry is interpreted in three ways, depending on the context:
+            - Sequence[Sequence[str | None]]: Assuming multiple channels, with the length of
+                the sequence expected to match the input channels. Inner sequences are
+                expected to match the batch size.
+            - Sequence[str | None]: Assuming single channel; the length of the sequence is
+                expected to match the batch size.
+            - None: No modality is provided.
+
+        Notes:
+            - If a modality token is injected for any channel, then the `modality` input must match
+              the number of all input channels, not just the number of channels with modality tokens.
+              for indexing purposes. In such channels, users can set the modality to `None`.
+            - No modality checking is performed for channels with no injection of modality tokens.
+              Otherwise, the validity of per-channel modality entries is checked against the
+              `expected_modalities` setting.
+
         Args:
             x: Input tensor of shape (B, C, *spatial_dims).
-            modality: Sequence of modality names for each channel. Set entry
-                to None for channels with no injection of modality tokens.
+            modality: Sequence of modality names for each channel.
 
         Returns:
             torch.Tensor: Output tensor of shape (B, embed_dim, *patch_grid).
@@ -1029,7 +1052,7 @@ class MultimodalPatchEmbed(nn.Module):
             logger.error(msg)
             raise ValueError(msg)
 
-        C = x.shape[1]
+        B, C, *_ = x.shape
         if C != self.in_channels:
             msg = (
                 f"[{self.__class__.__name__}] Expected C={self.in_channels}, got C={C}."
@@ -1038,37 +1061,74 @@ class MultimodalPatchEmbed(nn.Module):
             raise ValueError(msg)
 
         if any(self.inject_modality_tokens) and (
-            modality is None or len(modality) != C
+            not isinstance(modality, (list, tuple)) or len(modality) == 0
         ):
             msg = (
-                f"[{self.__class__.__name__}] `modality` must be provided when `inject_modality_tokens` is True "
-                f"and match the number of channels ({C}); got {modality}."
+                f"[{self.__class__.__name__}] a non-empty `modality` sequence must be provided when "
+                f"`inject_modality_tokens` is True for at least one channel; got {modality}."
             )
             logger.error(msg)
             raise ValueError(msg)
+
+        if modality is not None:
+            # Convert any Sequence[str | None] to Sequence[Sequence[str | None]]
+            if all(isinstance(m, (str, type(None))) for m in modality):
+                modality = [cast(Sequence[str | None], modality)]
+
+            # Check validity of Sequence[Sequence[str | None]] entries
+            if (
+                len(modality) != C
+                or not all(isinstance(m, (list, tuple)) for m in modality)
+                or any(
+                    len(m) != B for m in cast(Sequence[Sequence[str | None]], modality)
+                )
+            ):
+                msg = (
+                    f"[{self.__class__.__name__}] Expected `modality` to match the number of input channels {C}, "
+                    f"and comprise only sequences of length {B} for each channel."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
 
         outs: list[torch.Tensor] = []
 
         for i in range(C):
             yi = self.patch_embeds[i](x[:, i : i + 1])
 
-            # Add token if configured and available
+            # Add modality token for the channel only if configured in construction
             if self.inject_modality_tokens[i]:
-                mod_i = cast(Sequence[str | None], modality)[i]
-                if mod_i is None:
-                    msg = f"[{self.__class__.__name__}] Expected modality for channel {i}, but got None."
-                    logger.error(msg)
-                    raise ValueError(msg)
+                ch_mods = cast(Sequence[Sequence[str | None]], modality)[i]
+                mod_to_idx = self._mod_to_idx[i]
 
-                key = f"ch{i}:{mod_i}"
-                if key not in self.modality_tokens:
-                    msg = f"[{self.__class__.__name__}] Could not find modality token for {key}."
-                    logger.error(msg)
-                    raise RuntimeError(msg)
+                # Validate and build modality tensor for `ch{i}` as (B, 1), where `1` corresponds to
+                # the modality index
+                indices = []
+                for j, mod_j in enumerate(ch_mods):
+                    if mod_j is None:
+                        msg = f"[{self.__class__.__name__}] Expected modality for channel {i}, batch {j}, but got None."
+                        logger.error(msg)
+                        raise ValueError(msg)
 
-                tok = self.modality_tokens[key]
-                view = (1, -1) + (1,) * (yi.ndim - 2)
-                yi = yi + tok.view(*view).to(dtype=yi.dtype)
+                    if mod_j not in mod_to_idx:
+                        msg = (
+                            f"[{self.__class__.__name__}] Unknown modality '{mod_j}' for channel {i}. "
+                            f"Available: {list(mod_to_idx.keys())}"
+                        )
+                        logger.error(msg)
+                        raise ValueError(msg)
+
+                    indices.append(mod_to_idx[mod_j])
+
+                mod_tensor = torch.tensor(indices, device=yi.device, dtype=torch.long)
+
+                # Lookup `ch{i}` modality tokens for each batch item
+                all_toks = self.mod_embeddings[f"ch{i}"](
+                    mod_tensor
+                )  # (B, embed_dim_per_ch)
+
+                # Reshape for broadcasting: (B, embed_dim_per_ch, 1, 1, ...)
+                view = (B, -1) + (1,) * self.spatial_dims
+                yi = yi + all_toks.view(*view).to(dtype=yi.dtype)
 
             outs.append(yi)
 
