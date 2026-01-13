@@ -866,14 +866,6 @@ class ArtifactsMixin(PLModuleMixin):
         if self.logger is None:  # type: ignore[attr-defined]
             return
 
-        current_step = int(current_step)
-        if (
-            not self.log_every_n_steps
-            or not self.log_max_n_items
-            or current_step % self.log_every_n_steps != 0
-        ):
-            return
-
         if not isinstance(tensors_dict, dict) or not all(
             isinstance(v, torch.Tensor) for v in tensors_dict.values()
         ):
