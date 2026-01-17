@@ -119,55 +119,79 @@ class LogGradNorm(pl.Callback):
 
 @register(RK.CALLBACK)
 class FreezeParamGroups(pl.Callback):
-    """Freeze / unfreeze selected parameter groups at scheduled epochs.
+    """Freeze / unfreeze selected parameter groups at scheduled epochs or
+    steps.
 
     Args:
-    - param_group_prefix: List of parameter group prefixes to freeze
-    - freeze_epoch: Epoch at which to freeze the parameter groups;
-        can be a single epoch or a list (len(freeze_epoch) == len(param_group_prefix)).
-    - unfreeze_epoch: Epoch at which to unfreeze the parameter groups;
-        same format as freeze_epoch.
-    - train_bn: Whether to keep BatchNorm layers in train mode.
+        param_group_prefix: List of parameter group prefixes to freeze.
+        freeze_epoch: Epoch at which to freeze (mutually exclusive with freeze_step).
+        unfreeze_epoch: Epoch at which to unfreeze (mutually exclusive with unfreeze_step).
+        freeze_step: Step at which to freeze (mutually exclusive with freeze_epoch).
+        unfreeze_step: Step at which to unfreeze (mutually exclusive with unfreeze_epoch).
+        train_bn: Whether to keep BatchNorm layers in train mode.
     """
 
     def __init__(
         self,
         *,
         param_group_prefix: str | list[str],
-        freeze_epoch: int | list[int] = 0,
-        unfreeze_epoch: int | list[int] = 0,
+        freeze_epoch: int | list[int] | None = None,
+        unfreeze_epoch: int | list[int] | None = None,
+        freeze_step: int | list[int] | None = None,
+        unfreeze_step: int | list[int] | None = None,
         train_bn: bool = False,
     ) -> None:
         super().__init__()
-        # normalise prefixes
+
+        # Determine mode: epoch-based or step-based
+        use_epochs = freeze_epoch is not None or unfreeze_epoch is not None
+        use_steps = freeze_step is not None or unfreeze_step is not None
+
+        if use_epochs and use_steps:
+            msg = (
+                "[FreezeParamGroups] Cannot mix epoch-based and step-based scheduling."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.use_steps = use_steps
+
+        # Normalise prefixes
         if isinstance(param_group_prefix, str):
             param_group_prefix = [param_group_prefix]
         self.prefixes = param_group_prefix
 
-        # normalise epochs
-        def _expand(x: int | list[int]) -> list[int]:
+        # Normalise schedule values
+        def _expand(x: int | list[int] | None, default: int = -1) -> list[int]:
+            if x is None:
+                return [default] * len(self.prefixes)
             return [x] * len(self.prefixes) if isinstance(x, int) else x
 
-        self.freeze_epoch = _expand(freeze_epoch)
-        self.unfreeze_epoch = _expand(unfreeze_epoch)
-        if len(self.freeze_epoch) != len(self.prefixes):
+        if use_steps:
+            self.freeze_at = _expand(freeze_step)
+            self.unfreeze_at = _expand(unfreeze_step)
+        else:
+            self.freeze_at = _expand(freeze_epoch, default=0)
+            self.unfreeze_at = _expand(unfreeze_epoch, default=0)
+
+        if len(self.freeze_at) != len(self.prefixes):
             msg = (
-                f"[FreezeParamGroups] `freeze_epoch` must match number of parameter "
-                f"group prefixes, got {len(self.freeze_epoch)} and {len(self.prefixes)}."
+                f"[FreezeParamGroups] freeze schedule must match number of parameter "
+                f"group prefixes, got {len(self.freeze_at)} and {len(self.prefixes)}."
             )
             logger.error(msg)
             raise ValueError(msg)
-        if len(self.unfreeze_epoch) != len(self.prefixes):
+        if len(self.unfreeze_at) != len(self.prefixes):
             msg = (
-                f"[FreezeParamGroups] `unfreeze_epoch` must match number of parameter "
-                f"group prefixes, got {len(self.unfreeze_epoch)} and {len(self.prefixes)}."
+                f"[FreezeParamGroups] unfreeze schedule must match number of parameter "
+                f"group prefixes, got {len(self.unfreeze_at)} and {len(self.prefixes)}."
             )
             logger.error(msg)
             raise ValueError(msg)
 
         self.train_bn = train_bn
-        self._are_frozen: list[bool] | None = None  # set in setup()
-        self._param_groups: list[list[nn.Parameter]] | None = None  # set in setup()
+        self._are_frozen: list[bool] | None = None
+        self._param_groups: list[list[nn.Parameter]] | None = None
 
     def setup(self, trainer, pl_module, stage: str | None = None):
         self._param_groups = [
@@ -184,53 +208,62 @@ class FreezeParamGroups(pl.Callback):
         ]
         self._are_frozen = [False] * len(self._param_groups)
 
+        mode = "steps" if self.use_steps else "epochs"
         logger.info(
             f"[FreezeParamGroups] managing {len(self._param_groups)} groups "
-            f"(freeze at {self.freeze_epoch}, unfreeze at {self.unfreeze_epoch}, "
-            f"train_bn={self.train_bn})."
+            f"(freeze at {self.freeze_at}, unfreeze at {self.unfreeze_at}, "
+            f"mode={mode}, train_bn={self.train_bn})."
         )
 
     def on_train_epoch_start(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
-        """Freeze parameter groups."""
-        epoch = trainer.current_epoch
-        frozen, unfrozen = self._toggle_requires_grad(epoch)
+        """Freeze/unfreeze at epoch boundaries (epoch mode only)."""
+        if self.use_steps:
+            return
+        self._check_and_toggle(trainer.current_epoch, pl_module, "epoch")
+
+    def on_train_batch_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule, batch, batch_idx
+    ) -> None:
+        """Freeze/unfreeze at step boundaries (step mode only)."""
+        if not self.use_steps:
+            return
+        self._check_and_toggle(trainer.global_step, pl_module, "step")
+
+    def _check_and_toggle(
+        self, current: int, pl_module: pl.LightningModule, mode: str
+    ) -> None:
+        """Check schedule and toggle requires_grad."""
+        frozen, unfrozen = self._toggle_requires_grad(current)
         bn_mode = self._set_batchnorm_mode(pl_module)
 
         if frozen or unfrozen:
             msg = (
-                f"[FreezeCallback] epoch {epoch} | "
+                f"[FreezeCallback] {mode} {current} | "
                 f"froze: {frozen or '—'} | unfroze: {unfrozen or '—'}"
             )
             if bn_mode is not None:
                 msg += f" | BatchNorm train={bn_mode}"
             logger.info(msg)
 
-    def _toggle_requires_grad(self, epoch: int) -> tuple[list[str], list[str]]:
-        """Freeze/unfreeze groups, return lists of prefix names that changed.
-
-        If same epoch is in both freeze and unfreeze lists, the
-        parameter group will be unfrozen.
-        """
+    def _toggle_requires_grad(self, current: int) -> tuple[list[str], list[str]]:
+        """Freeze/unfreeze groups, return lists of prefix names that
+        changed."""
         if self._param_groups is None or self._are_frozen is None:
-            msg = (
-                "[FreezeParamGroups] `_param_groups` or `_are_frozen` is None. "
-                "This is likely due to using the callback outside the trainer, "
-                "which automatically calls `setup()`."
-            )
+            msg = "[FreezeParamGroups] setup() was not called."
             logger.error(msg)
             raise ValueError(msg)
 
         frozen, unfrozen = [], []
         for i, params in enumerate(self._param_groups):
-            if epoch == self.freeze_epoch[i] and not self._are_frozen[i]:
+            if current == self.freeze_at[i] and not self._are_frozen[i]:
                 for p in params:
                     p.requires_grad = False
                 self._are_frozen[i] = True
                 frozen.append(self.prefixes[i])
 
-            if epoch == self.unfreeze_epoch[i] and self._are_frozen[i]:
+            if current == self.unfreeze_at[i] and self._are_frozen[i]:
                 for p in params:
                     p.requires_grad = True
                 self._are_frozen[i] = False
@@ -241,16 +274,12 @@ class FreezeParamGroups(pl.Callback):
     def _set_batchnorm_mode(self, pl_module) -> bool | None:
         """Put BN layers in train/eval depending on frozen status."""
         if self._are_frozen is None:
-            msg = (
-                "[FreezeParamGroups] `_are_frozen` is None. "
-                "This is likely due to using the callback outside the trainer, "
-                "which automatically calls `setup()`."
-            )
+            msg = "[FreezeParamGroups] setup() was not called."
             logger.error(msg)
             raise ValueError(msg)
 
         train_mode = None
-        for m in pl_module.model.modules():  # type: ignore[attr-defined]
+        for m in pl_module.model.modules():
             if isinstance(m, _BatchNorm):
                 train_mode = self.train_bn or not any(self._are_frozen)
                 m.train(train_mode)

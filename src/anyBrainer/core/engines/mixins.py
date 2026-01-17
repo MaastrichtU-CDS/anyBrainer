@@ -676,6 +676,7 @@ class InfererMixin(PLModuleMixin):
         do_tta: bool = True,
         do_postprocess: bool = True,
         invert: bool = True,
+        **network_kwargs: Any,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         """Prediction pipeline for input tensor.
 
@@ -700,7 +701,7 @@ class InfererMixin(PLModuleMixin):
             raise ValueError(msg)
 
         if not self.tta or not do_tta:
-            output = self.inferer(batch[img_key], self.model)  # type: ignore[attr-defined]
+            output = self.inferer(batch[img_key], self.model, **network_kwargs)  # type: ignore[attr-defined]
             if do_postprocess:
                 output = self.postprocess(output)
             if return_std:

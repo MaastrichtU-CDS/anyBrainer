@@ -1482,3 +1482,132 @@ class ClassificationMidFusionModel(BaseModel):
                 prog_bar=False,
                 sync_dist=sync_dist_safe(self),
             )
+
+
+class MultimodalDownstreamModel(BaseModel):
+    """Multimodal downstream model that can be used for any multimodal
+    downstream task."""
+
+    def __init__(
+        self,
+        *,
+        metrics: (
+            list[Callable]
+            | list[str]
+            | list[dict[str, Any]]
+            | Callable
+            | str
+            | dict[str, Any]
+            | None
+        ),
+        **base_model_kwargs,
+    ):
+        super().__init__(**base_model_kwargs)
+
+        self.metrics: list[Callable] = []
+        if metrics is not None:
+            if isinstance(metrics, str):
+                metrics = [metrics]
+            elif isinstance(metrics, dict):
+                metrics = [metrics]
+            elif callable(metrics):
+                metrics = [metrics]
+            self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
+
+        logger.info(
+            f"[{self.__class__.__name__}] Initialized with "
+            f"metrics={[callable_name(m) for m in self.metrics]}."
+        )
+
+    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Computes loss; override for more complex behavior."""
+        if isinstance(self.loss_fn, list):
+            msg = (
+                f"[{self.__class__.__name__}] Multiple loss functions not supported; "
+                f"override `compute_loss` for more complex behavior."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        return self.loss_fn(out, target)  # type: ignore[attr-defined]
+
+    @torch.no_grad()
+    def compute_metrics(
+        self, out: torch.Tensor, target: torch.Tensor
+    ) -> dict[str, Any]:
+        """Computes metrics; ignores if a metric fails."""
+        stats = {}
+        for m in self.metrics:
+            name = getattr(m, "__name__", m.__class__.__name__)
+            try:
+                val = m(out, target)
+            except Exception:
+                logger.exception(
+                    f"[{self.__class__.__name__}] Failed to compute "
+                    f"metric {name}; skipping."
+                )
+                continue
+
+            if isinstance(m, CumulativeIterationMetric):
+                agg = m.aggregate(reduction="mean")
+                if isinstance(agg, torch.Tensor):
+                    stats[name] = agg.item()
+                elif isinstance(agg, list):
+                    for metric_name, val in zip(m.metric_name, agg):  # type: ignore[attr-defined]
+                        stats[f"{name}_{metric_name}"] = val.item()
+                else:
+                    msg = (
+                        f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
+                        f"aggregation type: {type(agg)}"
+                    )
+                    logger.error(msg)
+                    raise ValueError(msg)
+                m.reset()
+            else:
+                stats[name] = val.mean().item()
+        return stats
+
+    def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
+        """Logs step statistics."""
+        on_step = step_name == "train"
+        self.log_dict(
+            {f"{step_name}/{k}": v for k, v in log_dict.items()},
+            on_step=on_step,
+            on_epoch=True,
+            prog_bar=False,
+            sync_dist=sync_dist_safe(self),
+        )
+
+    def _parse_modalities(self, batch: dict) -> tuple[str, ...]:
+        """Parses modalities from batch."""
+        mods = {k: v for k, v in batch.items() if k.startswith("mod")}
+        return tuple(v for _, v in sorted(mods.items(), key=lambda kv: int(kv[0][3:])))
+
+    def training_step(self, batch: dict, batch_idx: int):
+        """Training step; computes loss and metrics."""
+        out = self.model(batch["img"], modality=self._parse_modalities(batch))
+        loss = self.compute_loss(out, batch["label"])
+        stats = self.compute_metrics(
+            cast(torch.Tensor, self.postprocess(out)), batch["label"]
+        )
+        stats["loss"] = loss.item()
+        self.log_step("train", stats)
+        return loss
+
+    def validation_step(self, batch: dict, batch_idx: int):
+        """Validation step; performs inference and computes metrics."""
+        out = self.predict(batch, invert=False, modality=self._parse_modalities(batch))
+        stats = self.compute_metrics(cast(torch.Tensor, out), batch["label"])
+        self.log_step("val", stats)
+
+    def test_step(self, batch: dict, batch_idx: int) -> None:
+        """Test step; performs inference and computes metrics."""
+        out = self.predict(batch, invert=False, modality=self._parse_modalities(batch))
+        stats = self.compute_metrics(cast(torch.Tensor, out), batch["label"])
+        self.log_step("test", stats)
+
+    def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Predict step; performs inference."""
+        return cast(
+            torch.Tensor,
+            self.predict(batch, invert=False, modality=self._parse_modalities(batch)),
+        )
