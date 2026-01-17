@@ -102,8 +102,11 @@ TrainWorkflow:
         - True
         - False
       expected_modalities:
-        - ["t1"]
-        - ["flair"]
+        - null
+        - null
+        - null
+        - ['t1', 'flair', 't2', 'dwi', 'unknown', 'pd', 't2s', 'swi']
+        - null
       fusion: none
       fpn_width: 32
     weights_init_settings:
@@ -266,8 +269,11 @@ TestWorkflow:
         - True
         - False
       expected_modalities:
-        - ["t1"]
-        - ["flair"]
+        - null
+        - null
+        - null
+        - ['t1', 'flair', 't2', 'dwi', 'unknown', 'pd', 't2s', 'swi']
+        - null
       fusion: none
       fpn_width: 32
     # Needed to initialize the pl_module; unused in this workflow
@@ -310,8 +316,6 @@ sweep_settings:
   1: # modalities (n=2)
     - TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
     - TestWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
-    - TrainWorkflow.pl_module_settings.model_kwargs.expected_modalities
-    - TestWorkflow.pl_module_settings.model_kwargs.expected_modalities
   2: # pre-trained models (n=5)
     - TrainWorkflow.global_settings.experiment
     - TestWorkflow.global_settings.experiment
@@ -319,3 +323,5 @@ sweep_settings:
     - TestWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
     - TrainWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
     - TestWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
+    - TrainWorkflow.pl_module_settings.model_kwargs.expected_modalities
+    - TestWorkflow.pl_module_settings.model_kwargs.expected_modalities

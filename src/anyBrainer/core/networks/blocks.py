@@ -1070,7 +1070,8 @@ class MultimodalPatchEmbed(nn.Module):
             logger.error(msg)
             raise ValueError(msg)
 
-        if modality is not None:
+        if any(self.inject_modality_tokens):
+            modality = cast(Sequence[Sequence[str | None]], modality)
             # Convert any Sequence[str | None] to Sequence[Sequence[str | None]]
             if all(isinstance(m, (str, type(None))) for m in modality):
                 modality = [cast(Sequence[str | None], modality)]

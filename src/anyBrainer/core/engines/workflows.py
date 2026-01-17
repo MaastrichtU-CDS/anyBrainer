@@ -1146,8 +1146,9 @@ class SweepWorkflow(Workflow):
                     self._set_nested_value(kwargs, setting["path"], value)
 
                     # Build readable suffix (use last part of path)
+                    root_name = setting["path"].split(".")[0]
                     short_name = setting["path"].split(".")[-1]
-                    suffix_parts.append(f"{short_name}={value}")
+                    suffix_parts.append(f"{root_name}:{short_name}={value!r}")
 
             suffix = "_".join(suffix_parts)
             yield kwargs, suffix
