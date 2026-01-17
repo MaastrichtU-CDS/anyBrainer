@@ -650,8 +650,11 @@ class MultimodalDataModule(BaseDataModule):
                 If None, no labels are added. If provided, the following keys are expected for
                 the default `setup_labels()` and `add_labels()` implementations:
                 - labels_dir: directory containing labels. Defaults to `data_dir`.
-                - labels_filename: name of the label file. Defaults to "label.txt".
+                - labels_file: name of the label file. Defaults to "label.txt".
                 - store_key: key to store the label in the dataset entry. Defaults to "label".
+                - expected_labels: expected labels in the label file. Defaults to None.
+                - strict: whether to raise an error when label does not match expected labels or
+                    when label file does not exist. Defaults to True.
         """
         super().__init__(**base_module_kwargs)
 

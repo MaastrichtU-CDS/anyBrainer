@@ -75,6 +75,9 @@ TrainWorkflow:
           - ["flair"]
       distinct_modalities: True
       distinct_acquisitions: True
+      labels_settings:
+        labels_file: "mask.npy"
+        store_key: "seg"
 
   # Model
   pl_module_settings:
@@ -237,7 +240,7 @@ TestWorkflow:
       distinct_modalities: True
       distinct_acquisitions: True
       labels_settings:
-        labels_filename: "mask.npy"
+        labels_file: "mask.npy"
         store_key: "seg"
 
   # Model
