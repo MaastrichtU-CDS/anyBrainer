@@ -474,7 +474,7 @@ class MaskToken(nn.Module):
             f"[{self.__class__.__name__}] MaskToken initialized with embed_dim={embed_dim}"
         )
 
-    def apply(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def apply_mask(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
         x:    (B, C, *spatial)  channels-first
         mask: (B, C, *spatial)  bool

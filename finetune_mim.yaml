@@ -236,6 +236,9 @@ TestWorkflow:
           - ["flair"]
       distinct_modalities: True
       distinct_acquisitions: True
+      labels_settings:
+        labels_filename: "mask.npy"
+        store_key: "seg"
 
   # Model
   pl_module_settings:

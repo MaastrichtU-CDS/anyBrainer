@@ -889,7 +889,7 @@ class SwinMIM(SwinViT):
             )
             logger.error(msg)
             raise ValueError(msg)
-        x0 = self.mask_tokenizer.apply(x0, mask)
+        x0 = self.mask_tokenizer.apply_mask(x0, mask)
         x0 = self.pos_drop(x0)
         x0_out = self.proj_out(x0, normalize)
 
@@ -901,7 +901,7 @@ class SwinMIM(SwinViT):
         # and replacing conv layers with partial convs.
         if self.use_v2:
             x0, m0 = self.layers1c[0](x0.contiguous(), mask=mask)
-            x0 = self.mask_tokenizer.apply(x0, m0)
+            x0 = self.mask_tokenizer.apply_mask(x0, m0)
             m1 = merge_mask_nd(
                 m0, mode=self.merge_mode
             )  # mirror patch merging for subsequent level
@@ -912,7 +912,7 @@ class SwinMIM(SwinViT):
         # for all subsequent levels.
         if self.use_v2:
             x1, m1 = self.layers2c[0](x1.contiguous(), mask=m1)
-            x1 = self.mask_tokenizer.apply(x1, m1)
+            x1 = self.mask_tokenizer.apply_mask(x1, m1)
             m2 = merge_mask_nd(m1, mode=self.merge_mode)
         x2 = self.layers2[0](x1.contiguous())
         x2_out = self.proj_out(x2, normalize)
@@ -920,7 +920,7 @@ class SwinMIM(SwinViT):
         # Level 3
         if self.use_v2:
             x2, m2 = self.layers3c[0](x2.contiguous(), mask=m2)
-            x2 = self.mask_tokenizer.apply(x2, m2)
+            x2 = self.mask_tokenizer.apply_mask(x2, m2)
             m3 = merge_mask_nd(m2, mode=self.merge_mode)
         x3 = self.layers3[0](x2.contiguous())
         x3_out = self.proj_out(x3, normalize)
@@ -928,7 +928,7 @@ class SwinMIM(SwinViT):
         # Level 4; last
         if self.use_v2:
             x3, m3 = self.layers4c[0](x3.contiguous(), mask=m3)
-            x3 = self.mask_tokenizer.apply(x3, m3)
+            x3 = self.mask_tokenizer.apply_mask(x3, m3)
         x4 = self.layers4[0](x3.contiguous())
         x4_out = self.proj_out(x4, normalize)
 
@@ -1002,7 +1002,7 @@ class SwinSimMIM(SwinViT):
             )
             logger.error(msg)
             raise ValueError(msg)
-        x0 = self.mask_tokenizer.apply(x0, mask)
+        x0 = self.mask_tokenizer.apply_mask(x0, mask)
         x0 = self.pos_drop(x0)
         x0_out = self.proj_out(x0, normalize)
         if self.use_v2:
