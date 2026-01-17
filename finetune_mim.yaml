@@ -1,0 +1,315 @@
+TrainWorkflow:
+  # Global settings
+  global_settings:
+    seed: 12345
+    project: MIM_finetuning
+    experiment:
+      - SimMIM-1ch-128_16
+      - SwinMIM-1ch-128_16
+      - SwinMIM-1ch-128_16_or
+      - SwinMIM-1ch-128_16_modtok
+      - SwinMIM-1ch-128_32
+    root_dir: /projects/prjs1526/anyBrainer/experiments
+
+  # Logging settings
+  logging_settings:
+    dev_mode: False
+    worker_logs: False
+    save_logs: True
+    wandb_enable: True
+    wandb_entity: petros-koutsouvelis-maastricht-university
+    wandb_watch_enable: True
+    wandb_watch_kwargs:
+      log_freq: 2000
+      log_graph: True
+      log: 'all'
+
+  # Data settings
+  pl_datamodule_settings:
+    name: MultimodalDataModule
+    data_dir: /projects/prjs1526/data-finetuning/FCD_BONN/train
+    data_handler_kwargs:
+      data_format: GenericNifti
+      exts: [".npy"]
+    train_val_test_split: [1.0, 0.0, 0.0]
+    num_workers: 8
+    batch_size: 4
+    extra_dataloader_kwargs:
+      shuffle: True
+      pin_memory: False
+    train_transforms: 
+      name: get_segmentation_transforms
+      keys: ["ch1"]
+      input_size: 128
+      seg_key: "seg"
+      out_key: "img"
+      n_patches: 2
+      n_pos: 1
+      n_neg: 1
+      val_mode: False
+    val_transforms: 
+      name: get_segmentation_transforms
+      keys: ["ch1"]
+      input_size: 128
+      seg_key: "seg"
+      out_key: "img"
+      n_patches: 2
+      n_pos: 1
+      n_neg: 1
+      val_mode: True
+    test_transforms: 
+      name: get_segmentation_transforms
+      keys: ["ch1"]
+      input_size: 128
+      seg_key: "seg"
+      out_key: "img"
+      n_patches: 2
+      n_pos: 1
+      n_neg: 1
+      val_mode: True
+    extra_kwargs:
+      modalities_per_ch: 
+        - 
+          - ["t1"]
+        - 
+          - ["flair"]
+      distinct_modalities: True
+      distinct_acquisitions: True
+
+  # Model
+  pl_module_settings:
+    name: SegmentationModel
+    model_kwargs:
+      name: Multimodal3DSwinMIMFPN
+      in_channels: 1
+      patch_size: 2
+      depths: [2, 2, 6, 2]
+      num_heads: [3, 6, 12, 24]
+      window_size: 7
+      embed_dim: 48
+      use_v2: True
+      extra_swin_kwargs:
+        use_checkpoint: True
+      use_vanilla_swin: False
+      merge_mode: and
+      inject_modality_tokens: 
+        - False
+        - False
+        - False
+        - True
+        - False
+      expected_modalities:
+        - ["t1"]
+        - ["flair"]
+      fusion: none
+      fpn_width: 32
+    weights_init_settings:
+      weights_init_fn: init_swin_v2
+      load_pretrain_weights:
+        - /projects/prjs1526/anyBrainer/experiments/MIM/SimMIM-1ch-128_16/checkpoints/step=200000.ckpt
+        - /projects/prjs1526/anyBrainer/experiments/MIM/SwinMIM-1ch-128_16/checkpoints/step=200000.ckpt
+        - /projects/prjs1526/anyBrainer/experiments/MIM/SwinMIM-1ch-128_16_or/checkpoints/step=200000.ckpt
+        - /projects/prjs1526/anyBrainer/experiments/MIM/SwinMIM-1ch-128_16_modtok/checkpoints/step=200000.ckpt
+        - /projects/prjs1526/anyBrainer/experiments/MIM/SwinMIM-1ch-128_32/checkpoints/step=200000.ckpt
+      load_param_group_prefix: model.encoder
+      rename_map:
+        model.encoder: "encoder"
+    optimizer_kwargs:
+      name: AdamW
+      auto_no_weight_decay: True
+      param_groups:
+      - lr: 0.0005
+        weight_decay: 0.01
+        param_group_prefix: fpn
+      - lr: 0.0005
+        weight_decay: 0.01
+        param_group_prefix: head
+      - lr: 0.00005
+        weight_decay: 0.01
+        param_group_prefix: encoder
+    lr_scheduler_kwargs:
+      name: CosineAnnealingWithWarmup
+      interval: step
+      frequency: 1
+      warmup_iters: 1000
+      total_iters: 10000
+      eta_min: 0.000005
+    loss_fn_kwargs:
+      name: "monai:DiceCELoss"
+      sigmoid: True
+    inference_settings:
+    inferer_kwargs: 
+      name: SlidingWindowInferer
+      roi_size: 128
+      mode: constant
+      overlap: 0.5
+    postprocess: get_postprocess_segmentation_transforms
+
+  # Checkpoint settings
+  ckpt_settings:
+    new_version: False
+    model_checkpoint:
+    save_every_n_steps: 10000
+    save_top_k: -1
+    save_last: True
+
+  # Callback settings (other than model checkpointing)
+  pl_callback_settings: []
+
+  # Trainer settings (pl.Trainer kwargs)
+  pl_trainer_settings:
+    max_steps: 10000
+    accumulate_grad_batches: 1
+    gradient_clip_val: 1.0
+    gradient_clip_algorithm: norm
+    precision: bf16-mixed
+    devices: 1
+    strategy: ddp_find_unused_parameters_true
+    accelerator: auto
+    profiler: simple
+    num_nodes: 1
+    log_every_n_steps: 100
+    val_check_interval: 1.0
+    check_val_every_n_epoch: 1
+    num_sanity_val_steps: 2
+    overfit_batches: 0.0
+    limit_train_batches: 1.0
+    limit_val_batches: 1.0
+    limit_test_batches: 1.0
+    limit_predict_batches: 1.0
+    fast_dev_run: False
+
+TestWorkflow:
+  # Global settings
+  global_settings:
+    seed: 12345
+    project: MIM_finetuning
+    experiment:
+      - SimMIM-1ch-128_16
+      - SwinMIM-1ch-128_16
+      - SwinMIM-1ch-128_16_or
+      - SwinMIM-1ch-128_16_modtok
+      - SwinMIM-1ch-128_32
+    root_dir: /projects/prjs1526/anyBrainer/experiments
+
+  # Logging settings
+  logging_settings:
+    dev_mode: False
+    worker_logs: False
+    save_logs: True
+    wandb_enable: True
+    wandb_entity: petros-koutsouvelis-maastricht-university
+    wandb_watch_enable: True
+    wandb_watch_kwargs:
+      log_freq: 2000
+      log_graph: True
+      log: 'all'
+
+  # Data settings
+  pl_datamodule_settings:
+    name: MultimodalDataModule
+    data_dir: /projects/prjs1526/data-finetuning/FCD_BONN/test
+    data_handler_kwargs:
+      data_format: GenericNifti
+      exts: [".npy"]
+    train_val_test_split: [0.0, 0.0, 1.0]
+    num_workers: 8
+    batch_size: 4
+    extra_dataloader_kwargs:
+      shuffle: False
+      pin_memory: False
+    test_transforms: 
+      name: get_segmentation_transforms
+      keys: ["ch1"]
+      input_size: 128
+      seg_key: "seg"
+      out_key: "img"
+      n_patches: 2
+      n_pos: 1
+      n_neg: 1
+      val_mode: True
+    extra_kwargs:
+      modalities_per_ch: 
+        - 
+          - ["t1"]
+        - 
+          - ["flair"]
+      distinct_modalities: True
+      distinct_acquisitions: True
+
+  # Model
+  pl_module_settings:
+    name: SegmentationModel
+    model_kwargs:
+      name: Multimodal3DSwinMIMFPN
+      in_channels: 1
+      patch_size: 2
+      depths: [2, 2, 6, 2]
+      num_heads: [3, 6, 12, 24]
+      window_size: 7
+      embed_dim: 48
+      use_v2: True
+      extra_swin_kwargs:
+        use_checkpoint: True
+      use_vanilla_swin: False
+      merge_mode: and
+      inject_modality_tokens: 
+        - False
+        - False
+        - False
+        - True
+        - False
+      expected_modalities:
+        - ["t1"]
+        - ["flair"]
+      fusion: none
+      fpn_width: 32
+    # Needed to initialize the pl_module; unused in this workflow
+    optimizer_kwargs:
+      name: AdamW
+      auto_no_weight_decay: True
+      param_groups:
+      - lr: 0.0005
+        weight_decay: 0.01
+        param_group_prefix: fpn
+      - lr: 0.0005
+        weight_decay: 0.01
+        param_group_prefix: head
+      - lr: 0.00005
+        weight_decay: 0.01
+        param_group_prefix: encoder
+    lr_scheduler_kwargs:
+      name: CosineAnnealingWithWarmup
+      interval: step
+      frequency: 1
+      warmup_iters: 1000
+      total_iters: 10000
+      eta_min: 0.000005
+    loss_fn_kwargs:
+      name: "monai:DiceCELoss"
+      sigmoid: True
+    inference_settings:
+    inferer_kwargs: 
+      name: SlidingWindowInferer
+      roi_size: 128
+      mode: constant
+      overlap: 0.5
+    postprocess: get_postprocess_segmentation_transforms
+
+  # Callback settings (other than model checkpointing)
+  pl_callback_settings: []
+
+# Sweep settings
+sweep_settings:
+  1: # modalities (n=2)
+    - TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
+    - TestWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
+    - TrainWorkflow.pl_module_settings.model_kwargs.expected_modalities
+    - TestWorkflow.pl_module_settings.model_kwargs.expected_modalities
+  2: # pre-trained models (n=5)
+    - TrainWorkflow.global_settings.experiment
+    - TestWorkflow.global_settings.experiment
+    - TrainWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
+    - TestWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
+    - TrainWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
+    - TestWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens

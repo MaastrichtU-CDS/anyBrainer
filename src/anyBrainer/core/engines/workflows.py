@@ -1081,7 +1081,16 @@ class SweepWorkflow(Workflow):
     @staticmethod
     def _get_nested_value(d: dict, path: str) -> Any:
         """Get value from nested dict using dotted path."""
-        for key in path.split("."):
+        keys = path.split(".")
+        for i, key in enumerate(keys):
+            if key not in d:
+                traversed = ".".join(keys[:i])
+                msg = (
+                    f"[SweepWorkflow] Key '{key}' not found at '{traversed}'. "
+                    f"Available keys: {list(d.keys())}"
+                )
+                logging.error(msg)
+                raise KeyError(msg)
             d = d[key]
         return d
 
@@ -1089,9 +1098,27 @@ class SweepWorkflow(Workflow):
     def _set_nested_value(d: dict, path: str, value: Any) -> None:
         """Set value in nested dict using dotted path."""
         keys = path.split(".")
-        for key in keys[:-1]:
+        for i, key in enumerate(keys[:-1]):
+            if key not in d:
+                traversed = ".".join(keys[:i]) or "(root)"
+                msg = (
+                    f"[SweepWorkflow] Key '{key}' not found at '{traversed}'. "
+                    f"Available keys: {list(d.keys())}"
+                )
+                logging.error(msg)
+                raise KeyError(msg)
             d = d[key]
-        d[keys[-1]] = value
+
+        final_key = keys[-1]
+        if final_key not in d:
+            traversed = ".".join(keys[:-1]) or "(root)"
+            msg = (
+                f"Final key '{final_key}' not found at '{traversed}'. "
+                f"Available keys: {list(d.keys())}"
+            )
+            logging.error(msg)
+            raise KeyError(msg)
+        d[final_key] = value
 
     def _generate_combinations(self) -> Iterator[tuple[dict[str, Any], str]]:
         """Generate all (kwargs, experiment_suffix) combinations."""
