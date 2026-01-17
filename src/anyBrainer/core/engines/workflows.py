@@ -346,7 +346,7 @@ class TrainWorkflow(Workflow):
         if not ckpt_path.exists():
             self.main_logger.warning(
                 f"[TrainWorkflow] Checkpoint file {ckpt_path} does not exist; "
-                "will create new model."
+                "will keep current model initialization."
             )
             return model, None
 
@@ -1113,7 +1113,7 @@ class SweepWorkflow(Workflow):
         if final_key not in d:
             traversed = ".".join(keys[:-1]) or "(root)"
             msg = (
-                f"Final key '{final_key}' not found at '{traversed}'. "
+                f"[SweepWorkflow] Final key '{final_key}' not found at '{traversed}'. "
                 f"Available keys: {list(d.keys())}"
             )
             logging.error(msg)

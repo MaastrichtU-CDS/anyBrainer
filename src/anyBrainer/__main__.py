@@ -15,9 +15,12 @@ name provided as the first positional argument.
 import argparse
 from pathlib import Path
 import sys
+import logging
 
 from anyBrainer.core.utils import load_config
 from anyBrainer.registry import get, RegistryKind as RK
+
+logging.basicConfig(level=logging.INFO)
 
 
 def main(argv: list[str] | None = None) -> None:

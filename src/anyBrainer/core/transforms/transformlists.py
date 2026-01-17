@@ -1439,7 +1439,7 @@ def get_segmentation_transforms(
 
     # Standardize inputs
     transforms: list[Callable] = [
-        LoadImaged(keys=keys, reader="NumpyReader", ensure_channel_first=True),
+        LoadImaged(keys=all_keys, reader="NumpyReader", ensure_channel_first=True),
     ]
 
     if not val_mode and not overfit_mode:
