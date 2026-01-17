@@ -620,6 +620,13 @@ class MultimodalDataModule(BaseDataModule):
     mod_i) is treated as unique; multiple acquisitions of the same
     modality produce multiple unique candidates and therefore multiple
     dataset entries.
+
+    Note:
+        By modifying `setup_labels()` and `add_labels()`, one can add labels
+        to the dataset entries without modifying the `process_data_list()`
+        method. See contracts in each method documentation for more details.
+        By default, a single label is added if label settings are provided
+        and a label is successfully retrieved.
     """
 
     def __init__(
@@ -627,6 +634,8 @@ class MultimodalDataModule(BaseDataModule):
         modalities_per_ch: Sequence[Sequence[str]] | Sequence[str],
         distinct_modalities: bool = False,
         distinct_acquisitions: bool = True,
+        *,
+        labels_settings: dict[str, Any] | None = None,
         **base_module_kwargs,
     ):
         """
@@ -634,9 +643,15 @@ class MultimodalDataModule(BaseDataModule):
             modalities_per_ch: list of allowed modality sets per channel position.
                 Example for 2-channel model:
                     [{"T1w","FLAIR","T2w"}, {"T1w","FLAIR","T2w"}]
-                This will create all ordered 2-tuples from available acquisitions matching each set.
+                This will create the cartesian product of the two sets.
             distinct_modalities: if True, disallow same modality appearing in two channels.
             distinct_acquisitions: if True, disallow same acquisition appearing in two channels.
+            labels_settings: settings to be passed in optional method `setup_labels()`.
+                If None, no labels are added. If provided, the following keys are expected for
+                the default `setup_labels()` and `add_labels()` implementations:
+                - labels_dir: directory containing labels. Defaults to `data_dir`.
+                - labels_filename: name of the label file. Defaults to "label.txt".
+                - store_key: key to store the label in the dataset entry. Defaults to "label".
         """
         super().__init__(**base_module_kwargs)
 
@@ -663,11 +678,78 @@ class MultimodalDataModule(BaseDataModule):
         self.distinct_modalities = distinct_modalities
         self.distinct_acquisitions = distinct_acquisitions
 
+        self.setup_labels(labels_settings)
+
         logger.info(
             f"[{self.__class__.__name__}] initialized with modalities_per_ch: "
             f"{self.modalities_per_ch}, distinct_modalities: {self.distinct_modalities} and "
-            f"distinct_acquisitions: {self.distinct_acquisitions}"
+            f"distinct_acquisitions: {self.distinct_acquisitions}, labels_settings: {labels_settings}"
         )
+
+    def setup_labels(self, labels_settings: dict[str, Any] | None = None) -> None:
+        """Any custom processing of the provided `labels_settings` attribute.
+
+        Called during __init__. Subclasses should set any attributes needed
+        by `add_labels()`. Default implementation sets:
+            - self.labels_dir
+            - self.labels_file
+            - self.expected_labels
+            - self.strict
+            - self.store_key
+        """
+        if labels_settings is None:
+            self.labels_dir = None
+            return
+
+        if not isinstance(labels_settings, dict):
+            msg = f"`labels_settings` must be a dictionary. Got type: {type(labels_settings)}"
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if not hasattr(self, "data_dir"):
+            msg = "`data_dir` is not set. Please call this method after initializing the datamodule."
+            logger.error(msg)
+            raise ValueError(msg)
+
+        self.labels_dir = labels_settings.get("labels_dir", self.data_dir)
+        self.labels_file = labels_settings.get("labels_file", "label.txt")
+        self.expected_labels = labels_settings.get("expected_labels", None)
+        self.strict = labels_settings.get("strict", True)
+        self.store_key = labels_settings.get("store_key", "label")
+
+    def add_labels(self, entry: dict[str, Any]) -> None:
+        """Any custom processing of a provided dataset `entry`.
+
+        This is a subject/session-level dictionary, containing the required
+        imaging keys.
+
+        Note: should modify `entry` in place.
+        """
+        if self.labels_dir is None:
+            return
+
+        labels_path = (
+            self.labels_dir
+            / entry["ch1"].relative_to(self.data_dir).parent
+            / self.labels_file
+        )
+        if not labels_path.exists():
+            msg = f"Could not find label file {labels_path}"
+            if self.strict:
+                logger.error(msg)
+                raise FileNotFoundError(msg)
+            else:
+                logger.warning(msg)
+            return
+
+        # load label only for .txt files; images should be read in transforms
+        if self.labels_file.endswith(".txt"):
+            entry[self.store_key] = read_label_from_txt(
+                labels_path, expected_labels=self.expected_labels, strict=self.strict
+            )
+            return
+
+        entry[self.store_key] = labels_path
 
     def process_data_list(self, data_list: list[Path]) -> list[Any]:
         """Create data list of dicts for multimodal pretraining.
@@ -735,6 +817,8 @@ class MultimodalDataModule(BaseDataModule):
                     md = session_files[i]
                     entry[f"ch{k}"] = md["file_name"]
                     entry[f"mod{k}"] = md["modality"]
+
+                self.add_labels(entry)
 
                 list_of_dicts.append(entry)
 

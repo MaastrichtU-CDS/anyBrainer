@@ -1249,7 +1249,7 @@ def get_flip_tta(
 
 @register(RK.TRANSFORM)
 def get_mim_transforms(
-    keys: Sequence[str] = ("volume",),
+    keys: Sequence[str] = ("img",),
     input_size: int | Sequence[int] = 128,
     patch_size: int | Sequence[int] = (2, 2, 2),
     mask_ratio_shared: float | Sequence[float] = 0.5,
@@ -1397,6 +1397,188 @@ def get_mim_transforms(
                 mask_ratio_unique=mask_ratio_unique,
                 mask_size=mask_size,
             ),
+        ]
+    )
+
+    return transforms
+
+
+@register(RK.TRANSFORM)
+def get_segmentation_transforms(
+    input_size: int | Sequence[int] = 128,
+    keys: Sequence[str] = ("img",),
+    seg_key: str = "seg",
+    out_key: str = "img",
+    n_patches: int = 4,
+    n_pos: int = 1,
+    n_neg: int = 2,
+    val_mode: bool = False,
+    overfit_mode: bool = False,
+    allow_missing_keys: bool = False,
+) -> list[Callable]:
+    """IO transforms + augmentations for segmentation tasks.
+
+    Args:
+        input_size: Input size.
+        keys: Keys to apply transforms to.
+        seg_key: Key with integer segmentation mask.
+        out_key: Key to store the resulting volume, after concatenation across modalities.
+        n_patches: Number of crops to extract per image.
+        n_pos: Relative weight of positive crops (i.e., containing the mask).
+        n_neg: Relative weight of negative crops (i.e., not containing the mask).
+        val_mode: Whether to use for validation; no augmentations are applied.
+        overfit_mode: Whether to use for overfitting; no augmentations are applied.
+        allow_missing_keys: Whether to allow missing keys.
+    """
+
+    # Padding and interpolation modes for images and segmentation mask
+    all_keys = [*keys, seg_key]
+    pad_mode_affine = ["border"] * len(keys) + ["constant"]
+    pad_mode_spatial = ["edge"] * len(keys) + ["constant"]
+    interp_mode = ["bilinear"] * len(keys) + ["nearest"]
+
+    # Standardize inputs
+    transforms: list[Callable] = [
+        LoadImaged(keys=keys, reader="NumpyReader", ensure_channel_first=True),
+    ]
+
+    if not val_mode and not overfit_mode:
+        # Spatial augmentations
+        transforms.extend(
+            [
+                RandFlipd(
+                    keys=all_keys,
+                    spatial_axis=0,
+                    prob=0.5,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                RandFlipd(
+                    keys=all_keys,
+                    spatial_axis=1,
+                    prob=0.5,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                RandAffined(
+                    keys=all_keys,
+                    rotate_range=(0.1, 0.1, 0.1),
+                    scale_range=(0.1, 0.1, 0.1),
+                    mode=interp_mode,
+                    padding_mode=pad_mode_affine,
+                    prob=1.0,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+            ]
+        )
+        # Intensity augmentations; unique for each modality
+        for key in keys:
+            transforms.extend(
+                [
+                    RandScaleIntensityFixedMeand(
+                        keys=key,
+                        factors=0.1,
+                        prob=0.8,
+                        allow_missing_keys=allow_missing_keys,
+                    ),
+                    RandGaussianNoised(
+                        keys=key,
+                        std=0.01,
+                        prob=0.3,
+                        allow_missing_keys=allow_missing_keys,
+                    ),
+                ]
+            )
+            # Simulate artifacts
+            transforms.extend(
+                [
+                    OneOf(
+                        transforms=[
+                            RandGaussianSmoothd(
+                                keys=key,
+                                sigma_x=(0.5, 1.0),
+                                prob=0.7,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                            RandBiasFieldd(
+                                keys=key,
+                                coeff_range=(0.0, 0.05),
+                                prob=0.7,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                            RandGibbsNoised(
+                                keys=key,
+                                alpha=(0.2, 0.4),
+                                prob=0.7,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                        ],
+                        weights=[1.0, 1.0, 1.0],
+                    ),
+                ]
+            )
+            # Simulate different acquisitions
+            transforms.extend(
+                [
+                    OneOf(
+                        transforms=[
+                            RandAdjustContrastd(
+                                keys=key,
+                                gamma=(0.9, 1.1),
+                                prob=1.0,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                            RandSimulateLowResolutiond(
+                                keys=key,
+                                prob=0.5,
+                                zoom_range=(0.8, 1.0),
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                        ],
+                        weights=[1.0, 1.0],
+                    ),
+                ]
+            )
+
+    # Pad and crop to match input size
+    transforms.extend(
+        [
+            SpatialPadd(
+                keys=all_keys,
+                spatial_size=input_size,
+                mode=pad_mode_spatial,
+                allow_missing_keys=allow_missing_keys,
+            ),
+        ]
+    )
+    if not val_mode:
+        n_pos = 1 if overfit_mode else n_pos
+        n_neg = 0 if overfit_mode else n_neg
+        transforms.extend(
+            [
+                RandCropByPosNegLabeld(
+                    keys=all_keys,
+                    label_key=seg_key,
+                    spatial_size=input_size,
+                    pos=n_pos,
+                    neg=n_neg,
+                    num_samples=n_patches,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+            ]
+        )
+    else:
+        transforms.extend(
+            [
+                CenterSpatialCropd(keys=all_keys, roi_size=input_size),
+            ]
+        )
+
+    # Concatenate across modalities
+    transforms.extend(
+        [
+            ConcatItemsd(
+                keys=keys, name=out_key, dim=0, allow_missing_keys=allow_missing_keys
+            ),
+            DeleteItemsd(keys=keys),
         ]
     )
 

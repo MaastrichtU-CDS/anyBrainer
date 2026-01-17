@@ -1195,7 +1195,7 @@ class SegmentationModel(BaseModel):
                 w_mu2_sum = torch.zeros_like(full_like, device=acc_device)
                 w_var_sum = torch.zeros_like(full_like, device=acc_device)
 
-        # 3) Aggregate
+        # Aggregate logits across multiple images (img_*)
         if not self.tta or not do_tta:
             # Uniform weighting; std not available
             if return_std:
@@ -1265,7 +1265,7 @@ class SegmentationModel(BaseModel):
 
                 del mu_i, std_i, var_i, w_i
 
-        # 4) Finish
+        # Compute stats and postprocess
         w_sum = cast(torch.Tensor, w_sum)
         w_mu_sum = cast(torch.Tensor, w_mu_sum)
         mu = w_mu_sum / (w_sum + 1e-12)
