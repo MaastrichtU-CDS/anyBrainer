@@ -945,15 +945,15 @@ class MultimodalPatchEmbed(nn.Module):
         inject = ensure_tuple_dim(inject_modality_tokens, in_chans)
         self.inject_modality_tokens = tuple(bool(v) for v in inject)
 
-        if any(self.inject_modality_tokens) and expected_modalities is None:
-            msg = (
-                f"[{self.__class__.__name__}] `expected_modalities` must be provided when "
-                f"inject_modality_tokens has any True."
-            )
-            logger.error(msg)
-            raise ValueError(msg)
+        if any(self.inject_modality_tokens):
+            if expected_modalities is None:
+                msg = (
+                    f"[{self.__class__.__name__}] `expected_modalities` must be provided when "
+                    f"inject_modality_tokens has any True."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
 
-        if expected_modalities is not None:
             if (
                 not isinstance(expected_modalities, (list, tuple))
                 or len(expected_modalities) != in_chans
@@ -1060,18 +1060,15 @@ class MultimodalPatchEmbed(nn.Module):
             logger.error(msg)
             raise ValueError(msg)
 
-        if any(self.inject_modality_tokens) and (
-            not isinstance(modality, (list, tuple)) or len(modality) == 0
-        ):
-            msg = (
-                f"[{self.__class__.__name__}] a non-empty `modality` sequence must be provided when "
-                f"`inject_modality_tokens` is True for at least one channel; got {modality}."
-            )
-            logger.error(msg)
-            raise ValueError(msg)
-
         if any(self.inject_modality_tokens):
-            modality = cast(Sequence[Sequence[str | None]], modality)
+            if not isinstance(modality, (list, tuple)) or len(modality) == 0:
+                msg = (
+                    f"[{self.__class__.__name__}] a non-empty `modality` sequence must be provided when "
+                    f"`inject_modality_tokens` is True for at least one channel; got {modality}."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
+
             # Convert any Sequence[str | None] to Sequence[Sequence[str | None]]
             if all(isinstance(m, (str, type(None))) for m in modality):
                 modality = [cast(Sequence[str | None], modality)]
