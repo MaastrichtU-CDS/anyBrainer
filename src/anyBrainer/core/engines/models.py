@@ -1484,6 +1484,7 @@ class ClassificationMidFusionModel(BaseModel):
             )
 
 
+@register(RK.PL_MODULE)
 class MultimodalDownstreamModel(BaseModel):
     """Multimodal downstream model that can be used for any multimodal
     downstream task."""
