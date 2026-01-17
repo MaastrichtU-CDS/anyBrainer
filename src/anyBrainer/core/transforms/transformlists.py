@@ -59,6 +59,7 @@ from .unit_transforms import (
     ClipNonzeroPercentilesd,
     UnscalePredsIfNeeded,
     CreateRandomPatchGridMaskd,
+    PadToMaxOfKeysd,
 )
 
 from anyBrainer.registry import register, RegistryKind as RK
@@ -1541,6 +1542,7 @@ def get_segmentation_transforms(
     # Pad and crop to match input size
     transforms.extend(
         [
+            PadToMaxOfKeysd(keys=all_keys, mode=pad_mode_spatial),
             SpatialPadd(
                 keys=all_keys,
                 spatial_size=input_size,

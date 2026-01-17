@@ -11,6 +11,7 @@ __all__ = [
     "RandImgKeyd",
     "ClipNonzeroPercentilesd",
     "UnscalePredsIfNeeded",
+    "PadToMaxOfKeysd",
 ]
 
 from typing import Literal, Sequence, Any, cast
@@ -29,6 +30,7 @@ from monai.transforms import (
     Transform,
     MapTransform,
     Randomizable,
+    SpatialPadd,
 )
 from monai.data import MetaTensor
 
@@ -765,3 +767,36 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
                 d[self.mask_key] = masks
 
         return d
+
+
+class PadToMaxOfKeysd(MapTransform):
+    """
+    Pads all `keys` in a sample to the largest spatial size among those keys.
+    Assumes images have at least 3 spatial dims; uses last 3 dims as (H,W,D).
+    """
+    def __init__(self, keys: Sequence[Hashable], **kwargs):
+        """
+        Args:
+            keys: Keys to pad
+            **kwargs: Keyword arguments for `monai.transforms.SpatialPadd`
+        """
+        super().__init__(keys)
+        self.kwargs = kwargs
+
+    def __call__(self, data: dict[Hashable, Any]) -> dict[Hashable, Any]:
+        d = dict(data)
+        # Find target (H,W,D)
+        sizes = []
+        for k in self.keys:
+            x = d[k]
+            shape = tuple(x.shape[-3:])  # use last 3 dims
+            sizes.append(shape)
+        target = tuple(max(s[i] for s in sizes) for i in range(3))
+
+        # Pad to target size
+        padder = SpatialPadd(
+            keys=self.keys, 
+            spatial_size=target, 
+            **self.kwargs
+        )
+        return padder(d)
