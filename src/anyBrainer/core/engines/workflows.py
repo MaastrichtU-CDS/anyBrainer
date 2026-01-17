@@ -345,8 +345,8 @@ class TrainWorkflow(Workflow):
 
         if not ckpt_path.exists():
             self.main_logger.warning(
-                f"[TrainWorkflow] Checkpoint file {ckpt_path} does not exist; "
-                "will keep current model initialization."
+                f"[TrainWorkflow] Could not find a checkpoint file for '{self.settings.experiment}' experiment "
+                f"(path: {ckpt_path}); using a fresh pl module instance. Make sure this is intentional."
             )
             return model, None
 
