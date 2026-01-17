@@ -770,10 +770,13 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
 
 
 class PadToMaxOfKeysd(MapTransform):
+    """Pads all `keys` in a sample to the largest spatial size among those
+    keys.
+
+    Assumes images have at least 3 spatial dims; uses last 3 dims as
+    (H,W,D).
     """
-    Pads all `keys` in a sample to the largest spatial size among those keys.
-    Assumes images have at least 3 spatial dims; uses last 3 dims as (H,W,D).
-    """
+
     def __init__(self, keys: Sequence[Hashable], **kwargs):
         """
         Args:
@@ -794,9 +797,5 @@ class PadToMaxOfKeysd(MapTransform):
         target = tuple(max(s[i] for s in sizes) for i in range(3))
 
         # Pad to target size
-        padder = SpatialPadd(
-            keys=self.keys, 
-            spatial_size=target, 
-            **self.kwargs
-        )
+        padder = SpatialPadd(keys=self.keys, spatial_size=target, **self.kwargs)
         return padder(d)

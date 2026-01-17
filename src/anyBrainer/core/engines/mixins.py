@@ -723,7 +723,7 @@ class InfererMixin(PLModuleMixin):
                 seed=(None if seed is None else seed + i),
             )
             # Forward inference pass on augmented batch
-            aug_batch["logits"] = self.inferer(aug_batch[img_key], self.model)  # type: ignore[attr-defined]
+            aug_batch["logits"] = self.inferer(aug_batch[img_key], self.model, **network_kwargs)  # type: ignore[attr-defined]
 
             # Invert TTA on logits
             if invert:

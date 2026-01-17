@@ -1058,6 +1058,8 @@ class Multimodal3DSwinMIMFPN(nn.Module):
         fpn_width: int = 32,
         fpn_norm: Literal["instance", "group", "batch"] = "instance",
         fpn_norm_kwargs: dict[str, Any] | None = None,
+        # Head args
+        out_channels: int | None = None,
     ):
         super().__init__()
 
@@ -1100,7 +1102,7 @@ class Multimodal3DSwinMIMFPN(nn.Module):
 
         self.head = VoxelShuffleHead3D(
             in_ch=fpn_width,
-            out_ch=in_channels,
+            out_ch=out_channels or in_channels,
             up=patch_size,
         )
 
