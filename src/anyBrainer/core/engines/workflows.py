@@ -974,7 +974,7 @@ class CompositeWorkflow(Workflow):
 
 @register(RK.WORKFLOW)
 class SweepWorkflow(Workflow):
-    """Basic workflow for sweeping over a list of settings.
+    r"""Basic workflow for sweeping over a list of settings.
 
     Loop over different values of a hyperparameter, at multiple levels.
     See example below and explanation:
@@ -982,19 +982,26 @@ class SweepWorkflow(Workflow):
     Example:
     ```
     sweep_settings:
-        1:  # outer loop (level 1)
+        exp_suffix:
             - TrainWorkflow.pl_module_settings.model_kwargs.use_v2
-        2:  # inner loop (level 2)
             - TrainWorkflow.pl_datamodule_settings.train_transforms.mask_size
-            - TrainWorkflow.pl_datamodule_settings.train_transforms.other_param
+        sweeps:
+            1:  # outer loop (level 1)
+                - TrainWorkflow.pl_module_settings.model_kwargs.use_v2
+            2:  # inner loop (level 2)
+                - TrainWorkflow.pl_datamodule_settings.train_transforms.mask_size
+                - TrainWorkflow.pl_datamodule_settings.train_transforms.other_param
     ```
 
     The above tells the workflow to:
-    1. Read `TrainWorkflow.pl_datamodule_settings.train_transforms.mask_size` and
+      - Read `TrainWorkflow.pl_datamodule_settings.train_transforms.mask_size` and
        `TrainWorkflow.pl_module_settings.model_kwargs.use_v2` settings as lists of
         hyperparameters to loop over.
-    2. Loop over the above settings at two different levels: for each of the `v2` values (level `1`),
-       loop over the `mask_size` values (level `2`).
+      - Loop over the above settings at two different levels: for each of the `v2` values (level `1`),
+        loop over the `mask_size` values (level `2`).
+      - Create a unique identifier name per sweep by appending the values of the `exp_suffix` list to
+        the experiment name; e.g., '{exp_name}_True_16', where 'True' corresponds to the `v2` setting
+        and '16' to the `mask_size`.
 
     Notes:
         - This workflow wrapper is agnostic to the type of the individual workflows.
@@ -1003,9 +1010,11 @@ class SweepWorkflow(Workflow):
 
           See `CompositeWorkflow` documentation for more details.
 
-        - Sweeping settings at the same level vary together and are hence expected to match in length.
-        - Sweeping settings are specified as dotted paths to the workflow keyword arguments;
+        - Sweeps at the same level vary together and are hence expected to match in length.
+        - Sweep parameters are specified as dotted paths to the workflow keyword arguments;
           e.g. `TrainWorkflow.pl_datamodule_settings.train_transforms.mask_size` in the example above.
+        - Users can disable updating the experiment name by setting the `update_exp_name` flag to
+          'False'. In this case the generated suffix will be used only for logging purposes.
 
     Future work (TODO):
         - Avoid repetitions `*Workflow` or other prefixing in the dotted paths across a given level.
@@ -1013,18 +1022,46 @@ class SweepWorkflow(Workflow):
           also to `CVWorkflow` and `CompositeWorkflow`).
     """
 
-    def __init__(self, *, sweep_settings: dict[int, list[str]], **workflow_kwargs):
+    def __init__(self, *, sweep_settings: dict[str, dict[str, Any]], **workflow_kwargs):
         """
         Args:
-            sweep_settings: List of dictionaries, each containing the settings and levels to sweep over.
-            **workflows: Keyword arguments for the workflows to compose.
+            sweep_settings: A dictionary containing the following keys:
+                - sweeps (dict[int, list[dict[str, Any]]): specifies which settings should be
+                    read as sweeping ranges for each level.
+                - exp_suffix (optional, list): specifies which setting values should be used
+                    to generate a sweep-specific experiment suffix. Defaults to 'None'; i.e.,
+                    the value of the first sweep per level.
+                - update_exp_name (optional, bool): whether to update the experiment name with
+                    the generated `exp_suffix`. Defaults to True.
+
+                See example above for detailed explanation.
         """
         if not isinstance(sweep_settings, dict):
             msg = f"[SweepWorkflow] `sweep_settings` must be a dictionary, got {type(sweep_settings)}"
             logging.error(msg)
             raise TypeError(msg)
 
-        self.sweep_settings = sweep_settings
+        sweeps = sweep_settings.get("sweeps")
+        if not sweeps or not isinstance(sweeps, dict):
+            msg = f"[SweepWorkflow] `sweep_settings` must contain 'sweeps' dictionary, got {type(sweeps)}"
+            logging.error(msg)
+            raise TypeError(msg)
+        self.sweeps = sweeps
+
+        exp_suffix = sweep_settings.get("exp_suffix")
+        if exp_suffix and not isinstance(exp_suffix, (list, tuple)):
+            msg = f"[SweepWorkflow] `exp_suffix` must be a list or tuple, got {type(exp_suffix)}"
+            logging.error(msg)
+            raise TypeError(msg)
+        self.exp_suffix = exp_suffix
+
+        update_exp_name = sweep_settings.get("update_exp_name", True)
+        if not isinstance(update_exp_name, bool):
+            msg = f"[SweepWorkflow] `update_exp_name` must be a boolean, got {type(update_exp_name)}"
+            logging.error(msg)
+            raise TypeError(msg)
+        self.update_exp_name = update_exp_name
+
         self.workflow_kwargs = workflow_kwargs
         self.iterables = self._parse_sweep_settings()
 
@@ -1047,7 +1084,7 @@ class SweepWorkflow(Workflow):
         """
         iterables: dict[int, list[dict[str, Any]]] = {}
 
-        for level, paths in self.sweep_settings.items():
+        for level, paths in self.sweeps.items():
             level = int(level)  # YAML may parse as string
             iterables[level] = []
 
@@ -1120,7 +1157,7 @@ class SweepWorkflow(Workflow):
             raise KeyError(msg)
         d[final_key] = value
 
-    def _generate_combinations(self) -> Iterator[tuple[dict[str, Any], str]]:
+    def _generate_combinations(self) -> Iterator[tuple[dict[str, Any], str | None]]:
         """Generate all (kwargs, experiment_suffix) combinations."""
         levels = sorted(self.iterables.keys())
 
@@ -1133,7 +1170,6 @@ class SweepWorkflow(Workflow):
         # Cartesian product of all level indices
         for indices in product(*level_ranges):  # e.g., 2 levels: (0, 1, 2) x (0, 1)
             kwargs = deepcopy(self.workflow_kwargs)
-            suffix_parts = []
 
             for level_idx, value_idx in enumerate(
                 indices
@@ -1145,13 +1181,39 @@ class SweepWorkflow(Workflow):
                     value = setting["values"][value_idx]
                     self._set_nested_value(kwargs, setting["path"], value)
 
-                    # Build readable suffix (use last part of path)
-                    root_name = setting["path"].split(".")[0]
-                    short_name = setting["path"].split(".")[-1]
-                    suffix_parts.append(f"{root_name}:{short_name}={value!r}")
-
+            # Build experiment suffix from user-specified paths
+            suffix_parts = []
+            if self.exp_suffix:
+                for path in self.exp_suffix:
+                    value = self._get_nested_value(kwargs, path)
+                    suffix_parts.append(str(value))
+            else:
+                # Fallback: first path per level
+                for level in levels:
+                    first_path = self.iterables[level][0]["path"]
+                    value = self._get_nested_value(kwargs, first_path)
+                    suffix_parts.append(f"{first_path.split('.')[-1]}={value}")
             suffix = "_".join(suffix_parts)
+
+            if self.update_exp_name:
+                self._append_suffix_to_exp_name(kwargs, suffix)
+
             yield kwargs, suffix
+
+    def _append_suffix_to_exp_name(self, kwargs: dict[str, Any], suffix: str) -> None:
+        """Append experiment suffix to
+        `*Workflow.global_settings.experiment`"""
+        for wf_name in kwargs:
+            if wf_name.endswith("Workflow"):
+                exp_path = f"{wf_name}.global_settings.experiment"
+                try:
+                    current_exp = self._get_nested_value(kwargs, exp_path)
+                    new_exp = f"{current_exp}_{suffix}"
+                    self._set_nested_value(kwargs, exp_path, new_exp)
+                except KeyError:
+                    logging.warning(
+                        f"[SweepWorkflow] {wf_name} has no global_settings.experiment; skipping suffix"
+                    )
 
     def __call__(self) -> None:
         """Run a `CompositeWorkflow` for each combination of settings."""
