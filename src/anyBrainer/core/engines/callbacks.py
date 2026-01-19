@@ -89,16 +89,13 @@ class LogLR(pl.Callback):
 class LogGradNorm(pl.Callback):
     """Callback to log the gradient norm for all parameters in the model."""
 
-    def on_train_batch_end(
+    def on_before_optimizer_step(
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        outputs: Any,
-        batch: Any,
-        batch_idx: int,
-        dataloader_idx: int = 0,
+        optimizer: optim.Optimizer,
     ) -> None:
-        """Log the gradient norm."""
+        """Log gradient norm before clipping."""
         g = get_total_grad_norm(pl_module).detach()
 
         # Reduce across ranks ->  global L2: sqrt(sum_ranks(g^2))
@@ -108,7 +105,34 @@ class LogGradNorm(pl.Callback):
             g = g2.sqrt()
 
         pl_module.log(
-            "train/grad_norm",
+            "train/grad_norm_preclip",
+            g,
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+            sync_dist=False,  # already reduced
+        )
+
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
+        """Log the gradient norm after clipping."""
+        g = get_total_grad_norm(pl_module).detach()
+
+        # Reduce across ranks ->  global L2: sqrt(sum_ranks(g^2))
+        if dist.is_available() and dist.is_initialized():
+            g2 = g.float().pow(2)
+            dist.all_reduce(g2, op=dist.ReduceOp.SUM)
+            g = g2.sqrt()
+
+        pl_module.log(
+            "train/grad_norm_postclip",
             g,
             on_step=True,
             on_epoch=False,

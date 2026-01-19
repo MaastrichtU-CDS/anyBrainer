@@ -1604,7 +1604,7 @@ class MultimodalDownstreamModel(BaseModel):
                     "train/pred": out,
                 },
                 dim=-1,
-                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1)
+                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
 
         return loss
@@ -1629,7 +1629,7 @@ class MultimodalDownstreamModel(BaseModel):
                     "val/pred": out,
                 },
                 dim=-1,
-                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1)
+                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
 
     def test_step(self, batch: dict, batch_idx: int) -> None:
@@ -1652,7 +1652,7 @@ class MultimodalDownstreamModel(BaseModel):
                     "test/pred": out,
                 },
                 dim=-1,
-                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1)
+                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
 
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:

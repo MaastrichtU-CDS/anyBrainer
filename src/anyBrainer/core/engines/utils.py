@@ -347,14 +347,14 @@ def get_label_mid_slice(label: torch.Tensor, dim: int = -1) -> int:
     # Normalize dim
     if dim < 0:
         dim = label.ndim + dim
-    
+
     # Reduce all dims except `dim` to find which slices have any label
     reduce_dims = tuple(i for i in range(label.ndim) if i != dim)
     has_label = label.any(dim=reduce_dims)  # shape: (size_of_dim,)
-    
+
     # Find indices where label exists
     label_indices = has_label.nonzero(as_tuple=False).squeeze(-1)
-    
+
     if len(label_indices) > 0:
         # Middle of the label's extent
         return cast(int, ((label_indices[0] + label_indices[-1]) // 2).item())
