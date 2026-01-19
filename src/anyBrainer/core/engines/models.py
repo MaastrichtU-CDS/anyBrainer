@@ -1502,7 +1502,7 @@ class MultimodalDownstreamModel(BaseModel):
             | dict[str, Any]
             | None
         ),
-        parse_modalities_as: dict[str, str] | None = None,
+        modality_remap: dict[str, str] | None = None,
         fallback_modality: str | None = None,
         **base_model_kwargs,
     ):
@@ -1518,10 +1518,10 @@ class MultimodalDownstreamModel(BaseModel):
                 metrics = [metrics]
             self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
 
-        self.parse_modalities_as = parse_modalities_as
-        if self.parse_modalities_as is not None:
-            self.parse_modalities_as = {
-                str(k): str(v) for k, v in self.parse_modalities_as.items()
+        self.mod_remap = modality_remap
+        if self.modality_remap is not None:
+            self.modality_remap = {
+                str(k): str(v) for k, v in self.modality_remap.items()
             }
 
         self.fallback_modality = (
@@ -1532,9 +1532,8 @@ class MultimodalDownstreamModel(BaseModel):
             f"[{self.__class__.__name__}] Initialized with "
             f"metrics={[callable_name(m) for m in self.metrics]}"
         )
-        if self.parse_modalities_as is not None:
-            msg += f", parse_modalities_as={self.parse_modalities_as}"
-        if self.fallback_modality is not None:
+        if self.modality_remap is not None:
+            msg += f", modality_remap={self.modality_remap}"
             msg += f", fallback '{self.fallback_modality}'"
         msg += "."
 
@@ -1602,17 +1601,17 @@ class MultimodalDownstreamModel(BaseModel):
         """Parses modalities from batch."""
         mods = {k: v for k, v in batch.items() if k.startswith("mod")}
 
-        if self.parse_modalities_as is not None:
+        if self.modality_remap is not None:
             remapped = {}
             for k, v in mods.items():
-                if v in self.parse_modalities_as:
-                    remapped[k] = self.parse_modalities_as[v]
+                if v in self.modality_remap:
+                    remapped[k] = self.modality_remap[v]
                 elif self.fallback_modality is not None:
                     remapped[k] = self.fallback_modality
                 else:
                     msg = (
                         f"[{self.__class__.__name__}] Modality '{v}' not found in "
-                        f"`parse_modalities_as` and no fallback provided."
+                        f"`modality_remap` and no fallback provided."
                     )
                     logger.error(msg)
                     raise KeyError(msg)
