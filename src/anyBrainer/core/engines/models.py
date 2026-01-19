@@ -1502,6 +1502,8 @@ class MultimodalDownstreamModel(BaseModel):
             | dict[str, Any]
             | None
         ),
+        parse_modalities_as: dict[str, str] | None = None,
+        fallback_modality: str | None = None,
         **base_model_kwargs,
     ):
         super().__init__(**base_model_kwargs)
@@ -1516,10 +1518,27 @@ class MultimodalDownstreamModel(BaseModel):
                 metrics = [metrics]
             self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
 
-        logger.info(
-            f"[{self.__class__.__name__}] Initialized with "
-            f"metrics={[callable_name(m) for m in self.metrics]}."
+        self.parse_modalities_as = parse_modalities_as
+        if self.parse_modalities_as is not None:
+            self.parse_modalities_as = {
+                str(k): str(v) for k, v in self.parse_modalities_as.items()
+            }
+
+        self.fallback_modality = (
+            str(fallback_modality) if fallback_modality is not None else None
         )
+
+        msg = (
+            f"[{self.__class__.__name__}] Initialized with "
+            f"metrics={[callable_name(m) for m in self.metrics]}"
+        )
+        if self.parse_modalities_as is not None:
+            msg += f", parse_modalities_as={self.parse_modalities_as}"
+        if self.fallback_modality is not None:
+            msg += f", fallback '{self.fallback_modality}'"
+        msg += "."
+
+        logger.info(msg)
 
     def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Computes loss; override for more complex behavior."""
@@ -1582,6 +1601,24 @@ class MultimodalDownstreamModel(BaseModel):
     def _parse_modalities(self, batch: dict) -> tuple[str, ...]:
         """Parses modalities from batch."""
         mods = {k: v for k, v in batch.items() if k.startswith("mod")}
+
+        if self.parse_modalities_as is not None:
+            remapped = {}
+            for k, v in mods.items():
+                if v in self.parse_modalities_as:
+                    remapped[k] = self.parse_modalities_as[v]
+                elif self.fallback_modality is not None:
+                    remapped[k] = self.fallback_modality
+                else:
+                    msg = (
+                        f"[{self.__class__.__name__}] Modality '{v}' not found in "
+                        f"`parse_modalities_as` and no fallback provided."
+                    )
+                    logger.error(msg)
+                    raise KeyError(msg)
+            mods = remapped
+
+        # Sort by channel index
         return tuple(v for _, v in sorted(mods.items(), key=lambda kv: int(kv[0][3:])))
 
     def training_step(self, batch: dict, batch_idx: int):

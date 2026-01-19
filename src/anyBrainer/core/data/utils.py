@@ -13,27 +13,23 @@ logger = logging.getLogger(__name__)
 def parse_filename_nested_nifti(
     file_path: Path | str,
     *,
-    known_modalities: Sequence[str] | None = (
-        "t1",
-        "t2",
-        "flair",
-        "dwi",
-        "pd",
-        "t2s",
-        "swi",
-    ),
+    known_modalities: Sequence[str] | None = None,
+    unknown_modalities: Sequence[str] | None = ("scan",),
 ) -> dict:
     """
-    Parse filename with pattern: root/sub_x/ses_y/ModalityName_CountIfMoreThanOne.npy
+    Parse filename with pattern: root/sub_x/ses_y/mod_count.npy
     """
     file_path = Path(file_path)
 
     file_name = file_path.name
-    mod_prefix = file_name.split(".")[0].split("_")[0]
+    prefix = file_name.split(".")[0].split("_")[0]
     modality = (
         "unknown"
-        if known_modalities and mod_prefix not in known_modalities
-        else mod_prefix
+        if (
+            (known_modalities and prefix not in known_modalities)
+            or (unknown_modalities and prefix in unknown_modalities)
+        )
+        else prefix
     )
     ses_dir = file_path.parent
     sub_dir = ses_dir.parent
