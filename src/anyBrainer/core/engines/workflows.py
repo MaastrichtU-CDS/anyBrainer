@@ -890,7 +890,9 @@ class TestWorkflow(Workflow):
 
         Override for custom testing run.
         """
-        self.trainer.test(self.model, datamodule=self.datamodule, ckpt_path=self.ckpt_path)
+        self.trainer.test(
+            self.model, datamodule=self.datamodule, ckpt_path=self.ckpt_path
+        )
 
         test_stats = {
             "peak_mem_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
