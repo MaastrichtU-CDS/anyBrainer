@@ -2,7 +2,7 @@ TrainWorkflow:
   # Global settings
   global_settings:
     seed: 12345
-    project: MIM_finetuning
+    project: MIM_downstream_FCD_test
     experiment:
       - SimMIM-1ch-128_16
       - SwinMIM-1ch-128_16
@@ -41,31 +41,26 @@ TrainWorkflow:
       name: get_segmentation_transforms
       keys: ["ch1"]
       input_size: 128
-      seg_key: "seg"
+      seg_key: "label"
       out_key: "img"
       n_patches: 2
       n_pos: 1
       n_neg: 1
+      overfit_mode: False
       val_mode: False
     val_transforms: 
       name: get_segmentation_transforms
       keys: ["ch1"]
       input_size: 128
-      seg_key: "seg"
+      seg_key: "label"
       out_key: "img"
-      n_patches: 2
-      n_pos: 1
-      n_neg: 1
       val_mode: True
     test_transforms: 
       name: get_segmentation_transforms
       keys: ["ch1"]
       input_size: 128
-      seg_key: "seg"
+      seg_key: "label"
       out_key: "img"
-      n_patches: 2
-      n_pos: 1
-      n_neg: 1
       val_mode: True
     extra_kwargs:
       modalities_per_ch: 
@@ -77,11 +72,11 @@ TrainWorkflow:
       distinct_acquisitions: True
       labels_settings:
         labels_file: "mask.npy"
-        store_key: "seg"
+        store_key: "label"
 
   # Model
   pl_module_settings:
-    name: SegmentationModel
+    name: MultimodalDownstreamModel
     model_kwargs:
       name: Multimodal3DSwinMIMFPN
       in_channels: 1
@@ -93,7 +88,12 @@ TrainWorkflow:
       use_v2: True
       extra_swin_kwargs:
         use_checkpoint: True
-      use_vanilla_swin: False
+      use_vanilla_swin:
+        - True
+        - False
+        - False
+        - False
+        - False
       merge_mode: and
       inject_modality_tokens: 
         - False
@@ -102,11 +102,12 @@ TrainWorkflow:
         - True
         - False
       expected_modalities:
-        - null
-        - null
-        - null
-        - ['t1', 'flair', 't2', 'dwi', 'unknown', 'pd', 't2s', 'swi']
-        - null
+        - ~
+        - ~
+        - ~
+        - 
+          - ['t1', 'flair', 't2', 'dwi', 'unknown', 'pd', 't2s', 'swi']
+        - ~
       fusion: none
       fpn_width: 32
     weights_init_settings:
@@ -137,19 +138,25 @@ TrainWorkflow:
       name: CosineAnnealingWithWarmup
       interval: step
       frequency: 1
-      warmup_iters: 1000
+      warmup_iters: [1000, 1000, 1000]
+      start_iter: [0, 0, 3000]
       total_iters: 10000
-      eta_min: 0.000005
+      eta_min: [0.00005, 0.00005, 0.000005]
     loss_fn_kwargs:
       name: "monai:DiceCELoss"
       sigmoid: True
     inference_settings:
-    inferer_kwargs: 
-      name: SlidingWindowInferer
-      roi_size: 128
-      mode: constant
-      overlap: 0.5
-    postprocess: get_postprocess_segmentation_transforms
+      inferer_kwargs: 
+        name: SlidingWindowInferer
+        roi_size: 128
+        mode: constant
+        overlap: 0.5
+      postprocess: get_postprocess_segmentation_transforms
+    metrics:
+      - name:
+          DiceMetric
+      - name:
+          MeanIoU
 
   # Checkpoint settings
   ckpt_settings:
@@ -160,25 +167,29 @@ TrainWorkflow:
     save_last: True
 
   # Callback settings (other than model checkpointing)
-  pl_callback_settings: []
+  pl_callback_settings:
+  - name: FreezeParamGroups
+    param_group_prefix: encoder
+    freeze_step: 0
+    unfreeze_step: 3000
 
   # Trainer settings (pl.Trainer kwargs)
   pl_trainer_settings:
-    max_steps: 10000
+    max_steps: 2
     accumulate_grad_batches: 1
     gradient_clip_val: 1.0
     gradient_clip_algorithm: norm
     precision: bf16-mixed
     devices: 1
-    strategy: ddp_find_unused_parameters_true
+    strategy: auto
     accelerator: auto
     profiler: simple
     num_nodes: 1
-    log_every_n_steps: 100
+    log_every_n_steps: 50
     val_check_interval: 1.0
     check_val_every_n_epoch: 1
     num_sanity_val_steps: 2
-    overfit_batches: 0.0
+    overfit_batches: 0.1
     limit_train_batches: 1.0
     limit_val_batches: 1.0
     limit_test_batches: 1.0
@@ -189,7 +200,7 @@ TestWorkflow:
   # Global settings
   global_settings:
     seed: 12345
-    project: MIM_finetuning
+    project: MIM_downstream_FCD_test
     experiment:
       - SimMIM-1ch-128_16
       - SwinMIM-1ch-128_16
@@ -228,11 +239,8 @@ TestWorkflow:
       name: get_segmentation_transforms
       keys: ["ch1"]
       input_size: 128
-      seg_key: "seg"
+      seg_key: "label"
       out_key: "img"
-      n_patches: 2
-      n_pos: 1
-      n_neg: 1
       val_mode: True
     extra_kwargs:
       modalities_per_ch: 
@@ -244,11 +252,11 @@ TestWorkflow:
       distinct_acquisitions: True
       labels_settings:
         labels_file: "mask.npy"
-        store_key: "seg"
+        store_key: "label"
 
   # Model
   pl_module_settings:
-    name: SegmentationModel
+    name: MultimodalDownstreamModel
     model_kwargs:
       name: Multimodal3DSwinMIMFPN
       in_channels: 1
@@ -260,7 +268,12 @@ TestWorkflow:
       use_v2: True
       extra_swin_kwargs:
         use_checkpoint: True
-      use_vanilla_swin: False
+      use_vanilla_swin:
+        - True
+        - False
+        - False
+        - False
+        - False
       merge_mode: and
       inject_modality_tokens: 
         - False
@@ -269,14 +282,15 @@ TestWorkflow:
         - True
         - False
       expected_modalities:
-        - null
-        - null
-        - null
-        - ['t1', 'flair', 't2', 'dwi', 'unknown', 'pd', 't2s', 'swi']
-        - null
+        - ~
+        - ~
+        - ~
+        - 
+          - ['t1', 'flair', 't2', 'dwi', 'unknown', 'pd', 't2s', 'swi']
+        - ~
       fusion: none
       fpn_width: 32
-    # Needed to initialize the pl_module; unused in this workflow
+    # Needed for initializing the pl_module; unused in this workflow
     optimizer_kwargs:
       name: AdamW
       auto_no_weight_decay: True
@@ -294,34 +308,44 @@ TestWorkflow:
       name: CosineAnnealingWithWarmup
       interval: step
       frequency: 1
-      warmup_iters: 1000
+      warmup_iters: [1000, 1000, 1000]
+      start_iter: [0, 0, 3000]
       total_iters: 10000
-      eta_min: 0.000005
+      eta_min: [0.00005, 0.00005, 0.000005]
     loss_fn_kwargs:
       name: "monai:DiceCELoss"
       sigmoid: True
     inference_settings:
-    inferer_kwargs: 
-      name: SlidingWindowInferer
-      roi_size: 128
-      mode: constant
-      overlap: 0.5
-    postprocess: get_postprocess_segmentation_transforms
+      inferer_kwargs: 
+        name: SlidingWindowInferer
+        roi_size: 128
+        mode: constant
+        overlap: 0.5
+      postprocess: get_postprocess_segmentation_transforms
+    metrics:
+      - name:
+          DiceMetric
+      - name:
+          MeanIoU
 
   # Callback settings (other than model checkpointing)
   pl_callback_settings: []
 
 # Sweep settings
 sweep_settings:
-  1: # modalities (n=2)
-    - TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
-    - TestWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
-  2: # pre-trained models (n=5)
-    - TrainWorkflow.global_settings.experiment
-    - TestWorkflow.global_settings.experiment
-    - TrainWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
-    - TestWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
-    - TrainWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
-    - TestWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
-    - TrainWorkflow.pl_module_settings.model_kwargs.expected_modalities
-    - TestWorkflow.pl_module_settings.model_kwargs.expected_modalities
+  exp_suffix: [TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch]
+  sweeps:
+    1: # modalities (n=2)
+      - TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
+      - TestWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
+    2: # pre-trained models (n=5)
+      - TrainWorkflow.global_settings.experiment
+      - TestWorkflow.global_settings.experiment
+      - TrainWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
+      - TrainWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
+      - TestWorkflow.pl_module_settings.model_kwargs.inject_modality_tokens
+      - TrainWorkflow.pl_module_settings.model_kwargs.expected_modalities
+      - TestWorkflow.pl_module_settings.model_kwargs.expected_modalities
+      - TrainWorkflow.pl_module_settings.model_kwargs.use_vanilla_swin
+      - TestWorkflow.pl_module_settings.model_kwargs.use_vanilla_swin
+    

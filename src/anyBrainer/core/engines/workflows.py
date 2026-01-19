@@ -1182,23 +1182,64 @@ class SweepWorkflow(Workflow):
                     self._set_nested_value(kwargs, setting["path"], value)
 
             # Build experiment suffix from user-specified paths
-            suffix_parts = []
             if self.exp_suffix:
-                for path in self.exp_suffix:
-                    value = self._get_nested_value(kwargs, path)
-                    suffix_parts.append(str(value))
+                suffix_parts = [
+                    self._format_suffix_value(self._get_nested_value(kwargs, p))
+                    for p in self.exp_suffix
+                ]
             else:
                 # Fallback: first path per level
-                for level in levels:
-                    first_path = self.iterables[level][0]["path"]
-                    value = self._get_nested_value(kwargs, first_path)
-                    suffix_parts.append(f"{first_path.split('.')[-1]}={value}")
+                suffix_parts = [
+                    self._format_suffix_value(
+                        self._get_nested_value(kwargs, self.iterables[level][0]["path"])
+                    )
+                    for level in levels
+                ]
             suffix = "_".join(suffix_parts)
 
             if self.update_exp_name:
                 self._append_suffix_to_exp_name(kwargs, suffix)
 
             yield kwargs, suffix
+
+    @staticmethod
+    def _format_suffix_value(value: Any) -> str:
+        """Format a value for use in experiment suffix.
+
+        Handles nested lists, paths, booleans, and floats.
+        """
+
+        # Recursively flatten nested lists/tuples
+        def _flatten(v: Any) -> list[Any]:
+            if isinstance(v, (list, tuple)):
+                items = []
+                for item in v:
+                    items.extend(_flatten(item))
+                return items
+            return [v]
+
+        # Flatten first
+        flat = _flatten(value)
+
+        # Single value after flattening
+        if len(flat) == 1:
+            v = flat[0]
+            if isinstance(v, bool):
+                return "T" if v else "F"
+            if isinstance(v, float):
+                # Compact float: 0.001 -> "0.001", 1.0 -> "1"
+                return str(int(v)) if v == int(v) else f"{v:g}"
+            if isinstance(v, (str, Path)):
+                s = str(v)
+                # If it looks like a path, extract stem
+                if "/" in s or "\\" in s:
+                    return Path(s).stem
+                return s
+            return str(v)
+
+        # Multiple values: join with hyphen
+        formatted = [SweepWorkflow._format_suffix_value(v) for v in flat]
+        return "-".join(formatted)
 
     def _append_suffix_to_exp_name(self, kwargs: dict[str, Any], suffix: str) -> None:
         """Append experiment suffix to
