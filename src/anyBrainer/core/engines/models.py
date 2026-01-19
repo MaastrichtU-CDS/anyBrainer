@@ -1593,54 +1593,60 @@ class MultimodalDownstreamModel(BaseModel):
 
         self.log_step("train", stats)
         if self.log_every_n_steps and self.global_step % self.log_every_n_steps == 0:
-            self.log_tensors_dict({
-                "train/input": torch.where(
-                    batch["label"].bool(), 
-                    batch["img"].max() * 1.5,
-                    batch["img"], 
-                ),
-                "train/pred": out,
-            })
+            self.log_tensors_dict(
+                {
+                    "train/input": torch.where(
+                        batch["label"].bool(),
+                        batch["img"].max() * 1.5,
+                        batch["img"],
+                    ),
+                    "train/pred": out,
+                }
+            )
 
         return loss
 
     def validation_step(self, batch: dict, batch_idx: int):
         """Validation step; performs inference and computes metrics."""
         out = cast(
-            torch.Tensor, 
-            self.predict(batch, invert=False, modality=self._parse_modalities(batch))
+            torch.Tensor,
+            self.predict(batch, invert=False, modality=self._parse_modalities(batch)),
         )
         stats = self.compute_metrics(out, batch["label"])
         self.log_step("val", stats)
 
         if batch_idx < 2:
-            self.log_tensors_dict({
-                "val/input": torch.where(
-                    batch["label"].bool(),
-                    batch["img"].max() * 1.5,
-                    batch["img"],
-                ),
-                "val/pred": out,
-            })
+            self.log_tensors_dict(
+                {
+                    "val/input": torch.where(
+                        batch["label"].bool(),
+                        batch["img"].max() * 1.5,
+                        batch["img"],
+                    ),
+                    "val/pred": out,
+                }
+            )
 
     def test_step(self, batch: dict, batch_idx: int) -> None:
         """Test step; performs inference and computes metrics."""
         out = cast(
             torch.Tensor,
-            self.predict(batch, invert=False, modality=self._parse_modalities(batch))
+            self.predict(batch, invert=False, modality=self._parse_modalities(batch)),
         )
         stats = self.compute_metrics(out, batch["label"])
         self.log_step("test", stats)
 
         if batch_idx < 2:
-            self.log_tensors_dict({
-                "test/input": torch.where(
-                    batch["label"].bool(),
-                    batch["img"].max() * 1.5,
-                    batch["img"],
-                ),
-                "test/pred": out,
-            })
+            self.log_tensors_dict(
+                {
+                    "test/input": torch.where(
+                        batch["label"].bool(),
+                        batch["img"].max() * 1.5,
+                        batch["img"],
+                    ),
+                    "test/pred": out,
+                }
+            )
 
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Predict step; performs inference."""
