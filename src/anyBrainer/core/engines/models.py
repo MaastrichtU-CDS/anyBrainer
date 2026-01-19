@@ -38,6 +38,7 @@ from anyBrainer.core.engines.utils import (
     scale_labels_if_needed,
     unscale_preds_if_needed,
     mask_to_image_grid,
+    get_label_mid_slice,
 )
 from anyBrainer.core.utils import (
     summarize_model_params,
@@ -1601,7 +1602,9 @@ class MultimodalDownstreamModel(BaseModel):
                         batch["img"],
                     ),
                     "train/pred": out,
-                }
+                },
+                dim=-1,
+                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1)
             )
 
         return loss
@@ -1624,7 +1627,9 @@ class MultimodalDownstreamModel(BaseModel):
                         batch["img"],
                     ),
                     "val/pred": out,
-                }
+                },
+                dim=-1,
+                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1)
             )
 
     def test_step(self, batch: dict, batch_idx: int) -> None:
@@ -1645,7 +1650,9 @@ class MultimodalDownstreamModel(BaseModel):
                         batch["img"],
                     ),
                     "test/pred": out,
-                }
+                },
+                dim=-1,
+                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1)
             )
 
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:

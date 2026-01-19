@@ -835,8 +835,20 @@ class ArtifactsMixin(PLModuleMixin):
 
     @rank_zero_only
     @torch.no_grad()
-    def log_tensors_dict(self, tensors_dict: dict[str, torch.Tensor]) -> None:
-        """Log a dictionary of tensors."""
+    def log_tensors_dict(
+        self,
+        tensors_dict: dict[str, torch.Tensor],
+        *,
+        dim: int = -1,
+        slice_idx: int | None = None,
+    ) -> None:
+        """Log a dictionary of tensors.
+
+        Args:
+            tensors_dict: Dictionary of tensors to log.
+            dim: Dimension to slice the tensors if 3D; defaults to last dimension.
+            slice_idx: Index to slice the tensors if 3D; defaults to the middle slice.
+        """
         current_step = getattr(self, "global_step", None)
         if current_step is None:
             msg = (
@@ -880,9 +892,13 @@ class ArtifactsMixin(PLModuleMixin):
             n = min(v.shape[0], self.log_max_n_items)
             v = v[:n]
 
-            # Get mid slice of last dimension if 3D
+            # Get slice to plot
             if v.ndim - 2 == 3:  # 3D
-                img_slice = v[..., v.shape[-1] // 2].detach().float().cpu()
+                dim = dim if dim is not None else -1
+                if dim < 0:
+                    dim = v.ndim + dim
+                slice_idx = slice_idx if slice_idx is not None else v.shape[dim] // 2
+                img_slice = v.select(dim, slice_idx).detach().float().cpu()
             elif v.ndim - 2 == 2:  # 2D
                 img_slice = v.detach().float().cpu()
             else:
