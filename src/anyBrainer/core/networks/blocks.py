@@ -560,11 +560,29 @@ class PartialConv(nn.Module):
         valid = (~mask).any(dim=1, keepdim=True).to(dtype=torch.float32)
 
         if self.spatial_dims == 3:
-            return F.conv3d(valid, self.ones_kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)  # type: ignore
+            return F.conv3d(
+                valid,
+                self.ones_kernel,  # type: ignore
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+            )
         if self.spatial_dims == 2:
-            return F.conv2d(valid, self.ones_kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)  # type: ignore
+            return F.conv2d(
+                valid,
+                self.ones_kernel,  # type: ignore
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+            )
         if self.spatial_dims == 1:
-            return F.conv1d(valid, self.ones_kernel, stride=self.stride, padding=self.padding, dilation=self.dilation)  # type: ignore
+            return F.conv1d(
+                valid,
+                self.ones_kernel,  # type: ignore
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+            )
 
         msg = (
             f"[{self.__class__.__name__}] Unsupported spatial_dims={self.spatial_dims}"
