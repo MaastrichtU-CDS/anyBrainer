@@ -855,7 +855,10 @@ class TestWorkflow(Workflow):
     def setup_trainer(self) -> pl.Trainer:
         """Returns a new trainer instance; will be only used for testing via
         `test()` method."""
-        return pl.Trainer()
+        return pl.Trainer(
+            logger=self.wandb_logger,
+            callbacks=self.callbacks,
+        )
 
     def finalize_setup(self):
         """Finalizes the setup of the workflow.
@@ -887,7 +890,7 @@ class TestWorkflow(Workflow):
 
         Override for custom testing run.
         """
-        self.trainer.test(self.model, datamodule=self.datamodule)
+        self.trainer.test(self.model, datamodule=self.datamodule, ckpt_path=self.ckpt_path)
 
         test_stats = {
             "peak_mem_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
