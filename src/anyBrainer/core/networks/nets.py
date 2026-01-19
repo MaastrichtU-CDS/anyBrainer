@@ -1120,3 +1120,180 @@ class Multimodal3DSwinMIMFPN(nn.Module):
         enc_feats = self.encoder(x, normalize, mask=mask)
         fpn_feats = self.fpn(enc_feats)
         return self.head(fpn_feats)
+
+
+@register(RK.NETWORK)
+class LateFusion3DSwinMIMFPN(nn.Module):
+    """`SwinTransformer` v2 (with residual convolutions) for 3D Masked Image
+    Modeling with a multimodal patch embedding (as in `Multimodal3DSwinMIMFPN`)
+    and a FPN decoder with additional late fusion support.
+
+    Late fusion is performed by encoding each (B, C, *spatial_dims) input for each
+    of the `n_late_fusion` streams and combining the encoded features at each scale
+    using learnable fusion weights (`n_late_fusion` x `n_levels`).
+
+    See `Multimodal3DSwinMIMFPN` for more details on the input arguments and
+    `forward()` contract.
+    """
+
+    def __init__(
+        self,
+        *,
+        # SwinViT encoder args
+        in_channels: int = 1,
+        patch_size: int | Sequence[int] = 2,
+        depths: Sequence[int] = (2, 2, 6, 2),
+        num_heads: Sequence[int] = (3, 6, 12, 24),
+        window_size: Sequence[int] | int = 7,
+        embed_dim: int = 48,
+        use_v2: bool = True,
+        extra_swin_kwargs: dict[str, Any] | None = None,
+        use_vanilla_swin: bool = False,
+        merge_mode: Literal["and", "or"] = "and",
+        # Multimodal patch embedding args
+        inject_modality_tokens: Sequence[bool] | bool = False,
+        expected_modalities: Sequence[Sequence[str]] | Sequence[str] | None = None,
+        fusion: Literal["none", "conv1x1"] = "none",
+        # FPN decoder args
+        fpn_width: int = 32,
+        fpn_norm: Literal["instance", "group", "batch"] = "instance",
+        fpn_norm_kwargs: dict[str, Any] | None = None,
+        # Fusion args
+        n_late_fusion: int = 1,
+        # Head args
+        out_channels: int | None = None,
+    ):
+        super().__init__()
+
+        # Build encoder
+        enc = SwinMIM if not use_vanilla_swin else SwinSimMIM
+        encoder_kwargs = {
+            "in_channels": in_channels,
+            "patch_size": patch_size,
+            "depths": depths,
+            "num_heads": num_heads,
+            "window_size": window_size,
+            "embed_dim": embed_dim,
+            "use_v2": use_v2,
+            "spatial_dims": 3,
+            "extra_swin_kwargs": extra_swin_kwargs,
+        }
+        if enc == SwinMIM:
+            encoder_kwargs["merge_mode"] = merge_mode
+        self.encoder = enc(**encoder_kwargs)
+
+        # Multimodal patch embedding
+        patch_embed = MultimodalPatchEmbed(
+            patch_size=patch_size,
+            in_chans=in_channels,
+            embed_dim=embed_dim,
+            spatial_dims=3,
+            inject_modality_tokens=inject_modality_tokens,
+            expected_modalities=expected_modalities,
+            fusion=fusion,
+        )
+        self.encoder.patch_embed = MultimodalPatchEmbedAdapter(patch_embed)
+
+        # MONAI's `SwinTransformer` returns input after patch_embed and 4-level feature maps
+        in_feats = [embed_dim * 2**i for i in range(len(depths) + 1)]
+        self.L = len(in_feats)
+
+        # Build decoder: FPN + voxel shuffle head
+        self.fpn = FPNDecoder3DFeaturesOnly(
+            in_feats=in_feats,
+            width=fpn_width,
+            norm=fpn_norm,
+            norm_kwargs=fpn_norm_kwargs,
+        )
+
+        self.head = VoxelShuffleHead3D(
+            in_ch=fpn_width,
+            out_ch=out_channels or in_channels,
+            up=patch_size,
+        )
+
+        self.n_late_fusion = n_late_fusion
+        self.fusion_weights = nn.Parameter(torch.zeros(self.L, n_late_fusion))
+
+    def _reshape_input(self, x: torch.Tensor) -> torch.Tensor:
+        """(B, n_mod, *spatial) -> (B, n_mod, 1, *spatial) *or* (B, n_mod, C,
+        *spatial) -> unchanged."""
+        if x.ndim == 5:  # (B, n_late_fusion, *spatial_dims)
+            x = x.unsqueeze(2)  # (B, n_late_fusion, 1, *spatial_dims)
+        elif x.ndim == 6:  # (B, n_late_fusion, C, *spatial_dims)
+            pass
+        else:
+            msg = (
+                f"[{self.__class__.__name__}] Expected input shape to be "
+                f"(B, n_late_fusion, *spatial_dims) or (B, n_late_fusion, C, *spatial_dims), "
+                f"but got {x.shape}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        return x
+
+    def _encode_one(self, x1: torch.Tensor) -> list[torch.Tensor]:
+        """Single encoder forward pass."""
+        feats = self.encoder(x1)
+
+        if not isinstance(feats, (list, tuple)):
+            msg = f"[{self.__class__.__name__}] Encoder must return a list/tuple of multi-scale features."
+            logger.error(msg)
+            raise RuntimeError(msg)
+
+        if len(feats) != self.L:
+            msg = (
+                f"[{self.__class__.__name__}] Expected {self.L} features from encoder, "
+                f"got {len(feats)}."
+            )
+            logger.error(msg)
+            raise RuntimeError(msg)
+
+        return list(feats)  # [f1..fL], high->low res
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        normalize: bool = True,
+        *,
+        mask: torch.Tensor | None = None,
+        modality: Sequence[Sequence[str | None]] | Sequence[str | None] | None = None,
+    ) -> torch.Tensor:
+        """Input tensor is expected to be of shape (B, n_late_fusion,
+        *spatial_dims) or (B, n_late_fusion, C, *spatial_dims)."""
+        cast(MultimodalPatchEmbedAdapter, self.encoder.patch_embed).set_modality(
+            modality
+        )
+
+        x = self._reshape_input(x)
+        n_late_fusion = x.shape[1]
+
+        if n_late_fusion != self.n_late_fusion:
+            msg = (
+                f"[{self.__class__.__name__}] Expected n_late_fusion={self.n_late_fusion}, "
+                f"got {n_late_fusion}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        # softmax weights across modalities per scale: [levels, n_late_fusion]
+        alpha = torch.sigmoid(self.fusion_weights)
+
+        # running fused features per scale; fill lazily at first modality
+        fused_feats: list[torch.Tensor | None] = [None] * self.L
+
+        # split input into chunks of size B and pass to encoder
+        for m in range(n_late_fusion):
+            in_m = x[:, m]  # (B, C, *spatial_dims)
+            feats_m = self._encode_one(in_m)
+            for l in range(self.L):
+                w = alpha[l, m]
+                prev = fused_feats[l]
+                if prev is None:
+                    fused_feats[l] = w * feats_m[l]
+                else:
+                    fused_feats[l] = prev + w * feats_m[l]
+            del in_m, feats_m
+
+        fpn_feats = self.fpn(fused_feats)
+        return self.head(fpn_feats)
