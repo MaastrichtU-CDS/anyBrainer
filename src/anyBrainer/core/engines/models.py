@@ -1518,7 +1518,7 @@ class MultimodalDownstreamModel(BaseModel):
                 metrics = [metrics]
             self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
 
-        self.mod_remap = modality_remap
+        self.modality_remap = modality_remap
         if self.modality_remap is not None:
             self.modality_remap = {
                 str(k): str(v) for k, v in self.modality_remap.items()
