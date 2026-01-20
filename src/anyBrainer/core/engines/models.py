@@ -1603,18 +1603,22 @@ class MultimodalDownstreamModel(BaseModel):
 
         if self.modality_remap is not None:
             remapped = {}
-            for k, v in mods.items():
-                if v in self.modality_remap:
-                    remapped[k] = self.modality_remap[v]
-                elif self.fallback_modality is not None:
-                    remapped[k] = self.fallback_modality
-                else:
-                    msg = (
-                        f"[{self.__class__.__name__}] Modality '{v}' not found in "
-                        f"`modality_remap` and no fallback provided."
-                    )
-                    logger.error(msg)
-                    raise KeyError(msg)
+            for k, v_list in mods.items():
+                remapped_list = []
+                for v in v_list:  # iterate over batch
+                    v_str = str(v)
+                    if v_str in self.modality_remap:
+                        remapped_list.append(self.modality_remap[v_str])
+                    elif self.fallback_modality is not None:
+                        remapped_list.append(self.fallback_modality)
+                    else:
+                        msg = (
+                            f"[{self.__class__.__name__}] Modality '{v}' not found in "
+                            f"`modality_remap` and no fallback provided."
+                        )
+                        logger.error(msg)
+                        raise KeyError(msg)
+                remapped[k] = tuple(remapped_list)
             mods = remapped
 
         # Sort by channel index
