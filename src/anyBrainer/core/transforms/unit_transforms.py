@@ -570,6 +570,7 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
         mask_ratio_shared: float | Sequence[float] = 0.5,
         mask_ratio_unique: float | Sequence[float] = 0.1,
         mask_size: int | Sequence[int] = 4,
+        random_offset: bool = False,
         allow_missing_keys: bool = False,
     ) -> None:
         """
@@ -585,6 +586,7 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
             mask_ratio_unique: Mask ratio or range of ratios for patches that
                 are uniquely masked for each channel.
             mask_size: mask block size in voxels (int or list of ints)
+            random_offset: whether to apply a random offset to the mask grid.
         """
         super().__init__(keys, allow_missing_keys)
 
@@ -629,6 +631,7 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
         self.mask_size_candidates = [
             ensure_tuple_dim(int(size), self.spatial_dims) for size in mask_size
         ]
+        self.random_offset = random_offset
 
     def _make_patch_masks(
         self,
@@ -643,7 +646,11 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
         A random offset is applied to avoid fixed grid alignment across different images.
         """
         # Random offset for grid alignment; sample from [0, mask_block) per dimension
-        offset = tuple(int(self.R.randint(0, b)) for b in mask_block)
+        offset = (
+            tuple(int(self.R.randint(0, b)) for b in mask_block)
+            if self.random_offset
+            else (0,) * self.spatial_dims
+        )
         ch_order = self.R.permutation(self.in_channels)
 
         # ------- SHARED MASK (ALL CHANNELS) -------

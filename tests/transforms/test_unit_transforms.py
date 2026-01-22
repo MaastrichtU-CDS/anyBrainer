@@ -21,6 +21,7 @@ from anyBrainer.core.transforms.unit_transforms import (
     CreateRandomPatchGridMaskd,
 )
 from anyBrainer.core.utils.visualization import plot_npy_volumes
+from anyBrainer.core.networks.utils import merge_mask_nd
 
 
 @pytest.mark.parametrize(
@@ -461,3 +462,48 @@ class TestCreateRandomPatchGridMaskd:
         out_dict = ToNumpyd(keys=["ch_0", "ch_1", "ch_2"])(out_dict)  # type: ignore[arg-type]
 
         plot_npy_volumes(out_dict, title="Mask")  # type: ignore[arg-type]
+
+    @pytest.mark.viz
+    def test_visualize_mask_merge(self):
+        input_data = {"img": torch.randn(1, 128, 128, 128)}
+        out = CreateRandomPatchGridMaskd(
+            keys=["img"], in_channels=1, patch_size=(2, 2, 2), mask_size=32
+        )(input_data)
+        out_merged_1_and = merge_mask_nd(out["mask"].unsqueeze(0), mode="and")
+        out_merged_1_or = merge_mask_nd(out["mask"].unsqueeze(0), mode="and")
+
+        out_merged_2_and = merge_mask_nd(out_merged_1_and, mode="and")
+        out_merged_2_or = merge_mask_nd(out_merged_1_or, mode="or")
+
+        out_merged_3_and = merge_mask_nd(out_merged_2_and, mode="and")
+        out_merged_3_or = merge_mask_nd(out_merged_2_or, mode="or")
+
+        out_merged_4_and = merge_mask_nd(out_merged_3_and, mode="and")
+        out_merged_4_or = merge_mask_nd(out_merged_3_or, mode="or")
+
+        out_dict = {"mask": out["mask"].numpy()}
+        plot_npy_volumes(out_dict, title="Mask downsampling modes (and/or) - original")
+
+        out_dict = {
+            "1_and": out_merged_1_and.squeeze(0).numpy(),
+            "1_or": out_merged_1_or.squeeze(0).numpy(),
+        }
+        plot_npy_volumes(out_dict, title="Mask downsampling modes (and/or) - level 1")
+
+        out_dict = {
+            "2_and": out_merged_2_and.squeeze(0).numpy(),
+            "2_or": out_merged_2_or.squeeze(0).numpy(),
+        }
+        plot_npy_volumes(out_dict, title="Mask downsampling modes (and/or) - level 2")
+
+        out_dict = {
+            "3_and": out_merged_3_and.squeeze(0).numpy(),
+            "3_or": out_merged_3_or.squeeze(0).numpy(),
+        }
+        plot_npy_volumes(out_dict, title="Mask downsampling modes (and/or) - level 3")
+
+        out_dict = {
+            "4_and": out_merged_4_and.squeeze(0).numpy(),
+            "4_or": out_merged_4_or.squeeze(0).numpy(),
+        }
+        plot_npy_volumes(out_dict, title="Mask downsampling modes (and/or) - level 4")

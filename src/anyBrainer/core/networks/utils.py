@@ -123,6 +123,7 @@ def merge_mask_nd(
     m: torch.Tensor,
     *,
     mode: str = "and",
+    threshold: float = 0.5,
 ) -> torch.Tensor:
     """Mirror MONAI-style PatchMerging for N-D boolean masks.
 
@@ -171,6 +172,11 @@ def merge_mask_nd(
     elif mode == "or":
         for s in slices[1:]:
             out = out | s
+    elif mode == "threshold":
+        for s in slices[1:]:
+            out = out + s.float()
+        out = out / float(len(slices))
+        out = out >= threshold
     else:
         msg = f"Unknown mode: {mode}."
         logger.error(msg)
