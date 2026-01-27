@@ -1256,6 +1256,7 @@ def get_mim_transforms(
     mask_ratio_shared: float | Sequence[float] = 0.5,
     mask_ratio_unique: float | Sequence[float] = 0.1,
     mask_size: int | Sequence[int] = 16,
+    random_offset: bool = False,
     val_mode: bool = False,
 ) -> list[Callable]:
     """Get MIM transforms for training or validation.
@@ -1272,6 +1273,7 @@ def get_mim_transforms(
         mask_ratio_unique: Mask ratio or range of ratios for patches that
             are uniquely masked for each channel.
         mask_size: Mask block size in voxels (int or list of ints).
+        random_offset: Whether to apply a random offset to the mask grid.
         val_mode: Whether to use validation mode.
 
     Returns:
@@ -1397,6 +1399,7 @@ def get_mim_transforms(
                 mask_ratio_shared=mask_ratio_shared,
                 mask_ratio_unique=mask_ratio_unique,
                 mask_size=mask_size,
+                random_offset=random_offset,
             ),
         ]
     )

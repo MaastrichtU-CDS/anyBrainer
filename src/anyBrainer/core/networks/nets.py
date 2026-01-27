@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
+from monai.networks.nets.dynunet import DynUNet
 from monai.networks.blocks.unetr_block import UnetrBasicBlock as MONAIUnetrBasicBlock
 
 from anyBrainer.core.utils import (
