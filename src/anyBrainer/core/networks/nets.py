@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
-from monai.networks.nets.dynunet import DynUNet
+from monai.networks.nets.dynunet import DynUNetSkipLayer
 from monai.networks.blocks.unetr_block import UnetrBasicBlock as MONAIUnetrBasicBlock
 
 from anyBrainer.core.utils import (
@@ -28,6 +28,8 @@ from anyBrainer.core.utils import (
 from anyBrainer.core.networks.utils import merge_mask_nd
 from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.core.networks.blocks import (
+    MONAIUnetResBlock,
+    PartialUnetResBlock,
     ProjectionHead,
     ClassificationHead,
     FusionHead,
@@ -1278,7 +1280,7 @@ class LateFusion3DSwinMIMFPN(nn.Module):
             raise ValueError(msg)
 
         # softmax weights across modalities per scale: [levels, n_late_fusion]
-        alpha = torch.sigmoid(self.fusion_weights)
+        alpha = torch.softmax(self.fusion_weights, dim=1)
 
         # running fused features per scale; fill lazily at first modality
         fused_feats: list[torch.Tensor | None] = [None] * self.L
