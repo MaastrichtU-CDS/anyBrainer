@@ -16,7 +16,6 @@ import torch
 import torch.nn as nn
 
 from monai.networks.nets.swin_unetr import SwinTransformer as SwinViT
-from monai.networks.nets.dynunet import DynUNetSkipLayer
 from monai.networks.blocks.unetr_block import UnetrBasicBlock as MONAIUnetrBasicBlock
 
 from anyBrainer.core.utils import (
@@ -28,8 +27,6 @@ from anyBrainer.core.utils import (
 from anyBrainer.core.networks.utils import merge_mask_nd
 from anyBrainer.registry import register, RegistryKind as RK
 from anyBrainer.core.networks.blocks import (
-    MONAIUnetResBlock,
-    PartialUnetResBlock,
     ProjectionHead,
     ClassificationHead,
     FusionHead,
@@ -708,6 +705,11 @@ class SwinMIM(SwinViT):
     """`SwinTransformer` v2 (with residual convolutions) for Masked Image
     Modeling.
 
+    NOTE: needs some work on integrating the per-level mask token. Currently it
+    performs worse than the vanilla SwinTransformer. Also, it is recommended that
+    it is used with no MIM mask offset for exact mask downsampling during patch
+    merging.
+
     Replaces the `UnetResBlock` in each layer with a `PartialUnetResBlock`, which
     contains partial convolutions and mask-aware normalization to prevent contamination
     of feature intensities and statistics from adjacent masked patches. In addition,
@@ -1036,7 +1038,8 @@ class Multimodal3DSwinMIMFPN(nn.Module):
     on the input arguments and `forward()` contract.
 
     If `use_vanilla_swin` is True, the model uses the original MONAI SwinViT encoder
-    without mask-aware layers for SimMIM-style pre-training.
+    without mask-aware layers for SimMIM-style pre-training. We recommend that
+    `use_vanilla_swin` remains True as it works better at the moment.
     """
 
     def __init__(
@@ -1051,7 +1054,7 @@ class Multimodal3DSwinMIMFPN(nn.Module):
         embed_dim: int = 48,
         use_v2: bool = True,
         extra_swin_kwargs: dict[str, Any] | None = None,
-        use_vanilla_swin: bool = False,
+        use_vanilla_swin: bool = True,
         merge_mode: Literal["and", "or"] = "and",
         # Multimodal patch embedding args
         inject_modality_tokens: Sequence[bool] | bool = False,

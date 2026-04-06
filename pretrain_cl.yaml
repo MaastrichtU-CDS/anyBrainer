@@ -14,7 +14,7 @@ logging_settings:
   wandb_enable: True
   wandb_watch_enable: True
   wandb_watch_kwargs:
-    log_freq: 2851
+    log_freq: 5000
     log_graph: True
     log: 'all'
 
@@ -57,34 +57,34 @@ pl_module_settings:
     aux_mlp_hidden_dim: 2048
     aux_mlp_hidden_act: GELU
     aux_mlp_dropout: 0.0
-  weights_init_kwargs:
-    weights_init_fn: init_swin_v2
   optimizer_kwargs:
     name: AdamW
+    auto_no_weight_decay: True
     lr: 0.0001
     weight_decay: 0.01
   lr_scheduler_kwargs:
     name: CosineAnnealingWithWarmup
     interval: step
     frequency: 1
-    warmup_iters: 14255
-    total_iters: 285100
+    warmup_iters: 10000
+    total_iters: 200000
+    eta_min: 0.00001
   loss_kwargs:
     temperature: 0.1
     top_k_negatives:
     cross_entropy_weights: [1.00, 3.42, 2.86, 1.67, 5.00]
   loss_scheduler_kwargs:
-    loss_weight_step_start: 4096
-    loss_weight_step_end: 28510
+    loss_weight_step_start: 5000
+    loss_weight_step_end: 25000
     loss_weight_start_value: 0.05
     loss_weight_end_value: 0.95
-    late_ramp_step_start: 71275
-    late_ramp_step_end: 114040
+    late_ramp_step_start: 70000
+    late_ramp_step_end: 100000
     late_ramp_end_value: 0.03
   momentum_scheduler_kwargs:
     interval: step
-    momentum_step_start: 4096
-    momentum_step_end: 28510
+    momentum_step_start: 5000
+    momentum_step_end: 25000
     momentum_start_value: 0.996
     momentum_end_value: 0.999
 
@@ -92,7 +92,7 @@ pl_module_settings:
 ckpt_settings:
   new_version: False
   model_checkpoint:
-  save_every_n_epochs: 5
+  save_every_n_steps: 20000
   save_top_k: -1
   save_last: True
 
@@ -101,22 +101,23 @@ pl_callback_settings: []
 
 # Trainer settings (pl.Trainer kwargs)
 pl_trainer_settings:
-  max_epochs: 100
+  max_steps: 200000
   accumulate_grad_batches: 1
-  gradient_clip_val: 20.0
+  gradient_clip_val: 10.0
   gradient_clip_algorithm: norm
   precision: bf16-mixed
-  strategy: auto
   devices: auto
+  strategy: ddp_find_unused_parameters_true
+  accelerator: auto
+  profiler: simple
   num_nodes: 1
   log_every_n_steps: 100
   val_check_interval: 1.0
-  check_val_every_n_epoch: 1
+  check_val_every_n_steps: 2000
   num_sanity_val_steps: 2
   overfit_batches: 0.0
-  fast_dev_run: false
   limit_train_batches: 1.0
   limit_val_batches: 1.0
   limit_test_batches: 1.0
   limit_predict_batches: 1.0
-  accelerator: auto
+  fast_dev_run: False

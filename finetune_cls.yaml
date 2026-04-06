@@ -18,7 +18,15 @@ logging_settings:
     log_graph: True
     log: 'all'
 
-# Data settings; add new entries only in dedicated sections or as extra_kwargs
+# Data settings
+# NOTE: Uses the older `ClassificationDataModule`, which naively stores each modality
+# from the specified `modalities` input as a separate key in the data dictionary.
+# Also creates a single dataset entry for each subject/session. This is fine
+# if a fixed set of modalities is expected and only a single session per patient
+# is required; this is the most common case in downstream tasks.
+# OPTIONAL: The new `MultimodalDataModule` instead uses consistent channel keys (ch1, ch2, etc.) 
+# and creates separate dataset entries in a subject/session for each pair of modalities meeting
+# the specified criteria; e.g., ch1 - any t1*.nii.gz, ch2 - either flair*.nii.gz or t2*.nii.gz.
 pl_datamodule_settings:
   name: ClassificationDataModule
   data_dir: /projects/prjs1526/FOMO-MRI/fomo-task1_clean

@@ -2,7 +2,7 @@
 global_settings:
   seed: 12345
   project: MIM
-  experiment: SwinMIM-1ch-128_16_or # enc_mods_inp_mask
+  experiment: SimMIM-t1_flair-128_16 # enc-inpmods-inpsize_masksize
   root_dir: /projects/prjs1526/anyBrainer/experiments
 
 # Logging settings
@@ -19,6 +19,11 @@ logging_settings:
     log: 'all'
 
 # Data settings
+# NOTE: This config uses a different datamodule that enables explicit control
+# over: (i) which modalities are used for each channel, and (ii) whether
+# modalities/acquisitions should be unique or not; e.g., someone can
+# use T1w-T1w for contrastive learning and should set distinct_modalities to False.
+# Also allows for multiple modalities per channel and retrieves all possible pairs.
 pl_datamodule_settings:
   name: MultimodalDataModule
   data_dir: /projects/prjs1526/data-pretraining/fomo-60k_clean
@@ -33,40 +38,52 @@ pl_datamodule_settings:
     pin_memory: False
   train_transforms: 
     name: get_mim_transforms
-    keys: ["ch1"]
+    keys: ["ch1", "ch2"]
     input_size: 128
     mask_size: 16
-    mask_ratio_shared: [0.4, 0.6]
-    mask_ratio_unique: [0.05, 0.15]
+    mask_ratio_shared: [0.4, 0.6] # same mask locations for all channels; input as a range
+    mask_ratio_unique: [0.05, 0.15] # strictly unique mask locations for each channel
+    random_offset: True # apply a random offset to the mask grid
     val_mode: False
   val_transforms: 
     name: get_mim_transforms
-    keys: ["ch1"]
+    keys: ["ch1", "ch2"]
     input_size: 128
     mask_size: 16
     mask_ratio_shared: [0.4, 0.6]
     mask_ratio_unique: [0.05, 0.15]
+    random_offset: True
     val_mode: True
   test_transforms: 
     name: get_mim_transforms
-    keys: ["ch1"]
+    keys: ["ch1", "ch2"]
     input_size: 128
     mask_size: 16
     mask_ratio_shared: [0.4, 0.6]
     mask_ratio_unique: [0.05, 0.15]
+    random_offset: True
     val_mode: True
   extra_kwargs:
     modalities_per_ch: 
-      - ["t1", "flair", "t2", "dwi", "unknown", "pd", "t2s", "swi"]
-    distinct_modalities: False
-    distinct_acquisitions: False
+      - ["t1"] # will look for t1.npy in the data directory -> `ch1` will contain this modality
+      - ["flair"] # will look for flair.npy in the data directory -> `ch2` will contain this modality
+    distinct_modalities: True
+    distinct_acquisitions: True
 
 # Model
-pl_module_settings:
+# NOTE: The network `Multimodal3DSwinMIMFPN` is compatible with the `MultimodalDataModule`. 
+# Particularly, it has a its own patch embedding block that separately encodes each channel. 
+# This allows: (i) masking the tokens of each channel independently, and (ii) injecting
+# (ii) modality-specific tokens for each channel (this requires using the `expected_modalities` 
+# argument and the `MultimodalDataModule` datamodule for storing the modality name in the data
+# dictionary).
+# The model `MultimodalMIMModel` expects the data dict keys to already contain the mask
+# and reconstruction targets for each channel, which is ensured by the `get_mim_transforms`
+# used above.
   name: MultimodalMIMModel
   model_kwargs:
     name: Multimodal3DSwinMIMFPN
-    in_channels: 1
+    in_channels: 2
     patch_size: 2
     depths: [2, 2, 6, 2]
     num_heads: [3, 6, 12, 24]
@@ -75,14 +92,12 @@ pl_module_settings:
     use_v2: True
     extra_swin_kwargs:
       use_checkpoint: True
-    use_vanilla_swin: False
-    merge_mode: or
+    use_vanilla_swin: True
+    merge_mode: and
     inject_modality_tokens: False
     expected_modalities:
     fusion: none
     fpn_width: 32
-  weights_init_settings:
-    weights_init_fn: init_swin_v2
   optimizer_kwargs:
     name: AdamW
     auto_no_weight_decay: True
@@ -94,11 +109,11 @@ pl_module_settings:
     frequency: 1
     warmup_iters: 10000
     total_iters: 200000
-    eta_min: 0.0001 # = base_lr --> no annealing
+    eta_min: 0.001
   loss_fn_kwargs:
     name: SmoothL1Loss
     beta: 1.0
-  artifacts_settings:
+  artifacts_settings: # logs images of reconstructions for visual monitoring
     log_every_n_steps: 500
     log_max_n_items: 1
 

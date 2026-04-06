@@ -26,6 +26,11 @@ The framework supports **contrastive learning pretraining** as well as downstrea
 - Compatible with **Weights & Biases** logging for detailed experiment tracking
 - **Containerization-ready**: inference scripts and [Apptainer](https://apptainer.org/) specs in [`app/`](./app)  
 
+## NEW features (2026)
+- **Masked Image modeling setup** for pretraining
+- **Multimodal** datamodule and model for flexible modality-aware data loading and training
+- **Multi-level sweep workflow** for performing multiple finetuning (and more) experiments at once
+
 
 ## Installation
 
@@ -45,7 +50,10 @@ pip install -e ".[dev,test]"
 Training and inference are fully config-driven. Example configs are provided in the repo.
 
 ```bash
-# Pretraining (contrastive)
+# Pretraining MIM (NEW)
+anyBrainer TrainWorkflow "pretrain_mim.yaml"
+
+# Pretraining contrastive learning
 anyBrainer TrainWorkflow "pretrain_cl.yaml"
 
 # Finetuning for classification
@@ -56,6 +64,12 @@ anyBrainer CVWorkflow "finetune_seg.yaml"
 
 # Finetuning for regression
 anyBrainer CVWorkflow "finetune_reg.yaml"
+
+# Finetuning for multimodal tasks (NEW)
+anyBrainer CVWorkflow "finetune_mm.yaml"
+
+# Finetune and evaluate multiple models at once (NEW)
+anyBrainer SweepWorkflow "finetune_sweep.yaml"
 ```
 
 
@@ -75,10 +89,8 @@ anyBrainer/
 │       ├── __main__.py   # CLI entry point
 │       └── __init__.py
 ├── tests/                # Unit and integration tests
-├── finetune_cls.yaml     # Example config: classification
-├── finetune_reg.yaml     # Example config: regression
-├── finetune_seg.yaml     # Example config: segmentation
-├── pretrain_cl.yaml      # Example config: contrastive pretraining
+├── pretrain_*.yaml       # Example configs for pretraining
+├── finetune_*.yaml       # Example configs for finetuning
 ├── pyproject.toml        # Project dependencies
 ├── LICENSE
 └── README.md

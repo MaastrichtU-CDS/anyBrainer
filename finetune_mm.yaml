@@ -1,0 +1,180 @@
+# Example config file for a multimodal finetuning task of a MIM-pretrained
+# encoder for segmenting focal cortical dysplasia lesions.
+# Global settings
+global_settings:
+  seed: 42
+  project: MIM_downstream_FCD
+  experiment: SimMIM-t1_flair-128_16
+  root_dir: /projects/prjs1526/anyBrainer/experiments
+
+# Logging settings
+logging_settings:
+  dev_mode: False
+  worker_logs: False
+  save_logs: True
+  wandb_enable: True
+  wandb_entity: petros-koutsouvelis-maastricht-university
+  wandb_watch_enable: True
+  wandb_watch_kwargs:
+    log_freq: 2000
+    log_graph: True
+    log: 'all'
+
+# Data settings
+pl_datamodule_settings:
+  name: MultimodalDataModule
+  data_dir: /projects/prjs1526/data-finetuning/FCD_BONN/train
+  data_handler_kwargs:
+    data_format: GenericNifti
+    exts: [".npy"]
+  train_val_test_split: [0.7, 0.15, 0.15]
+  num_workers: 8
+  batch_size: 4
+  extra_dataloader_kwargs:
+    shuffle: True
+    pin_memory: False
+  train_transforms: 
+    name: get_segmentation_transforms
+    keys: ["ch1", "ch2"]
+    input_size: 128
+    seg_key: "label"
+    out_key: "img"
+    n_patches: 2
+    n_pos: 1
+    n_neg: 1
+    overfit_mode: False
+    val_mode: False
+  val_transforms: 
+    name: get_segmentation_transforms
+    keys: ["ch1", "ch2"]
+    input_size: 128
+    seg_key: "label"
+    out_key: "img"
+    val_mode: True
+  test_transforms: 
+    name: get_segmentation_transforms
+    keys: ["ch1", "ch2"]
+    input_size: 128
+    seg_key: "label"
+    out_key: "img"
+    val_mode: True
+  extra_kwargs:
+    modalities_per_ch: 
+      - ["t1"]
+      - ["flair"]
+    distinct_modalities: True
+    distinct_acquisitions: True
+    labels_settings:
+      labels_file: "mask.npy"
+      store_key: "label"
+
+# Model
+pl_module_settings:
+  name: MultimodalDownstreamModel
+  model_kwargs:
+    name: Multimodal3DSwinMIMFPN
+    in_channels: 2
+    patch_size: 2
+    depths: [2, 2, 6, 2]
+    num_heads: [3, 6, 12, 24]
+    window_size: 7
+    embed_dim: 48
+    use_v2: True
+    extra_swin_kwargs:
+      use_checkpoint: True
+    use_vanilla_swin: True
+    merge_mode: and
+    inject_modality_tokens: False
+    expected_modalities:
+    fusion: none
+    fpn_width: 32
+    out_channels: 1
+  weights_init_settings:
+    weights_init_fn: init_swin_v2
+    load_pretrain_weights: /path/to/pretrained/checkpoint.ckpt
+    load_param_group_prefix: model.encoder
+    rename_map:
+      model.encoder: "encoder"
+  optimizer_kwargs:
+    name: AdamW
+    auto_no_weight_decay: True
+    param_groups:
+    - lr: 0.0005
+      weight_decay: 0.01
+      param_group_prefix: ["fpn", "head"]
+    - lr: 0.00005
+      weight_decay: 0.01
+      param_group_prefix: ["encoder"]
+  lr_scheduler_kwargs:
+    name: CosineAnnealingWithWarmup
+    interval: step
+    frequency: 1
+    warmup_iters: [1000, 1000]
+    start_iter: [0, 3000]
+    total_iters: 10000
+    eta_min: [0.00005, 0.000005]
+  loss_fn_kwargs:
+    name: "monai:DiceCELoss"
+    sigmoid: True
+  inference_settings:
+    inferer_kwargs: 
+      name: SlidingWindowInferer
+      roi_size: 128
+      mode: constant
+      overlap: 0.5
+    postprocess: get_postprocess_segmentation_transforms
+  metrics:
+    - name:
+        DiceMetric
+    - name:
+        MeanIoU
+  artifacts_settings:
+    log_every_n_steps: 100
+    log_max_n_items: 1
+
+# Checkpoint settings
+ckpt_settings:
+  new_version: False
+  model_checkpoint:
+  save_every_n_steps: 10000
+  save_top_k: -1
+  save_last: True
+
+# Callback settings (other than model checkpointing)
+pl_callback_settings:
+  - name: FreezeParamGroups
+    param_group_prefix: encoder
+    freeze_step: 0
+    unfreeze_step: 3000
+
+# Trainer settings (pl.Trainer kwargs)
+pl_trainer_settings:
+  max_steps: 10000
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  precision: bf16-mixed
+  devices: 1
+  strategy: auto
+  accelerator: auto
+  profiler: simple
+  num_nodes: 1
+  log_every_n_steps: 10
+  val_check_interval: 1.0
+  check_val_every_n_epoch: 1
+  num_sanity_val_steps: 2
+  overfit_batches: 0.0
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  limit_test_batches: 1.0
+  limit_predict_batches: 1.0
+  fast_dev_run: False
+
+# Validation settings
+val_settings:
+  val_mode: repeated
+  n_splits: 5
+  start_idx: 0
+  run_test: False
+  seeds: [12345, 12346, 12347, 12348, 12349]
+  aggregate_metrics: ['val/', 'test/']

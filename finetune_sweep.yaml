@@ -1,3 +1,5 @@
+# Example config file for a sweep workflow on a finetuning task of a MIM-pretrained
+# encoder for segmenting focal cortical dysplasia lesions.
 TrainWorkflow:
   # Global settings
   global_settings:
@@ -63,7 +65,7 @@ TrainWorkflow:
       out_key: "img"
       val_mode: True
     extra_kwargs:
-      modalities_per_ch: 
+      modalities_per_ch: # provided as a list of lists due to sweeping; otherwise a single list is expected
         - 
           - ["t1"]
         - 
@@ -88,7 +90,7 @@ TrainWorkflow:
       use_v2: True
       extra_swin_kwargs:
         use_checkpoint: True
-      use_vanilla_swin:
+      use_vanilla_swin: # again, a list made for sweeping; same for all subsequent lists specified in sweep settings
         - True
         - False
         - False
@@ -174,8 +176,11 @@ TrainWorkflow:
     unfreeze_step: 3000
 
   # Trainer settings (pl.Trainer kwargs)
+  # NOTE: Training per steps here, not epochs; this is preferrable for
+  # finetuning experiments across a wide range of tasks (datasets) that contain
+  # variable sample sizes.
   pl_trainer_settings:
-    max_steps: 2
+    max_steps: 10000
     accumulate_grad_batches: 1
     gradient_clip_val: 1.0
     gradient_clip_algorithm: norm
@@ -196,6 +201,8 @@ TrainWorkflow:
     limit_predict_batches: 1.0
     fast_dev_run: False
 
+# This workflow enables composing multiple workflows and running them
+# sequentially in each loop.
 TestWorkflow:
   # Global settings
   global_settings:
@@ -334,11 +341,11 @@ TestWorkflow:
 # Sweep settings
 sweep_settings:
   exp_suffix: [TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch]
-  sweeps:
-    1: # modalities (n=2)
+  sweeps: # different levels of sweeping
+    1: # modalities (n=2); outer loop
       - TrainWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
       - TestWorkflow.pl_datamodule_settings.extra_kwargs.modalities_per_ch
-    2: # pre-trained models (n=5)
+    2: # pre-trained models (n=5); inner loop
       - TrainWorkflow.global_settings.experiment
       - TestWorkflow.global_settings.experiment
       - TrainWorkflow.pl_module_settings.weights_init_settings.load_pretrain_weights
