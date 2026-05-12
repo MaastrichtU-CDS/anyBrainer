@@ -7,6 +7,7 @@ from anyBrainer.core.engines.callbacks import (
     UpdateDatamoduleEpoch,
     LogLR,
     LogGradNorm,
+    StepOutputsWriter,
 )
 
 
@@ -86,3 +87,50 @@ class TestLogGradNorm:
         callback = LogGradNorm()
         callback.on_train_batch_end(trainer, module)  # type: ignore
         assert trainer.datamodule._current_epoch == 1
+
+
+class _RankZeroTrainer:
+    global_rank = 0
+
+
+class TestStepOutputsWriter:
+    def test_writes_test_csv(self, tmp_path):
+        import torch
+
+        mod = pl.LightningModule()
+        cb = StepOutputsWriter(output_dir=tmp_path, save_predictions=False)
+        tr = _RankZeroTrainer()
+        cb.on_test_start(tr, mod)  # type: ignore
+        outputs = {
+            "per_sample_metrics": {"dice": torch.tensor([0.1, 0.2])},
+        }
+        batch = {"sub_id": [1, 2], "ses_id": [10, 20]}
+        cb.on_test_batch_end(tr, mod, outputs, batch, batch_idx=0, dataloader_idx=0)  # type: ignore
+        csv_path = tmp_path / "test_per_sample_metrics.csv"
+        assert csv_path.is_file()
+        text = csv_path.read_text()
+        assert "dice" in text
+        assert "0.1" in text and "0.2" in text
+        assert "1" in text and "10" in text
+
+    def test_skips_non_dict_outputs(self, tmp_path):
+        mod = pl.LightningModule()
+        cb = StepOutputsWriter(output_dir=tmp_path, save_predictions=False)
+        tr = _RankZeroTrainer()
+        cb.on_test_start(tr, mod)  # type: ignore
+        cb.on_test_batch_end(tr, mod, None, {}, 0, 0)  # type: ignore
+        assert not (tmp_path / "test_per_sample_metrics.csv").exists()
+
+    def test_predict_saves_pt(self, tmp_path):
+        import torch
+
+        mod = pl.LightningModule()
+        cb = StepOutputsWriter(output_dir=tmp_path, save_predictions=True)
+        tr = _RankZeroTrainer()
+        cb.on_predict_start(tr, mod)  # type: ignore
+        outputs = {"pred": torch.zeros(2, 1), "batch_idx": 0}
+        cb.on_predict_batch_end(tr, mod, outputs, {}, batch_idx=3, dataloader_idx=1)  # type: ignore
+        pt = tmp_path / "predict" / "dl1_b3.pt"
+        assert pt.is_file()
+        loaded = torch.load(pt, map_location="cpu", weights_only=False)
+        assert loaded["pred"].shape == (2, 1)

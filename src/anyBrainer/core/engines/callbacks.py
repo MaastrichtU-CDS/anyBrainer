@@ -9,9 +9,12 @@ __all__ = [
     "FreezeParamGroups",
     "MetricAggregator",
     "SWAAvgOnly",
+    "StepOutputsWriter",
 ]
 
+import csv
 import logging
+from pathlib import Path
 from typing import Any, Literal, cast
 from collections import defaultdict
 
@@ -501,3 +504,143 @@ class SWAAvgOnly(pl.Callback):
         # swap averaged weights in
         base = self._maybe_unwrap(trainer, pl_module)
         base.load_state_dict(self._avg.module.state_dict())
+
+
+@register(RK.CALLBACK)
+class StepOutputsWriter(pl.Callback):
+    """Persist dict outputs from ``test_step`` / ``predict_step`` to disk.
+
+    - Test loop: appends ``test_per_sample_metrics.csv`` under ``output_dir``
+        with one row per sample (``dataloader_idx``, ``batch_idx``, ``sample_idx``,
+        ``sub_id``, ``ses_id``, then one column per key in ``per_sample_metrics``).
+        Metric columns are fixed from the first non-empty batch.
+
+    - Predict loop: when ``save_predictions`` is True, saves each batch's
+        return dict (including ``pred``) as ``predict/dl{dataloader_idx}_b{batch_idx}.pt``.
+
+    Filesystem writes run only on global rank zero.
+    """
+
+    def __init__(
+        self,
+        output_dir: str | Path,
+        *,
+        save_predictions: bool = True,
+    ) -> None:
+        super().__init__()
+        self.output_dir = Path(output_dir)
+        self.save_predictions = save_predictions
+        self._metric_keys: list[str] | None = None
+
+        logger.info(
+            f"[StepOutputsWriter] output_dir={self.output_dir}, "
+            f"save_predictions={save_predictions}."
+        )
+
+    def on_test_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        if trainer.global_rank != 0:
+            return
+        self._metric_keys = None
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def on_predict_start(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        if trainer.global_rank != 0:
+            return
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        if self.save_predictions:
+            (self.output_dir / "predict").mkdir(parents=True, exist_ok=True)
+
+    @rank_zero_only
+    def on_test_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
+        if not isinstance(outputs, dict):
+            return
+        per = outputs.get("per_sample_metrics")
+        if not isinstance(per, dict) or not per:
+            logger.debug(
+                "[StepOutputsWriter] test outputs missing non-empty "
+                "`per_sample_metrics`; skipping CSV row."
+            )
+            return
+
+        metric_keys = sorted(per.keys())
+        if self._metric_keys is None:
+            self._metric_keys = metric_keys
+        elif set(self._metric_keys) != set(metric_keys):
+            logger.warning(
+                "[StepOutputsWriter] `per_sample_metrics` keys differ from the "
+                f"first batch; expected {self._metric_keys}, got {metric_keys}. "
+                "Writing only keys seen on the first batch."
+            )
+        use_keys = self._metric_keys or metric_keys
+        b = int(next(iter(per.values())).shape[0])
+        fieldnames = [
+            "dataloader_idx",
+            "batch_idx",
+            "sample_idx",
+            "sub_id",
+            "ses_id",
+            *use_keys,
+        ]
+        path = self.output_dir / "test_per_sample_metrics.csv"
+        rows: list[dict[str, Any]] = []
+        for i in range(b):
+            row: dict[str, Any] = {
+                "dataloader_idx": dataloader_idx,
+                "batch_idx": batch_idx,
+                "sample_idx": i,
+                "sub_id": "",
+                "ses_id": "",
+            }
+            if isinstance(batch, dict):
+                for idk in ("sub_id", "ses_id"):
+                    v = batch.get(idk)
+                    if torch.is_tensor(v):
+                        t = v.detach().cpu()
+                        if t.ndim == 0:
+                            row[idk] = str(t.item())
+                        elif i < t.shape[0]:
+                            row[idk] = str(t.reshape(-1)[i].item())
+                    elif isinstance(v, (list, tuple)) and i < len(v):
+                        row[idk] = str(v[i])
+                    elif v is not None:
+                        row[idk] = str(v)
+            for mk in use_keys:
+                if mk in per:
+                    row[mk] = float(per[mk][i].item())
+                else:
+                    row[mk] = ""
+            rows.append(row)
+
+        new_file = not path.is_file()
+        with path.open("a", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=fieldnames)
+            if new_file:
+                w.writeheader()
+            w.writerows(rows)
+
+    @rank_zero_only
+    def on_predict_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
+        if not self.save_predictions:
+            return
+        if not isinstance(outputs, dict) or "pred" not in outputs:
+            return
+        out_path = self.output_dir / "predict" / f"dl{dataloader_idx}_b{batch_idx}.pt"
+        torch.save(outputs, out_path)

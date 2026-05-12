@@ -1048,7 +1048,6 @@ class SegmentationDataModule(BaseDataModule):
         for session, session_files in tqdm(
             grouped_data["grouped_data"].items(), desc="Creating data list"
         ):
-
             session_files = cast(list, session_files).copy()
 
             # Filter by modality

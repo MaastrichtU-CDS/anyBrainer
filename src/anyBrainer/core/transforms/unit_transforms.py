@@ -211,7 +211,6 @@ class GetKeyQueryd(MapTransform, Randomizable):
         extra_keys: Sequence[str] | None = ["sub_id", "ses_id"],
         track: bool = False,
     ) -> None:
-
         if always_augment_query and query_key is None:
             msg = "query_key must be provided if always_augment_query is True"
             logger.error(msg)

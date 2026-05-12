@@ -265,10 +265,11 @@ class ParamSchedulerMixin(PLModuleMixin):
             raise TypeError(msg)
 
         if param_scheduler_kwargs is not None:
-            self.other_schedulers_step, self.other_schedulers_epoch = (
-                UnitFactory.get_param_scheduler_instances_from_kwargs(
-                    param_scheduler_kwargs
-                )
+            (
+                self.other_schedulers_step,
+                self.other_schedulers_epoch,
+            ) = UnitFactory.get_param_scheduler_instances_from_kwargs(
+                param_scheduler_kwargs
             )
             step_scheduler_names = [
                 scheduler.__class__.__name__ for scheduler in self.other_schedulers_step

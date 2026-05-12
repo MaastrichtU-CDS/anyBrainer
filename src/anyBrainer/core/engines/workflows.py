@@ -167,9 +167,11 @@ class TrainWorkflow(Workflow):
         )
         self.configure_environment()
         try:
-            self.logging_manager, self.main_logger, self.wandb_logger = (
-                self.setup_logging()
-            )
+            (
+                self.logging_manager,
+                self.main_logger,
+                self.wandb_logger,
+            ) = self.setup_logging()
         except ValueError:
             logging.exception(
                 "[TrainWorkflow] Error in setup_logging(); ensure returns match the docstring."
@@ -644,9 +646,11 @@ class TestWorkflow(Workflow):
         Model, Callbacks, Trainer."""
         self.configure_environment()
         try:
-            self.logging_manager, self.main_logger, self.wandb_logger = (
-                self.setup_logging()
-            )
+            (
+                self.logging_manager,
+                self.main_logger,
+                self.wandb_logger,
+            ) = self.setup_logging()
         except ValueError:
             logging.exception(
                 "[TestWorkflow] Error in setup_logging(); ensure returns match the docstring."

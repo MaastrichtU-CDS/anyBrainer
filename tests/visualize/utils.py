@@ -146,5 +146,4 @@ def visualize_transform_stage(
     if save_path is not None:
         fig.savefig(save_path)
     else:
-
         plt.show()
