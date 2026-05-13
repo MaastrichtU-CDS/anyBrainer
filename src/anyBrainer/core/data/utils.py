@@ -6,7 +6,6 @@ import re
 from collections import Counter, defaultdict
 from typing import Any, Literal, Sequence
 
-
 logger = logging.getLogger(__name__)
 
 

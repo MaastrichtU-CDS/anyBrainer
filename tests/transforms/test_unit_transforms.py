@@ -48,7 +48,8 @@ class TestCreateRandomMaskd:
         assert out["mask"].shape == (1, 120, 120, 120)
 
     def test_mask_ratio(self, op, mae_sample_data, mask_ratio):
-        """NOTE: it fails with mask_patch_size > img_size/2 due to expected rounding errors"""
+        """NOTE: it fails with mask_patch_size > img_size/2 due to expected
+        rounding errors."""
         out = op(mae_sample_data)
         mask_ratio_actual = out["mask"].float().mean().item()
         assert (

@@ -1504,18 +1504,9 @@ class MultimodalDownstreamModel(BaseModel):
         ),
         modality_remap: dict[str, str] | None = None,
         fallback_modality: str | None = None,
-        return_per_sample: bool = False,
         **base_model_kwargs,
     ):
-        """
-        Note:
-            ``return_per_sample`` is used only for `test_step()` and `predict_step()`:
-            - In `test_step()`, it returns a dict with `pred`, `label`, `per_sample_metrics`,
-            - In `predict_step()`, it returns a dict with `pred`.
-        """
         super().__init__(**base_model_kwargs)
-
-        self.return_per_sample = return_per_sample
 
         self.metrics: list[Callable] = []
         if metrics is not None:
@@ -1544,8 +1535,6 @@ class MultimodalDownstreamModel(BaseModel):
         if self.modality_remap is not None:
             msg += f", modality_remap={self.modality_remap}"
             msg += f", fallback '{self.fallback_modality}'"
-        if self.return_individual_metrics:
-            msg += ", return_individual_metrics=True"
         msg += "."
 
         logger.info(msg)
@@ -1563,20 +1552,10 @@ class MultimodalDownstreamModel(BaseModel):
 
     @torch.no_grad()
     def compute_metrics(
-        self,
-        out: torch.Tensor,
-        target: torch.Tensor,
-    ) -> dict[str, Any] | tuple[dict[str, Any], dict[str, torch.Tensor]]:
-        """Computes metrics; ignores if a metric fails.
-
-        If ``self.return_per_sample`` is True, also returns per-batch-sample
-        metric vectors (CPU float tensors keyed like ``stats``). For MONAI
-        :class:`~monai.metrics.metric.CumulativeIterationMetric`, uses
-        ``aggregate(reduction="mean_batch")`` when supported; otherwise that
-        metric is omitted from the per-sample dict.
-        """
-        stats: dict[str, Any] = {}
-        per_sample: dict[str, torch.Tensor] = {}
+        self, out: torch.Tensor, target: torch.Tensor
+    ) -> dict[str, Any]:
+        """Computes metrics; ignores if a metric fails."""
+        stats = {}
         for m in self.metrics:
             name = getattr(m, "__name__", m.__class__.__name__)
             try:
@@ -1588,39 +1567,7 @@ class MultimodalDownstreamModel(BaseModel):
                 )
                 continue
 
-            # MONAI CumulativeIterationMetric (e.g. DiceMetric, MeanIoU, etc.)
-            # reduce -> extract -> reset
             if isinstance(m, CumulativeIterationMetric):
-                agg_batch: torch.Tensor | list | None = None
-                if self.return_per_sample:
-                    try:
-                        agg_batch = m.aggregate(reduction="mean_batch")
-                    except Exception:
-                        logger.exception(
-                            f"[{self.__class__.__name__}] Failed to aggregate metric "
-                            f"{name} with reduction='mean_batch'; falling back to "
-                            f"epoch-style aggregate only."
-                        )
-
-                if agg_batch is not None:
-                    if isinstance(agg_batch, torch.Tensor):
-                        stats[name] = agg_batch.nanmean().item()
-                        per_sample[name] = agg_batch.detach().float().cpu()
-                    elif isinstance(agg_batch, list):
-                        for metric_name, t in zip(m.metric_name, agg_batch):  # type: ignore[attr-defined]
-                            key = f"{name}_{metric_name}"
-                            stats[key] = t.nanmean().item()
-                            per_sample[key] = t.detach().float().cpu()
-                    else:
-                        msg = (
-                            f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
-                            f"aggregation type: {type(agg_batch)}"
-                        )
-                        logger.error(msg)
-                        raise ValueError(msg)
-                    m.reset()
-                    continue
-
                 agg = m.aggregate(reduction="mean")
                 if isinstance(agg, torch.Tensor):
                     stats[name] = agg.item()
@@ -1635,23 +1582,8 @@ class MultimodalDownstreamModel(BaseModel):
                     logger.error(msg)
                     raise ValueError(msg)
                 m.reset()
-            # Functional metrics with no state
             else:
                 stats[name] = val.mean().item()
-                if self.return_per_sample:
-                    v = val.detach().float()
-                    if v.ndim == 0:
-                        per_sample[name] = v.expand(out.shape[0]).contiguous().cpu()
-                    elif v.shape[0] == out.shape[0]:
-                        per_sample[name] = v.reshape(v.shape[0], -1).mean(dim=1).cpu()
-                    else:
-                        logger.warning(
-                            f"[{self.__class__.__name__}.compute_metrics] Metric {name} "
-                            f"returned shape {tuple(v.shape)}; cannot derive per-sample "
-                            f"series (batch size {out.shape[0]})."
-                        )
-        if self.return_per_sample:
-            return stats, per_sample
         return stats
 
     def log_step(self, step_name: str, log_dict: dict[str, Any]) -> None:
@@ -1697,7 +1629,7 @@ class MultimodalDownstreamModel(BaseModel):
         out = self.model(batch["img"], modality=self._parse_modalities(batch))
         loss = self.compute_loss(out, batch["label"])
         out = cast(torch.Tensor, self.postprocess(out))
-        stats = cast(dict[str, Any], self.compute_metrics(out, batch["label"]))
+        stats = self.compute_metrics(out, batch["label"])
         stats["loss"] = loss.item()
 
         self.log_step("train", stats)
@@ -1723,7 +1655,7 @@ class MultimodalDownstreamModel(BaseModel):
             torch.Tensor,
             self.predict(batch, invert=False, modality=self._parse_modalities(batch)),
         )
-        stats = cast(dict[str, Any], self.compute_metrics(out, batch["label"]))
+        stats = self.compute_metrics(out, batch["label"])
         self.log_step("val", stats)
 
         if batch_idx < 2:
@@ -1740,23 +1672,14 @@ class MultimodalDownstreamModel(BaseModel):
                 slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
 
-    def test_step(self, batch: dict, batch_idx: int) -> dict[str, Any] | None:
-        """Test step; performs inference and computes metrics.
-
-        When ``self.return_step_outputs_for_callbacks`` is True, returns a dict
-        (``pred``, ``label``, ``per_sample_metrics``, ``batch_idx``, and
-        ``sub_id`` / ``ses_id`` when present) for callbacks such as
-        ``on_test_batch_end(..., outputs=...)``. Otherwise returns ``None``.
-        """
+    def test_step(self, batch: dict, batch_idx: int) -> None:
+        """Test step; performs inference and computes metrics."""
         out = cast(
             torch.Tensor,
             self.predict(batch, invert=False, modality=self._parse_modalities(batch)),
         )
-        if self.return_per_sample:
-            stats, per_sample = self.compute_metrics(out, batch["label"])
-        else:
-            stats = self.compute_metrics(out, batch["label"])
-        self.log_step("test", cast(dict[str, Any], stats))
+        stats = self.compute_metrics(out, batch["label"])
+        self.log_step("test", stats)
 
         if batch_idx < 2:
             self.log_tensors_dict(
@@ -1772,42 +1695,9 @@ class MultimodalDownstreamModel(BaseModel):
                 slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
 
-        if not self.return_per_sample:
-            return None
-
-        per_sample_dict = {
-            "pred": out.detach().cpu(),
-            "label": batch["label"].detach().cpu(),
-            "batch_idx": batch_idx,
-        }
-        if "sub_id" in batch:
-            per_sample_dict["sub_id"] = batch["sub_id"]
-        if "ses_id" in batch:
-            per_sample_dict["ses_id"] = batch["ses_id"]
-        return per_sample_dict
-
-    def predict_step(
-        self, batch: dict, batch_idx: int
-    ) -> torch.Tensor | dict[str, Any]:
-        """Predict step; performs inference.
-
-        When ``self.return_per_sample`` is True, returns a dict
-        with ``pred``, ``batch_idx``, and ``sub_id`` / ``ses_id`` when present,
-        for use with prediction writers or other callbacks. Otherwise returns
-        the prediction tensor only.
-        """
-        out = cast(
+    def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Predict step; performs inference."""
+        return cast(
             torch.Tensor,
             self.predict(batch, invert=False, modality=self._parse_modalities(batch)),
         )
-        if not self.return_per_sample:
-            return out
-        per_sample_dict = {
-            "pred": out.detach().cpu(),
-            "batch_idx": batch_idx,
-        }
-        if "sub_id" in batch:
-            per_sample_dict["sub_id"] = batch["sub_id"]
-        if "ses_id" in batch:
-            per_sample_dict["ses_id"] = batch["ses_id"]
-        return per_sample_dict
