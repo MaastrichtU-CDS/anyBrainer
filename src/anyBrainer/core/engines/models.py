@@ -1672,7 +1672,7 @@ class MultimodalDownstreamModel(BaseModel):
                 slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
 
-    def test_step(self, batch: dict, batch_idx: int) -> None:
+    def test_step(self, batch: dict, batch_idx: int) -> dict[str, Any]:
         """Test step; performs inference and computes metrics."""
         out = cast(
             torch.Tensor,
@@ -1694,6 +1694,7 @@ class MultimodalDownstreamModel(BaseModel):
                 dim=-1,
                 slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
             )
+        return stats
 
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Predict step; performs inference."""
