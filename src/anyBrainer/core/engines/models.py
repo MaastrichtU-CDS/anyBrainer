@@ -1759,71 +1759,110 @@ class DeepSupervisionSegmentationModel(MultimodalDownstreamModel):
         )
 
     def _resolve_ds_weights(self, n_heads: int) -> list[float]:
-        """Resolve normalized deep-supervision loss weights."""
-        if self.ds_weights is not None:
-            if len(self.ds_weights) != n_heads:
-                msg = (
-                    f"[{self.__class__.__name__}] Expected {n_heads} "
-                    f"`ds_weights`, got {len(self.ds_weights)}."
-                )
-                logger.error(msg)
-                raise ValueError(msg)
-            weights = list(self.ds_weights)
-        else:
-            weights = [1 / (2**i) for i in range(n_heads)]
+        if n_heads < 1:
+            raise ValueError("Expected at least one output head.")
 
-        if self.zero_coarsest_weight and n_heads > 0:
+        if self.ds_weights is None:
+            weights = [1.0 / (2**i) for i in range(n_heads)]
+        else:
+            if len(self.ds_weights) != n_heads:
+                raise ValueError(
+                    f"Expected {n_heads} `ds_weights`, "
+                    f"got {len(self.ds_weights)}."
+                )
+            weights = [float(w) for w in self.ds_weights]
+
+        if any(not math.isfinite(w) or w < 0 for w in weights):
+            raise ValueError(
+                f"`ds_weights` must be finite and non-negative, got {weights}."
+            )
+
+        if self.zero_coarsest_weight and n_heads > 1:
             weights[-1] = 0.0
 
         total = sum(weights)
         if total <= 0:
-            msg = (
-                f"[{self.__class__.__name__}] Deep supervision weights sum to "
-                f"{total}; cannot normalize."
+            raise ValueError(
+                f"Deep-supervision weights sum to {total}; cannot normalize."
             )
-            logger.error(msg)
-            raise ValueError(msg)
 
         return [w / total for w in weights]
 
     def _split_outputs(
-        self, out: torch.Tensor, target: torch.Tensor
+        self,
+        out: torch.Tensor,
+        target: torch.Tensor,
     ) -> list[torch.Tensor]:
-        """Split stacked deep-supervision outputs into per-head tensors."""
-        if out.ndim == target.ndim + 1 and out.size(1) > 1:
-            return list(torch.unbind(out, dim=1))
+        """Split `(B, H, C, *spatial)` outputs into individual heads."""
+        if out.ndim == target.ndim + 1:
+            return list(out.unbind(dim=1))
+
+        if out.ndim != target.ndim:
+            raise ValueError(
+                f"Expected output with {target.ndim} or {target.ndim + 1} "
+                f"dimensions, got shape {tuple(out.shape)} for target "
+                f"shape {tuple(target.shape)}."
+            )
+
         return [out]
 
-    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Weighted sum of per-head losses (nnU-Net v2 style)."""
+    def _compute_ds_loss(
+        self,
+        out: torch.Tensor,
+        target: torch.Tensor,
+    ) -> tuple[torch.Tensor, list[torch.Tensor], list[float]]:
+        if isinstance(self.loss_fn, list):
+            raise ValueError(
+                "DeepSupervisionSegmentationModel expects one loss function."
+            )
+
         heads = self._split_outputs(out, target)
+
+        losses: list[torch.Tensor] = [
+            cast(torch.Tensor, self.loss_fn(head, target))
+            for head in heads
+        ]
+
         if len(heads) == 1:
-            return super().compute_loss(heads[0], target)
+            return losses[0], losses, [1.0]
 
         weights = self._resolve_ds_weights(len(heads))
-        total_loss = torch.tensor(0.0, device=out.device, dtype=out.dtype)
-        for weight, head in zip(weights, heads):
-            total_loss = total_loss + weight * self.loss_fn(head, target)  # type: ignore[attr-defined]
-        return total_loss
+
+        total = torch.stack(
+            [
+                loss * weight
+                for loss, weight in zip(losses, weights, strict=True)
+            ]
+        ).sum()
+
+        return total, losses, weights
+
+    def compute_loss(
+        self,
+        out: torch.Tensor,
+        target: torch.Tensor,
+    ) -> torch.Tensor:
+        total, _, _ = self._compute_ds_loss(out, target)
+        return total
 
     def training_step(self, batch: dict, batch_idx: int):
         """Training step; deep supervision loss, main-head metrics."""
         out = self.model(batch["img"], modality=self._parse_modalities(batch))
         target = batch["label"]
-        loss = self.compute_loss(out, target)
+        loss, ds_losses, weights = self._compute_ds_loss(out, target)
 
         heads = self._split_outputs(out, target)
         main_out = cast(torch.Tensor, self.postprocess(heads[0]))
         stats = self.compute_metrics(main_out, target)
-        stats["loss"] = loss.item()
+        stats["loss"] = loss.detach()
 
-        if len(heads) > 1:
-            weights = self._resolve_ds_weights(len(heads))
-            for i, (weight, head) in enumerate(zip(weights, heads)):
-                if self.log_ds_losses:
-                    stats[f"loss_ds_{i}"] = self.loss_fn(head, target).item()  # type: ignore[attr-defined]
-                if self.log_ds_weights:
-                    stats[f"weight_ds_{i}"] = weight
+        if self.log_ds_losses:
+            for i, ds_loss in enumerate(ds_losses):
+                stats[f"loss_ds_{i}"] = ds_loss.detach()
+
+        if self.log_ds_weights:
+            for i, weight in enumerate(weights):
+                stats[f"weight_ds_{i}"] = weight
 
         self.log_step("train", stats)
         if self.log_every_n_steps and self.global_step % self.log_every_n_steps == 0:
