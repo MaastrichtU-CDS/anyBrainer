@@ -17,7 +17,7 @@ class StackedOutputNet(nn.Module):
         self.out_channels = out_channels
         self.dummy = nn.Parameter(torch.zeros(1))
 
-    def forward(self, x: torch.Tensor, modality=()) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         b = x.size(0)
         spatial = x.shape[2:]
         return torch.randn(
@@ -100,7 +100,7 @@ class TestDeepSupervisionSegmentationModel:
     def test_training_step_uses_main_head_for_metrics(self, ds_seg_model, monkeypatch):
         batch = {
             "img": torch.randn(2, 1, 4, 4, 4),
-            "label": torch.zeros(2, 1, 4, 4, 4),
+            "seg": torch.zeros(2, 1, 4, 4, 4),
         }
         captured: dict[str, torch.Size] = {}
 
@@ -110,4 +110,4 @@ class TestDeepSupervisionSegmentationModel:
 
         monkeypatch.setattr(ds_seg_model, "compute_metrics", _fake_compute_metrics)
         ds_seg_model.training_step(batch, 0)
-        assert captured["out_shape"] == batch["label"].shape
+        assert captured["out_shape"] == batch["seg"].shape
