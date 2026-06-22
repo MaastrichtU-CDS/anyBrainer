@@ -1013,12 +1013,13 @@ class SegmentationModel(BaseModel):
             {"name": "SurfaceDistanceMetric"},
         ],
         get_uncertainty: bool = False,  # if True, returns (mean, std)
+        seg_key: str = "mask",
         **base_model_kwargs,
     ):
         super().__init__(**base_model_kwargs)
 
         self.get_uncertainty = self.tta is not None and get_uncertainty
-
+        self.seg_key = seg_key
         self.metrics: list[Callable] = []
         if metrics is not None:
             if isinstance(metrics, str):
@@ -1097,9 +1098,9 @@ class SegmentationModel(BaseModel):
     def training_step(self, batch: dict, batch_idx: int):
         """Training step; computes loss and metrics."""
         out = self.model(batch["img"])
-        loss = self.compute_loss(out, batch["seg"])
+        loss = self.compute_loss(out, batch[self.seg_key])
         stats = self.compute_metrics(
-            cast(torch.Tensor, self.postprocess(out)), batch["seg"]
+            cast(torch.Tensor, self.postprocess(out)), batch[self.seg_key]
         )
         stats["loss"] = loss.item()
         self.log_step("train", stats)
@@ -1110,15 +1111,15 @@ class SegmentationModel(BaseModel):
         out_no_tta = cast(torch.Tensor, self.predict(batch, do_tta=False))
 
         # Non-TTA stats; regular val/
-        loss = self.compute_loss(out_no_tta, batch["seg"])
-        stats = self.compute_metrics(out_no_tta, batch["seg"])
+        loss = self.compute_loss(out_no_tta, batch[self.seg_key])
+        stats = self.compute_metrics(out_no_tta, batch[self.seg_key])
         stats["loss"] = loss.item()
         self.log_step("val", stats)
 
         # TTA stats; log mean and std
         if self.tta:
             out_tta = cast(torch.Tensor, self.predict(batch, do_tta=True))
-            stats = self.compute_metrics(out_tta, batch["seg"])
+            stats = self.compute_metrics(out_tta, batch[self.seg_key])
             stats["loss"] = loss.item()
             self.log_step("val_tta", stats)
 
@@ -1127,7 +1128,7 @@ class SegmentationModel(BaseModel):
     def test_step(self, batch: dict, batch_idx: int) -> None:
         """Test step; performs inference and computes metrics."""
         mean = cast(torch.Tensor, self.predict(batch))
-        stats = self.compute_metrics(mean, batch["seg"])
+        stats = self.compute_metrics(mean, batch[self.seg_key])
         self.log_step("test", stats)
 
     def predict_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
