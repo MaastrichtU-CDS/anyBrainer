@@ -1809,30 +1809,50 @@ class MultimodalDownstreamModel(BaseModel):
         # Sort by channel index
         return tuple(v for _, v in sorted(mods.items(), key=lambda kv: int(kv[0][3:])))
 
-    def training_step(self, batch: dict, batch_idx: int):
-        """Training step; computes loss and metrics."""
-        out = self.model(batch["img"], modality=self._parse_modalities(batch))
+    def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
+        """Training step; compute metrics and images only at configured intervals."""
+        out = self.model(
+            batch["img"],
+            modality=self._parse_modalities(batch),
+        )
         loss = self.compute_loss(out, batch["label"])
-        out = cast(torch.Tensor, self.postprocess(out))
-        stats = {"loss": loss.item()}
-        if self.global_step % self.compute_metrics_every_n_steps == 0:
-            stats.update(self.compute_metrics(out, batch["label"]))
+
+        compute_metrics = (
+            self.compute_metrics_every_n_steps > 0
+            and self.global_step % self.compute_metrics_every_n_steps == 0
+        )
+        log_images = (
+            self.log_every_n_steps > 0
+            and self.global_step % self.log_every_n_steps == 0
+        )
+
+        stats: dict[str, Any] = {"loss": loss.detach()}
+
+        if compute_metrics or log_images:
+            with torch.no_grad():
+                pred = cast(
+                    torch.Tensor,
+                    self.postprocess(out.detach()),
+                )
+
+            if compute_metrics:
+                stats.update(self.compute_metrics(pred, batch["label"]))
+
+            if log_images:
+                self.log_tensors_dict(
+                    {
+                        "train/input": torch.where(
+                            batch["label"].bool(),
+                            batch["img"].max() * 1.5,
+                            batch["img"],
+                        ),
+                        "train/pred": pred,
+                    },
+                    dim=-1,
+                    slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
+                )
 
         self.log_step("train", stats)
-        if self.log_every_n_steps and self.global_step % self.log_every_n_steps == 0:
-            self.log_tensors_dict(
-                {
-                    "train/input": torch.where(
-                        batch["label"].bool(),
-                        batch["img"].max() * 1.5,
-                        batch["img"],
-                    ),
-                    "train/pred": out,
-                },
-                dim=-1,
-                slice_idx=get_label_mid_slice(batch["label"][0], dim=-1),
-            )
-
         return loss
 
     def validation_step(self, batch: dict, batch_idx: int):
