@@ -1013,7 +1013,7 @@ class SegmentationModel(BaseModel):
             {"name": "SurfaceDistanceMetric"},
         ],
         get_uncertainty: bool = False,  # if True, returns (mean, std)
-        seg_key: str = "mask",
+        seg_key: str = "seg",
         **base_model_kwargs,
     ):
         super().__init__(**base_model_kwargs)
