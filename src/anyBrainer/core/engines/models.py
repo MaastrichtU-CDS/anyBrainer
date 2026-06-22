@@ -1767,8 +1767,7 @@ class DeepSupervisionSegmentationModel(MultimodalDownstreamModel):
         else:
             if len(self.ds_weights) != n_heads:
                 raise ValueError(
-                    f"Expected {n_heads} `ds_weights`, "
-                    f"got {len(self.ds_weights)}."
+                    f"Expected {n_heads} `ds_weights`, " f"got {len(self.ds_weights)}."
                 )
             weights = [float(w) for w in self.ds_weights]
 
@@ -1819,8 +1818,7 @@ class DeepSupervisionSegmentationModel(MultimodalDownstreamModel):
         heads = self._split_outputs(out, target)
 
         losses: list[torch.Tensor] = [
-            cast(torch.Tensor, self.loss_fn(head, target))
-            for head in heads
+            cast(torch.Tensor, self.loss_fn(head, target)) for head in heads
         ]
 
         if len(heads) == 1:
@@ -1829,10 +1827,7 @@ class DeepSupervisionSegmentationModel(MultimodalDownstreamModel):
         weights = self._resolve_ds_weights(len(heads))
 
         total = torch.stack(
-            [
-                loss * weight
-                for loss, weight in zip(losses, weights, strict=True)
-            ]
+            [loss * weight for loss, weight in zip(losses, weights, strict=True)]
         ).sum()
 
         return total, losses, weights
