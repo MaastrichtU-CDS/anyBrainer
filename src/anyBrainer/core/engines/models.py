@@ -1299,9 +1299,30 @@ class DeepSupervisionSegmentationModel(SegmentationModel):
         *,
         ds_weights: list[float] | None = None,
         zero_coarsest_weight: bool = True,
+        metrics: (
+            list[Callable]
+            | list[str]
+            | list[dict[str, Any]]
+            | Callable
+            | str
+            | dict[str, Any]
+            | None
+        ) = [
+            {"name": "DiceMetric"},
+            {"name": "MeanIoU"},
+            {"name": "HausdorffDistanceMetric"},
+            {"name": "SurfaceDistanceMetric"},
+        ],
+        seg_key: str = "seg",
+        get_uncertainty: bool = False,
         **base_model_kwargs,
     ):
-        super().__init__(**base_model_kwargs)
+        super().__init__(
+            metrics=metrics,
+            get_uncertainty=get_uncertainty,
+            seg_key=seg_key,
+            **base_model_kwargs,
+        )
         self.ds_weights = ds_weights
         self.zero_coarsest_weight = zero_coarsest_weight
 
@@ -1362,7 +1383,7 @@ class DeepSupervisionSegmentationModel(SegmentationModel):
     def training_step(self, batch: dict, batch_idx: int):
         """Training step; deep supervision loss, main-head metrics."""
         out = self.model(batch["img"])
-        target = batch["seg"]
+        target = batch[self.seg_key]
         loss = self.compute_loss(out, target)
 
         heads = self._split_outputs(out, target)
