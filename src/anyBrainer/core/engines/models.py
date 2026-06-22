@@ -14,6 +14,7 @@ __all__ = [
     "ClassificationModel",
     "RegressionModel",
     "SegmentationModel",
+    "DeepSupervisionSegmentationModel",
     "ClassificationMidFusionModel",
 ]
 
@@ -1280,6 +1281,102 @@ class SegmentationModel(BaseModel):
 
         out = cast(torch.Tensor, self.postprocess(mu)) if do_postprocess else mu
         return (out, std_pred) if return_std else out
+
+
+@register(RK.PL_MODULE)
+class DeepSupervisionSegmentationModel(SegmentationModel):
+    """Segmentation model with deep supervision (e.g. MONAI DynUNet).
+
+    During training, expects stacked outputs ``(B, num_heads, C, *spatial)``
+    and applies nnU-Net v2-style weighted loss across heads. Metrics and
+    logging use only the main head (index 0). Validation/test/predict are
+    unchanged because the network returns a single tensor in eval mode.
+    """
+
+    def __init__(
+        self,
+        *,
+        ds_weights: list[float] | None = None,
+        zero_coarsest_weight: bool = True,
+        **base_model_kwargs,
+    ):
+        super().__init__(**base_model_kwargs)
+        self.ds_weights = ds_weights
+        self.zero_coarsest_weight = zero_coarsest_weight
+
+        logger.info(
+            f"[{self.__class__.__name__}] Initialized with "
+            f"ds_weights={self.ds_weights}, "
+            f"zero_coarsest_weight={self.zero_coarsest_weight}."
+        )
+
+    def _resolve_ds_weights(self, n_heads: int) -> list[float]:
+        """Resolve normalized deep-supervision loss weights."""
+        if self.ds_weights is not None:
+            if len(self.ds_weights) != n_heads:
+                msg = (
+                    f"[{self.__class__.__name__}] Expected {n_heads} "
+                    f"`ds_weights`, got {len(self.ds_weights)}."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
+            weights = list(self.ds_weights)
+        else:
+            weights = [1 / (2**i) for i in range(n_heads)]
+
+        if self.zero_coarsest_weight and n_heads > 0:
+            weights[-1] = 0.0
+
+        total = sum(weights)
+        if total <= 0:
+            msg = (
+                f"[{self.__class__.__name__}] Deep supervision weights sum to "
+                f"{total}; cannot normalize."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        return [w / total for w in weights]
+
+    def _split_outputs(
+        self, out: torch.Tensor, target: torch.Tensor
+    ) -> list[torch.Tensor]:
+        """Split stacked deep-supervision outputs into per-head tensors."""
+        if out.ndim == target.ndim + 1 and out.size(1) > 1:
+            return list(torch.unbind(out, dim=1))
+        return [out]
+
+    def compute_loss(self, out: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Weighted sum of per-head losses (nnU-Net v2 style)."""
+        heads = self._split_outputs(out, target)
+        if len(heads) == 1:
+            return self.loss_fn(heads[0], target)  # type: ignore[attr-defined]
+
+        weights = self._resolve_ds_weights(len(heads))
+        total_loss = torch.tensor(0.0, device=out.device, dtype=out.dtype)
+        for weight, head in zip(weights, heads):
+            total_loss = total_loss + weight * self.loss_fn(head, target)  # type: ignore[attr-defined]
+        return total_loss
+
+    def training_step(self, batch: dict, batch_idx: int):
+        """Training step; deep supervision loss, main-head metrics."""
+        out = self.model(batch["img"])
+        target = batch["seg"]
+        loss = self.compute_loss(out, target)
+
+        heads = self._split_outputs(out, target)
+        main_out = cast(torch.Tensor, self.postprocess(heads[0]))
+        stats = self.compute_metrics(main_out, target)
+        stats["loss"] = loss.item()
+
+        if len(heads) > 1:
+            weights = self._resolve_ds_weights(len(heads))
+            for i, (weight, head) in enumerate(zip(weights, heads)):
+                stats[f"loss_ds_{i}"] = self.loss_fn(head, target).item()  # type: ignore[attr-defined]
+                stats[f"weight_ds_{i}"] = weight
+
+        self.log_step("train", stats)
+        return loss
 
 
 @register(RK.PL_MODULE)
