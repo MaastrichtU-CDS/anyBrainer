@@ -409,19 +409,9 @@ class MetricAggregator(pl.Callback):
 
 @register(RK.CALLBACK)
 class SWAAvgOnly(pl.Callback):
-    """SWA-based averaging of model weights from `start_epoch` to the end,
-    without LR annealing or BN updates. Optionally clamps LR to a constant at
-    `start_epoch`.
+    """Equal-weight parameter averaging without LR scheduling or BN updates.
 
-    - No LR scheduler interference (unless `clamp_lr` is set).
-    - No SWALR / annealing.
-    - Safe with discriminative per-group LRs and custom schedulers.
-    - Good fit for LayerNorm-based models (e.g., Swin); BN updates are omitted.
-
-    Args:
-        start_epoch: first epoch to start averaging.
-        clamp_lr: if not None, set every param-group's LR to this value at start.
-        update_on: "epoch" (default) or "step" if you prefer finer averaging.
+    Under DDP, every rank maintains its own identical averaged model.
     """
 
     def __init__(
@@ -429,43 +419,75 @@ class SWAAvgOnly(pl.Callback):
         start_epoch: int = 40,
         clamp_lr: float | None = None,
         update_on: Literal["epoch", "step"] = "epoch",
+        average_device: str | torch.device | None = None,
     ) -> None:
         super().__init__()
-        assert update_on in {"epoch", "step"}
+
+        if update_on not in {"epoch", "step"}:
+            raise ValueError(
+                f"`update_on` must be 'epoch' or 'step', got {update_on!r}."
+            )
+        if start_epoch < 0:
+            raise ValueError("`start_epoch` must be non-negative.")
+
         self.start_epoch = start_epoch
         self.clamp_lr = clamp_lr
         self.update_on = update_on
-        self._avg = None
+        self.average_device = average_device
+
+        self._avg: AveragedModel | None = None
         self._active = False
+        self._latest_update_step = 0
+        self._latest_update_epoch = -1
 
-        logger.info(
-            f"[SWAAvgOnly] SWA averaging-only callback initialized with start_epoch={start_epoch}, "
-            f"clamp_lr={clamp_lr}, update_on={update_on}."
+        # Used when callback state is restored before AveragedModel exists.
+        self._pending_avg_state: dict[str, Any] | None = None
+
+    def setup(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        stage: str,
+    ) -> None:
+        if stage != "fit":
+            return
+
+        device = (
+            torch.device(self.average_device)
+            if self.average_device is not None
+            else pl_module.device
         )
 
-    @staticmethod
-    def _maybe_unwrap(trainer: pl.Trainer, module: pl.LightningModule) -> nn.Module:
-        """Return the base nn.Module across SingleDevice/DDP/etc."""
-        unwrap = getattr(trainer.strategy, "unwrap_module", None) or getattr(
-            trainer.strategy, "unwrap_model", None
+        # Do not unwrap the LightningModule. Lightning's official weight
+        # averaging callback also passes pl_module directly to AveragedModel.
+        self._avg = AveragedModel(
+            pl_module,
+            device=device,
+            use_buffers=False,
         )
-        return unwrap(module) if callable(unwrap) else module  # type: ignore[no-any-return]
 
-    def on_fit_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        base = self._maybe_unwrap(trainer, pl_module)
-        # Keep averages on the same device as `base`
-        self._avg = AveragedModel(base)
+        if self._pending_avg_state is not None:
+            self._avg.load_state_dict(self._pending_avg_state)
+            self._pending_avg_state = None
 
     def on_train_epoch_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
     ) -> None:
-        if trainer.current_epoch == self.start_epoch:
-            self._active = True
-            if self.clamp_lr is not None:
-                opt = trainer.optimizers[0]
-                for pg in opt.param_groups:
-                    pg["lr"] = float(self.clamp_lr)
-            logger.info(f"[SWAAvgOnly] activated at epoch {trainer.current_epoch}")
+        # >= is necessary when resuming after start_epoch.
+        self._active = trainer.current_epoch >= self.start_epoch
+
+        if not self._active or self.clamp_lr is None:
+            return
+
+        # Executed on every rank. Each rank owns a separate optimizer.
+        for optimizer in trainer.optimizers:
+            for param_group in optimizer.param_groups:
+                param_group["lr"] = float(self.clamp_lr)
+
+        if trainer.is_global_zero and trainer.current_epoch == self.start_epoch:
+            logger.info(f"[SWAAvgOnly] Activated at epoch " f"{trainer.current_epoch}.")
 
     def on_train_batch_end(
         self,
@@ -475,23 +497,73 @@ class SWAAvgOnly(pl.Callback):
         batch: Any,
         batch_idx: int,
     ) -> None:
-        if self.update_on == "step" and self._active and self._avg is not None:
-            base = self._maybe_unwrap(trainer, pl_module)
-            self._avg.update_parameters(base)
+        if self.update_on != "step" or not self._active or self._avg is None:
+            return
+
+        # Prevent duplicate averaging under gradient accumulation because
+        # several batches can share the same global_step.
+        if trainer.global_step <= self._latest_update_step:
+            return
+
+        # Must execute on every rank.
+        self._avg.update_parameters(pl_module)
+        self._latest_update_step = trainer.global_step
 
     def on_train_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
     ) -> None:
-        if self.update_on == "epoch" and self._active and self._avg is not None:
-            base = self._maybe_unwrap(trainer, pl_module)
-            self._avg.update_parameters(base)
-
-    def on_fit_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        if self._avg is None:
-            logger.warning(
-                "[SWAAvgOnly] on_fit_end called but averaging never initialized."
-            )
+        if (
+            self.update_on != "epoch"
+            or trainer.current_epoch < self.start_epoch
+            or self._avg is None
+            or trainer.current_epoch <= self._latest_update_epoch
+        ):
             return
-        # swap averaged weights in
-        base = self._maybe_unwrap(trainer, pl_module)
-        base.load_state_dict(self._avg.module.state_dict())
+
+        # Must execute on every rank.
+        self._avg.update_parameters(pl_module)
+        self._latest_update_epoch = trainer.current_epoch
+
+    def on_train_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+    ) -> None:
+        if self._avg is None or int(self._avg.n_averaged.item()) == 0:
+            if trainer.is_global_zero:
+                logger.warning("[SWAAvgOnly] No models were averaged.")
+            return
+
+        # Every rank installs its own identical averaged parameters.
+        pl_module.load_state_dict(self._avg.module.state_dict())
+
+        if trainer.is_global_zero:
+            logger.info(
+                f"[SWAAvgOnly] Installed average of "
+                f"{int(self._avg.n_averaged.item())} models."
+            )
+
+    def state_dict(self) -> dict[str, Any]:
+        """Persist the running average for fault-tolerant resume."""
+        return {
+            "active": self._active,
+            "latest_update_step": self._latest_update_step,
+            "latest_update_epoch": self._latest_update_epoch,
+            "average_model": (None if self._avg is None else self._avg.state_dict()),
+        }
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        self._active = bool(state_dict.get("active", False))
+        self._latest_update_step = int(state_dict.get("latest_update_step", 0))
+        self._latest_update_epoch = int(state_dict.get("latest_update_epoch", -1))
+
+        average_state = state_dict.get("average_model")
+        if average_state is None:
+            return
+
+        if self._avg is None:
+            self._pending_avg_state = average_state
+        else:
+            self._avg.load_state_dict(average_state)
