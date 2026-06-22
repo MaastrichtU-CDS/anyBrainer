@@ -62,27 +62,21 @@ class UpdateDatamoduleEpoch(pl.Callback):
 
 @register(RK.CALLBACK)
 class LogLR(pl.Callback):
-    """Callback to log the learning rate for all optimizers in the trainer."""
+    """Log optimizer learning rates once per epoch."""
 
     @rank_zero_only
-    def on_before_optimizer_step(
+    def on_train_epoch_start(
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        optimizer: optim.Optimizer,
     ) -> None:
-        """Log the learning rate."""
-        if not isinstance(trainer.optimizers, list):
-            logger.warning("Cannot log LR because pl_module.optimizers is not a list.")
-            return
+        metrics = get_optimizer_lr(trainer.optimizers)
 
-        pl_module.log_dict(
-            get_optimizer_lr(trainer.optimizers),
-            on_step=True,
-            on_epoch=False,
-            prog_bar=False,
-            sync_dist=False,
-        )
+        for trainer_logger in trainer.loggers:
+            trainer_logger.log_metrics(
+                metrics,
+                step=trainer.global_step,
+            )
 
 
 @register(RK.CALLBACK)

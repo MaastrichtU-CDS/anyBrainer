@@ -1684,6 +1684,7 @@ class MultimodalDownstreamModel(BaseModel):
             | dict[str, Any]
             | None
         ),
+        compute_metrics_every_n_steps: int = 1,
         modality_remap: dict[str, str] | None = None,
         fallback_modality: str | None = None,
         **base_model_kwargs,
@@ -1699,6 +1700,8 @@ class MultimodalDownstreamModel(BaseModel):
             elif callable(metrics):
                 metrics = [metrics]
             self.metrics = [cast(Callable, resolve_metric(m)) for m in metrics]
+
+        self.compute_metrics_every_n_steps = compute_metrics_every_n_steps
 
         self.modality_remap = modality_remap
         if self.modality_remap is not None:
@@ -1758,7 +1761,7 @@ class MultimodalDownstreamModel(BaseModel):
                         stats[f"{name}_{metric_name}"] = val.item()
                 else:
                     msg = (
-                        f"[{self.__class__.__name__}.compute_metrics] Unsuppoeted metric "
+                        f"[{self.__class__.__name__}.compute_metrics] Unsupported metric "
                         f"aggregation type: {type(agg)}"
                     )
                     logger.error(msg)
@@ -1811,8 +1814,9 @@ class MultimodalDownstreamModel(BaseModel):
         out = self.model(batch["img"], modality=self._parse_modalities(batch))
         loss = self.compute_loss(out, batch["label"])
         out = cast(torch.Tensor, self.postprocess(out))
-        stats = self.compute_metrics(out, batch["label"])
-        stats["loss"] = loss.item()
+        stats = {"loss": loss.item()}
+        if self.global_step % self.compute_metrics_every_n_steps == 0:
+            stats.update(self.compute_metrics(out, batch["label"]))
 
         self.log_step("train", stats)
         if self.log_every_n_steps and self.global_step % self.log_every_n_steps == 0:
