@@ -5,6 +5,7 @@ from monai.transforms.croppad.dictionary import CenterSpatialCropd, SpatialPadd
 from monai.transforms.spatial.dictionary import RandAffined
 
 from anyBrainer.core.transforms.transformlists import get_segmentation_transforms
+from anyBrainer.core.transforms.unit_transforms import CountLesiond
 from anyBrainer.core.transforms.utils import (
     resolve_seg_image_pad_modes,
     scale_spatial_size,
@@ -81,3 +82,15 @@ class TestGetSegmentationTransforms:
         )
         assert self._find(steps, RandAffined) == []
         assert len(self._find(steps, CenterSpatialCropd)) == 1
+
+    def test_log_seg_fg_count_disabled_by_default(self):
+        steps = get_segmentation_transforms(keys=["ch1"], seg_key="label")
+        assert self._find(steps, CountLesiond) == []
+
+    def test_log_seg_fg_count_adds_debug_transforms(self):
+        steps = get_segmentation_transforms(
+            keys=["ch1"], seg_key="label", log_seg_fg_count=True
+        )
+        counters = self._find(steps, CountLesiond)
+        assert len(counters) == 2
+        assert [c.stage for c in counters] == ["after load", "before crop"]

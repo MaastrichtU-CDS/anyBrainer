@@ -12,6 +12,7 @@ __all__ = [
     "ClipNonzeroPercentilesd",
     "UnscalePredsIfNeeded",
     "PadToMaxOfKeysd",
+    "CountForegroundd",
 ]
 
 from typing import Literal, Sequence, Any, cast
@@ -772,6 +773,39 @@ class CreateRandomPatchGridMaskd(MapTransform, Randomizable):
             else:
                 d[self.mask_key] = masks
 
+        return d
+
+
+class CountForegroundd(MapTransform):
+    """Log foreground voxel count in a segmentation mask.
+
+    Intended as an opt-in debug helper when tracing empty-label warnings from
+    ``RandCropByPosNegLabeld``.
+    """
+
+    def __init__(
+        self,
+        keys: Sequence[Hashable],
+        stage: str = "",
+        allow_missing_keys: bool = False,
+    ):
+        super().__init__(keys, allow_missing_keys)
+        self.stage = stage
+
+    def __call__(self, data: dict[Hashable, Any]) -> dict[Hashable, Any]:
+        d = dict(data)
+        for key in self.key_iterator(d):
+            seg = d[key]
+            fg = int((seg > 0).sum().item())
+            msg = (
+                f"Seg foreground count for {key!r}"
+                f"{f' ({self.stage})' if self.stage else ''}: "
+                f"{fg} voxels, shape={tuple(seg.shape)}"
+            )
+            if fg == 0:
+                logger.warning(msg)
+            else:
+                logger.info(msg)
         return d
 
 

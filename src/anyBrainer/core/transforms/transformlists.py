@@ -60,6 +60,7 @@ from .unit_transforms import (
     UnscalePredsIfNeeded,
     CreateRandomPatchGridMaskd,
     PadToMaxOfKeysd,
+    CountForegroundd,
 )
 
 from anyBrainer.core.transforms.utils import (
@@ -1424,6 +1425,7 @@ def get_segmentation_transforms(
     pad_img: SegImagePadMode = "border",
     pre_spatial_scale_factor: float = 1.0,
     val_mode: bool = False,
+    debug_mode: bool = False,
     overfit_mode: bool = False,
     allow_missing_keys: bool = False,
 ) -> list[Callable]:
@@ -1442,6 +1444,8 @@ def get_segmentation_transforms(
         pre_spatial_scale_factor: When ``> 1``, pad to ``input_size * factor`` before
             spatial augmentations, then center-crop back to ``input_size`` afterward.
             Ignored in validation/overfit modes (no spatial augmentations).
+        debug_mode: When ``True``, log foreground voxel counts for ``seg_key``
+            after loading and immediately before cropping.
         val_mode: Whether to use for validation; no augmentations are applied.
         overfit_mode: Whether to use for overfitting; no augmentations are applied.
         allow_missing_keys: Whether to allow missing keys.
@@ -1466,6 +1470,14 @@ def get_segmentation_transforms(
     transforms: list[Callable] = [
         LoadImaged(keys=all_keys, reader="NumpyReader", ensure_channel_first=True),
     ]
+    if debug_mode:
+        transforms.append(
+            CountForegroundd(
+                keys=seg_key,
+                stage="after load",
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
 
     if not val_mode and not overfit_mode:
         if use_pre_spatial_pad:
@@ -1594,6 +1606,14 @@ def get_segmentation_transforms(
             ),
         ]
     )
+    if debug_mode:
+        transforms.append(
+            CountForegroundd(
+                keys=seg_key,
+                stage="before crop",
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
     if not val_mode:
         n_pos = 1 if overfit_mode else n_pos
         n_neg = 0 if overfit_mode else n_neg
