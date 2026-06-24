@@ -404,11 +404,15 @@ class TrainWorkflow(Workflow):
         Will populate self.trainer.
 
         Override for custom trainer configuration.
+
+        Note:
+            Set `reload_dataloaders_every_n_epochs=1` to use the deterministic
+            seeding mechanism of all datamodules inheriting from `BaseDataModule`,
+            which enables resuming broken training runs.
         """
         trainer_config = {
             "logger": self.wandb_logger,
             "callbacks": self.callbacks,
-            "reload_dataloaders_every_n_epochs": 1,
             **(self.settings.pl_trainer_kwargs or {}),
         }
         return pl.Trainer(**trainer_config)
