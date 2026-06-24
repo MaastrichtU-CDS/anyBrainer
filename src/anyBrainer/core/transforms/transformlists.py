@@ -62,6 +62,11 @@ from .unit_transforms import (
     PadToMaxOfKeysd,
 )
 
+from anyBrainer.core.transforms.utils import (
+    SegImagePadMode,
+    resolve_seg_image_pad_modes,
+    scale_spatial_size,
+)
 from anyBrainer.registry import register, RegistryKind as RK
 
 OPEN_KEYS = [f"img_{i}" for i in range(0, 20)]
@@ -1416,6 +1421,8 @@ def get_segmentation_transforms(
     n_patches: int = 4,
     n_pos: int = 1,
     n_neg: int = 2,
+    pad_img: SegImagePadMode = "border",
+    pre_spatial_scale_factor: float = 1.0,
     val_mode: bool = False,
     overfit_mode: bool = False,
     allow_missing_keys: bool = False,
@@ -1430,6 +1437,11 @@ def get_segmentation_transforms(
         n_patches: Number of crops to extract per image.
         n_pos: Relative weight of positive crops (i.e., containing the mask).
         n_neg: Relative weight of negative crops (i.e., not containing the mask).
+        pad_img: Image padding strategy. ``"zeros"`` uses zero/constant padding;
+            ``"border"`` replicates edge voxels (legacy default).
+        pre_spatial_scale_factor: When ``> 1``, pad to ``input_size * factor`` before
+            spatial augmentations, then center-crop back to ``input_size`` afterward.
+            Ignored in validation/overfit modes (no spatial augmentations).
         val_mode: Whether to use for validation; no augmentations are applied.
         overfit_mode: Whether to use for overfitting; no augmentations are applied.
         allow_missing_keys: Whether to allow missing keys.
@@ -1437,9 +1449,18 @@ def get_segmentation_transforms(
 
     # Padding and interpolation modes for images and segmentation mask
     all_keys = [*keys, seg_key]
-    pad_mode_affine = ["border"] * len(keys) + ["constant"]
-    pad_mode_spatial = ["edge"] * len(keys) + ["constant"]
+    img_pad_affine, img_pad_spatial = resolve_seg_image_pad_modes(pad_img)
+    pad_mode_affine = [img_pad_affine] * len(keys) + ["constant"]
+    pad_mode_spatial = [img_pad_spatial] * len(keys) + ["constant"]
     interp_mode = ["bilinear"] * len(keys) + ["nearest"]
+    use_pre_spatial_pad = (
+        not val_mode and not overfit_mode and pre_spatial_scale_factor != 1.0
+    )
+    pre_spatial_size = (
+        scale_spatial_size(input_size, pre_spatial_scale_factor)
+        if use_pre_spatial_pad
+        else None
+    )
 
     # Standardize inputs
     transforms: list[Callable] = [
@@ -1447,6 +1468,19 @@ def get_segmentation_transforms(
     ]
 
     if not val_mode and not overfit_mode:
+        if use_pre_spatial_pad:
+            assert pre_spatial_size is not None
+            transforms.extend(
+                [
+                    PadToMaxOfKeysd(keys=all_keys, mode=pad_mode_spatial),
+                    SpatialPadd(
+                        keys=all_keys,
+                        spatial_size=pre_spatial_size,
+                        mode=pad_mode_spatial,
+                        allow_missing_keys=allow_missing_keys,
+                    ),
+                ]
+            )
         # Spatial augmentations
         transforms.extend(
             [
@@ -1473,6 +1507,12 @@ def get_segmentation_transforms(
                 ),
             ]
         )
+        if use_pre_spatial_pad:
+            transforms.extend(
+                [
+                    CenterSpatialCropd(keys=all_keys, roi_size=input_size),
+                ]
+            )
         # Intensity augmentations; unique for each modality
         for key in keys:
             transforms.extend(
