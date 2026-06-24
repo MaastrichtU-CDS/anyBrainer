@@ -11,12 +11,13 @@ __all__ = [
 import logging
 from pathlib import Path
 from typing import Any, Sequence
+import os
+import yaml
+import json
 
 import torch
 import torch.nn as nn
 import lightning.pytorch as pl
-import yaml
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +80,45 @@ def load_model_from_ckpt(
         return
 
 
+def _expand_environment_variables(value: Any) -> Any:
+    """Recursively expand environment variables in configuration values."""
+    if isinstance(value, str):
+        return os.path.expandvars(value)
+
+    if isinstance(value, dict):
+        return {key: _expand_environment_variables(item) for key, item in value.items()}
+
+    if isinstance(value, list):
+        return [_expand_environment_variables(item) for item in value]
+
+    if isinstance(value, tuple):
+        return tuple(_expand_environment_variables(item) for item in value)
+
+    return value
+
+
 def load_config(path: Path) -> dict[str, Any]:
-    """Load a YAML or JSON file into a Python dict."""
-    if path.suffix.lower() in {".yaml", ".yml"}:
+    """Load a YAML or JSON configuration and expand environment variables."""
+    suffix = path.suffix.lower()
+
+    if suffix in {".yaml", ".yml"}:
         if yaml is None:
             raise RuntimeError("PyYAML is not installed – cannot read YAML files.")
-        return yaml.safe_load(path.read_text())  # type: ignore[arg-type]
-    if path.suffix.lower() == ".json":
-        return json.loads(path.read_text())
-    raise RuntimeError(
-        "Unsupported config format – use .yaml, .yml or .json",
-    )
+        config = yaml.safe_load(path.read_text())
+
+    elif suffix == ".json":
+        config = json.loads(path.read_text())
+
+    else:
+        raise RuntimeError("Unsupported config format – use .yaml, .yml or .json")
+
+    if not isinstance(config, dict):
+        raise TypeError(
+            f"Expected the configuration root to be a dictionary, "
+            f"got {type(config).__name__}."
+        )
+
+    return _expand_environment_variables(config)
 
 
 def load_param_group_from_ckpt(
