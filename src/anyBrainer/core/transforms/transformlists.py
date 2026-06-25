@@ -1422,8 +1422,8 @@ def get_segmentation_transforms(
     n_patches: int = 4,
     n_pos: int = 1,
     n_neg: int = 2,
-    pad_img: SegImagePadMode = "border",
-    pre_spatial_scale_factor: float = 1.0,
+    pad_keys_mode: SegImagePadMode = "border",
+    scale_before_spatial: float = 1.0,
     val_mode: bool = False,
     debug_mode: bool = False,
     overfit_mode: bool = False,
@@ -1432,37 +1432,39 @@ def get_segmentation_transforms(
     """IO transforms + augmentations for segmentation tasks.
 
     Args:
-        input_size: Input size.
+        input_size: Input patch size. If ``val_mode`` is True, a center crop is used.
+           It is recommended that val_mode is used with a large enough size so that the
+           expected model input size is subsequently obtained via a sliding window inferer.
         keys: Keys to apply transforms to.
         seg_key: Key with integer segmentation mask.
         out_key: Key to store the resulting volume, after concatenation across modalities.
         n_patches: Number of crops to extract per image.
         n_pos: Relative weight of positive crops (i.e., containing the mask).
         n_neg: Relative weight of negative crops (i.e., not containing the mask).
-        pad_img: Image padding strategy. ``"zeros"`` uses zero/constant padding;
+        pad_keys_mode: Image padding strategy. ``"zeros"`` uses zero/constant padding;
             ``"border"`` replicates edge voxels (legacy default).
-        pre_spatial_scale_factor: When ``> 1``, pad to ``input_size * factor`` before
-            spatial augmentations, then center-crop back to ``input_size`` afterward.
-            Ignored in validation/overfit modes (no spatial augmentations).
+        scale_before_spatial: When ``> 1``, pad to ``input_size * factor`` before
+            spatial augmentations to avoid edge artifacts. Ignored in
+            validation/overfit modes (no spatial augmentations).
+        val_mode: Whether to use for validation; no augmentations are applied.
         debug_mode: When ``True``, log foreground voxel counts for ``seg_key``
             after loading and immediately before cropping.
-        val_mode: Whether to use for validation; no augmentations are applied.
         overfit_mode: Whether to use for overfitting; no augmentations are applied.
         allow_missing_keys: Whether to allow missing keys.
     """
 
     # Padding and interpolation modes for images and segmentation mask
     all_keys = [*keys, seg_key]
-    img_pad_affine, img_pad_spatial = resolve_seg_image_pad_modes(pad_img)
+    img_pad_affine, img_pad_spatial = resolve_seg_image_pad_modes(pad_keys_mode)
     pad_mode_affine = [img_pad_affine] * len(keys) + ["constant"]
     pad_mode_spatial = [img_pad_spatial] * len(keys) + ["constant"]
     interp_mode = ["bilinear"] * len(keys) + ["nearest"]
-    use_pre_spatial_pad = (
-        not val_mode and not overfit_mode and pre_spatial_scale_factor != 1.0
+    use_scale_before_spatial = (
+        not val_mode and not overfit_mode and scale_before_spatial != 1.0
     )
-    pre_spatial_size = (
-        scale_spatial_size(input_size, pre_spatial_scale_factor)
-        if use_pre_spatial_pad
+    scale_before_spatial_size = (
+        scale_spatial_size(input_size, scale_before_spatial)
+        if use_scale_before_spatial
         else None
     )
 
@@ -1480,14 +1482,14 @@ def get_segmentation_transforms(
         )
 
     if not val_mode and not overfit_mode:
-        if use_pre_spatial_pad:
-            assert pre_spatial_size is not None
+        if use_scale_before_spatial:
+            assert scale_before_spatial_size is not None
             transforms.extend(
                 [
                     PadToMaxOfKeysd(keys=all_keys, mode=pad_mode_spatial),
                     SpatialPadd(
                         keys=all_keys,
-                        spatial_size=pre_spatial_size,
+                        spatial_size=scale_before_spatial_size,
                         mode=pad_mode_spatial,
                         allow_missing_keys=allow_missing_keys,
                     ),
@@ -1519,12 +1521,7 @@ def get_segmentation_transforms(
                 ),
             ]
         )
-        if use_pre_spatial_pad:
-            transforms.extend(
-                [
-                    CenterSpatialCropd(keys=all_keys, roi_size=input_size),
-                ]
-            )
+
         # Intensity augmentations; unique for each modality
         for key in keys:
             transforms.extend(
@@ -1594,7 +1591,7 @@ def get_segmentation_transforms(
                 ]
             )
 
-    # Pad and crop to match input size
+    # Pad and crop (train; optionally for val) to match input size
     transforms.extend(
         [
             PadToMaxOfKeysd(keys=all_keys, mode=pad_mode_spatial),
