@@ -68,6 +68,7 @@ from anyBrainer.core.transforms.utils import (
     resolve_seg_image_pad_modes,
     scale_spatial_size,
 )
+from anyBrainer.core.utils import ensure_tuple_dim
 from anyBrainer.registry import register, RegistryKind as RK
 
 OPEN_KEYS = [f"img_{i}" for i in range(0, 20)]
@@ -1416,6 +1417,7 @@ def get_mim_transforms(
 @register(RK.TRANSFORM)
 def get_segmentation_transforms(
     input_size: int | Sequence[int] = 128,
+    standard_spatial_size: int | Sequence[int] | None = None,
     keys: Sequence[str] = ("img",),
     seg_key: str = "seg",
     out_key: str = "img",
@@ -1423,55 +1425,129 @@ def get_segmentation_transforms(
     n_pos: int = 1,
     n_neg: int = 2,
     pad_keys_mode: SegImagePadMode = "border",
-    scale_before_spatial: float = 1.0,
     val_mode: bool = False,
     debug_mode: bool = False,
     overfit_mode: bool = False,
     allow_missing_keys: bool = False,
 ) -> list[Callable]:
-    """IO transforms + augmentations for segmentation tasks.
+    """Create preprocessing and augmentation transforms for segmentation.
+
+    All modalities and the segmentation mask are first harmonized and
+    standardized to ``standard_spatial_size``. Training samples are subsequently
+    extracted with ``RandCropByPosNegLabeld`` using ``input_size``. Validation
+    samples retain the full standardized spatial size and are expected to be
+    consumed according to the downstream inference strategy.
 
     Args:
-        input_size: Input patch size. If ``val_mode`` is True, a center crop is used.
-           It is recommended that val_mode is used with a large enough size so that the
-           expected model input size is subsequently obtained via a sliding window inferer.
-        keys: Keys to apply transforms to.
-        seg_key: Key with integer segmentation mask.
-        out_key: Key to store the resulting volume, after concatenation across modalities.
-        n_patches: Number of crops to extract per image.
-        n_pos: Relative weight of positive crops (i.e., containing the mask).
-        n_neg: Relative weight of negative crops (i.e., not containing the mask).
-        pad_keys_mode: Image padding strategy. ``"zeros"`` uses zero/constant padding;
-            ``"border"`` replicates edge voxels (legacy default).
-        scale_before_spatial: When ``> 1``, pad to ``input_size * factor`` before
-            spatial augmentations to avoid edge artifacts. Ignored in
-            validation/overfit modes (no spatial augmentations).
-        val_mode: Whether to use for validation; no augmentations are applied.
-        debug_mode: When ``True``, log foreground voxel counts for ``seg_key``
-            after loading and immediately before cropping.
-        overfit_mode: Whether to use for overfitting; no augmentations are applied.
-        allow_missing_keys: Whether to allow missing keys.
-    """
+        input_size:
+            Spatial size passed to ``RandCropByPosNegLabeld`` during training.
 
-    # Padding and interpolation modes for images and segmentation mask
+        standard_spatial_size:
+            Fixed spatial canvas applied to every sample before augmentation and
+            patch extraction. The same value should normally be used for
+            training, validation, and testing.
+
+            The size must be large enough to preserve the anatomical field of
+            view relevant to the task. If ``None``, defaults to ``input_size`` for
+            backwards compatibility.
+
+        keys:
+            Image modality keys.
+
+        seg_key:
+            Key containing the integer segmentation mask.
+
+        out_key:
+            Key under which the modalities are concatenated.
+
+        n_patches:
+            Number of patches extracted from each training sample.
+
+        n_pos:
+            Relative positive-patch sampling weight.
+
+        n_neg:
+            Relative negative-patch sampling weight.
+
+        pad_keys_mode:
+            Image padding strategy. ``"zeros"`` uses zero/constant padding;
+            ``"border"`` replicates edge voxels. The segmentation mask is always
+            padded with zeros.
+
+        val_mode:
+            If ``True``, disable random augmentation and patch sampling. The
+            returned sample has spatial size ``standard_spatial_size``.
+
+        debug_mode:
+            If ``True``, log segmentation foreground counts after loading, after
+            fixed-size standardization, and immediately before patch sampling.
+
+        overfit_mode:
+            If ``True``, disable augmentation and sample positive patches only.
+
+        allow_missing_keys:
+            Whether dictionary transforms may ignore missing keys.
+
+    Returns:
+        Ordered MONAI transforms for the requested execution mode.
+    """
+    if not keys:
+        raise ValueError("At least one image key must be provided.")
+
+    if seg_key in keys:
+        raise ValueError(f"seg_key={seg_key!r} must not also be present in image keys.")
+
+    if out_key == seg_key:
+        raise ValueError("out_key must be different from seg_key.")
+
+    # This pipeline is specifically defined for 3D volumes.
+    input_size_3d = ensure_tuple_dim(input_size, 3)
+    standard_size_3d = ensure_tuple_dim(
+        standard_spatial_size if standard_spatial_size is not None else input_size,
+        3,
+    )
+
+    if any(size <= 0 for size in input_size_3d):
+        raise ValueError(
+            f"input_size must contain positive values, got {input_size_3d}."
+        )
+
+    if any(size <= 0 for size in standard_size_3d):
+        raise ValueError(
+            "standard_spatial_size must contain positive values, "
+            f"got {standard_size_3d}."
+        )
+
+    if any(
+        patch_size > standard_size
+        for patch_size, standard_size in zip(
+            input_size_3d,
+            standard_size_3d,
+            strict=True,
+        )
+    ):
+        raise ValueError(
+            "input_size must not exceed standard_spatial_size on any axis: "
+            f"input_size={input_size_3d}, "
+            f"standard_spatial_size={standard_size_3d}."
+        )
+
     all_keys = [*keys, seg_key]
+
     img_pad_affine, img_pad_spatial = resolve_seg_image_pad_modes(pad_keys_mode)
     pad_mode_affine = [img_pad_affine] * len(keys) + ["constant"]
     pad_mode_spatial = [img_pad_spatial] * len(keys) + ["constant"]
-    interp_mode = ["bilinear"] * len(keys) + ["nearest"]
-    use_scale_before_spatial = (
-        not val_mode and not overfit_mode and scale_before_spatial != 1.0
-    )
-    scale_before_spatial_size = (
-        scale_spatial_size(input_size, scale_before_spatial)
-        if use_scale_before_spatial
-        else None
-    )
+    interpolation_mode = ["bilinear"] * len(keys) + ["nearest"]
 
-    # Standardize inputs
     transforms: list[Callable] = [
-        LoadImaged(keys=all_keys, reader="NumpyReader", ensure_channel_first=True),
+        LoadImaged(
+            keys=all_keys,
+            reader="NumpyReader",
+            ensure_channel_first=True,
+            allow_missing_keys=allow_missing_keys,
+        ),
     ]
+
     if debug_mode:
         transforms.append(
             CountForegroundd(
@@ -1481,21 +1557,40 @@ def get_segmentation_transforms(
             )
         )
 
-    if not val_mode and not overfit_mode:
-        if use_scale_before_spatial:
-            assert scale_before_spatial_size is not None
-            transforms.extend(
-                [
-                    PadToMaxOfKeysd(keys=all_keys, mode=pad_mode_spatial),
-                    SpatialPadd(
-                        keys=all_keys,
-                        spatial_size=scale_before_spatial_size,
-                        mode=pad_mode_spatial,
-                        allow_missing_keys=allow_missing_keys,
-                    ),
-                ]
+    # Harmonize modality/mask shapes before any joint spatial operation.
+    transforms.extend(
+        [
+            PadToMaxOfKeysd(
+                keys=all_keys,
+                mode=pad_mode_spatial,
+            ),
+            # First guarantee that every axis is at least the target size.
+            SpatialPadd(
+                keys=all_keys,
+                spatial_size=standard_size_3d,
+                mode=pad_mode_spatial,
+                allow_missing_keys=allow_missing_keys,
+            ),
+            # Then deterministically standardize every sample to the same canvas.
+            CenterSpatialCropd(
+                keys=all_keys,
+                roi_size=standard_size_3d,
+                allow_missing_keys=allow_missing_keys,
+            ),
+        ]
+    )
+
+    if debug_mode:
+        transforms.append(
+            CountForegroundd(
+                keys=seg_key,
+                stage="after spatial standardization",
+                allow_missing_keys=allow_missing_keys,
             )
-        # Spatial augmentations
+        )
+
+    # Joint image/label spatial augmentation on the standardized canvas.
+    if not val_mode and not overfit_mode:
         transforms.extend(
             [
                 RandFlipd(
@@ -1514,7 +1609,7 @@ def get_segmentation_transforms(
                     keys=all_keys,
                     rotate_range=(0.1, 0.1, 0.1),
                     scale_range=(0.1, 0.1, 0.1),
-                    mode=interp_mode,
+                    mode=interpolation_mode,
                     padding_mode=pad_mode_affine,
                     prob=1.0,
                     allow_missing_keys=allow_missing_keys,
@@ -1522,7 +1617,38 @@ def get_segmentation_transforms(
             ]
         )
 
-        # Intensity augmentations; unique for each modality
+    if debug_mode and not val_mode:
+        transforms.append(
+            CountForegroundd(
+                keys=seg_key,
+                stage="before patch sampling",
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+
+    # Training/overfit patch extraction.
+    #
+    # RandCropByPosNegLabeld returns a list of dictionaries. MONAI Compose
+    # applies all subsequent transforms independently to each returned patch.
+    if not val_mode:
+        pos_weight = 1 if overfit_mode else n_pos
+        neg_weight = 0 if overfit_mode else n_neg
+
+        transforms.append(
+            RandCropByPosNegLabeld(
+                keys=all_keys,
+                label_key=seg_key,
+                spatial_size=input_size_3d,
+                pos=pos_weight,
+                neg=neg_weight,
+                num_samples=n_patches,
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+
+    # Apply intensity augmentation after patch sampling to reduce CPU work.
+    # Each training patch receives its own independently sampled augmentation.
+    if not val_mode and not overfit_mode:
         for key in keys:
             transforms.extend(
                 [
@@ -1538,11 +1664,6 @@ def get_segmentation_transforms(
                         prob=0.3,
                         allow_missing_keys=allow_missing_keys,
                     ),
-                ]
-            )
-            # Simulate artifacts
-            transforms.extend(
-                [
                     OneOf(
                         transforms=[
                             RandGaussianSmoothd(
@@ -1566,11 +1687,6 @@ def get_segmentation_transforms(
                         ],
                         weights=[1.0, 1.0, 1.0],
                     ),
-                ]
-            )
-            # Simulate different acquisitions
-            transforms.extend(
-                [
                     OneOf(
                         transforms=[
                             RandAdjustContrastd(
@@ -1591,57 +1707,21 @@ def get_segmentation_transforms(
                 ]
             )
 
-    # Pad and crop (train; optionally for val) to match input size
-    transforms.extend(
-        [
-            PadToMaxOfKeysd(keys=all_keys, mode=pad_mode_spatial),
-            SpatialPadd(
-                keys=all_keys,
-                spatial_size=input_size,
-                mode=pad_mode_spatial,
-                allow_missing_keys=allow_missing_keys,
-            ),
-        ]
-    )
-    if debug_mode:
-        transforms.append(
-            CountForegroundd(
-                keys=seg_key,
-                stage="before crop",
-                allow_missing_keys=allow_missing_keys,
-            )
-        )
-    if not val_mode:
-        n_pos = 1 if overfit_mode else n_pos
-        n_neg = 0 if overfit_mode else n_neg
-        transforms.extend(
-            [
-                RandCropByPosNegLabeld(
-                    keys=all_keys,
-                    label_key=seg_key,
-                    spatial_size=input_size,
-                    pos=n_pos,
-                    neg=n_neg,
-                    num_samples=n_patches,
-                    allow_missing_keys=allow_missing_keys,
-                ),
-            ]
-        )
-    else:
-        transforms.extend(
-            [
-                CenterSpatialCropd(keys=all_keys, roi_size=input_size),
-            ]
-        )
+    # Avoid deleting the result when out_key is already one of the image keys.
+    if len(keys) == 1 and keys[0] == out_key:
+        return transforms
 
-    # Concatenate across modalities
-    transforms.extend(
-        [
-            ConcatItemsd(
-                keys=keys, name=out_key, dim=0, allow_missing_keys=allow_missing_keys
-            ),
-            DeleteItemsd(keys=keys),
-        ]
+    transforms.append(
+        ConcatItemsd(
+            keys=keys,
+            name=out_key,
+            dim=0,
+            allow_missing_keys=allow_missing_keys,
+        )
     )
+
+    keys_to_delete = [key for key in keys if key != out_key]
+    if keys_to_delete:
+        transforms.append(DeleteItemsd(keys=keys_to_delete))
 
     return transforms
