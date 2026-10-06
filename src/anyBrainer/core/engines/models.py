@@ -720,10 +720,12 @@ class ClassificationModel(BaseModel):
                 self.model.fusion_head, "fusion_weights"
             ):
                 self._fusion_w = self.model.fusion_head.fusion_weights  # type: ignore[attr-defined]
+            elif hasattr(self.model, "fusion_weights"):
+                self._fusion_w = self.model.fusion_weights  # type: ignore[attr-defined]
             else:
                 logger.warning(
                     f"[{self.__class__.__name__}] Late fusion is enabled but "
-                    f"fusion_head.fusion_weights is not found; skipping "
+                    f"fusion_weights is not found; skipping "
                     f"logging of fusion weights."
                 )
 
@@ -884,9 +886,12 @@ class ClassificationModel(BaseModel):
             and self.late_fusion
             and self._fusion_w is not None
         ):
-            w = torch.softmax(self._fusion_w.detach(), dim=0).to(
-                "cpu", non_blocking=True
-            )
+            w = self._fusion_w.detach()
+            # (n_fusion,) or (n_levels, n_fusion) — softmax over modalities
+            w = torch.softmax(w, dim=-1)
+            if w.ndim == 2:
+                w = w.mean(dim=0)
+            w = w.to("cpu", non_blocking=True)
             vals = {f"train/modality_{i}": v for i, v in enumerate(w.tolist())}
             self.log_dict(
                 vals,
@@ -900,9 +905,11 @@ class ClassificationModel(BaseModel):
     def on_train_end(self) -> None:
         """Logs final modality weights."""
         if self.late_fusion and self._fusion_w is not None:
-            w = torch.softmax(self._fusion_w.detach(), dim=0).to(
-                "cpu", non_blocking=True
-            )
+            w = self._fusion_w.detach()
+            w = torch.softmax(w, dim=-1)
+            if w.ndim == 2:
+                w = w.mean(dim=0)
+            w = w.to("cpu", non_blocking=True)
             vals = {f"modality_{i}": float(v) for i, v in enumerate(w)}
             logger.info(f"Final learnable modality weights: {vals}")
 

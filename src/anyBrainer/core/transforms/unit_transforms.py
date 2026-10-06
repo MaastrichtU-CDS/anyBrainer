@@ -13,6 +13,7 @@ __all__ = [
     "UnscalePredsIfNeeded",
     "PadToMaxOfKeysd",
     "CountForegroundd",
+    "CenterCropByMaskd",
 ]
 
 from typing import Literal, Sequence, Any, cast
@@ -806,6 +807,109 @@ class CountForegroundd(MapTransform):
                 logger.warning(msg)
             else:
                 logger.info(msg)
+        return d
+
+
+class CenterCropByMaskd(MapTransform):
+    """Deterministic fixed-size crop centered on a mask's foreground.
+
+    Uses the foreground centroid of ``mask_key`` as the crop center. If the
+    requested ROI would extend past the volume boundary, the window is shifted
+    to stay in-bounds (same clamp idea as a boundary-aware center crop). If the
+    mask is empty, falls back to a geometric image-center crop.
+    """
+
+    backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
+
+    def __init__(
+        self,
+        keys: Sequence[Hashable],
+        mask_key: Hashable,
+        roi_size: Sequence[int],
+        allow_missing_keys: bool = False,
+    ):
+        super().__init__(keys, allow_missing_keys)
+        self.mask_key = mask_key
+        self.roi_size = tuple(int(s) for s in roi_size)
+
+    @staticmethod
+    def _slices_for_center(
+        spatial_shape: Sequence[int],
+        roi_size: Sequence[int],
+        center: Sequence[int],
+    ) -> tuple[slice, ...]:
+        crop_ranges: list[slice] = []
+        for dim_len, size, c in zip(spatial_shape, roi_size, center, strict=True):
+            if size > dim_len:
+                raise ValueError(
+                    f"roi_size={roi_size} exceeds spatial shape {tuple(spatial_shape)}."
+                )
+            crop_min = int(c) - (size // 2)
+            crop_max = crop_min + size
+            if crop_max > dim_len:
+                shift = crop_max - dim_len
+                crop_min -= shift
+                crop_max = dim_len
+            if crop_min < 0:
+                crop_min = 0
+                crop_max = size
+            crop_ranges.append(slice(crop_min, crop_max))
+        return tuple(crop_ranges)
+
+    def _center_from_mask(self, mask: torch.Tensor | np.ndarray) -> tuple[int, ...]:
+        if isinstance(mask, np.ndarray):
+            mask_t = torch.as_tensor(mask)
+        else:
+            mask_t = mask
+        # Drop channel dim: (C, *spatial) -> spatial foreground over any channel.
+        if mask_t.ndim < 2:
+            raise ValueError(
+                f"[{self.__class__.__name__}] mask must be (C, *spatial), "
+                f"got shape {tuple(mask_t.shape)}."
+            )
+        fg = mask_t > 0
+        if fg.shape[0] > 1:
+            spatial_fg = fg.any(dim=0)
+        else:
+            spatial_fg = fg[0]
+        coords = torch.nonzero(spatial_fg, as_tuple=False)
+        if coords.numel() == 0:
+            return tuple(s // 2 for s in spatial_fg.shape)
+        return tuple(int(v) for v in coords.float().mean(dim=0).round().tolist())
+
+    def __call__(self, data: dict[Hashable, Any]) -> dict[Hashable, Any]:
+        d = dict(data)
+        if self.mask_key not in d:
+            msg = (
+                f"[{self.__class__.__name__}] mask_key={self.mask_key!r} "
+                f"missing from sample."
+            )
+            logger.error(msg)
+            raise KeyError(msg)
+
+        mask = d[self.mask_key]
+        spatial_shape = tuple(mask.shape[1:])
+        if len(spatial_shape) != len(self.roi_size):
+            msg = (
+                f"[{self.__class__.__name__}] mask spatial dims {spatial_shape} "
+                f"do not match roi_size {self.roi_size}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        center = self._center_from_mask(mask)
+        slices = self._slices_for_center(spatial_shape, self.roi_size, center)
+
+        for key in self.key_iterator(d):
+            img = d[key]
+            if tuple(img.shape[1:]) != spatial_shape:
+                msg = (
+                    f"[{self.__class__.__name__}] key={key!r} spatial shape "
+                    f"{tuple(img.shape[1:])} != mask spatial shape {spatial_shape}."
+                )
+                logger.error(msg)
+                raise ValueError(msg)
+            d[key] = img[(slice(None),) + slices]
         return d
 
 

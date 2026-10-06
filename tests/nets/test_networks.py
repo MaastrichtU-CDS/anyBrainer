@@ -11,6 +11,7 @@ from anyBrainer.core.networks import (
     Swinv2Classifier,
     Swinv2ClassifierMidFusion,
     Swinv2LateFusionFPNDecoder,
+    Multimodal3DSwinMIMwLateClassifier,
     FPNLightDecoder3D,
 )
 
@@ -295,3 +296,57 @@ class TestSwinv2LateFusionFPNDecoder:
         """Test that the model raises an error if the input shape is wrong."""
         with pytest.raises(ValueError):
             model(torch.randn(*in_shape))
+
+
+class TestMultimodal3DSwinMIMwLateClassifier:
+    @pytest.fixture
+    def model(self):
+        return Multimodal3DSwinMIMwLateClassifier(
+            in_channels=1,
+            n_late_fusion=2,
+            embed_dim=48,
+            depths=(2, 2, 6, 2),
+            mlp_num_classes=2,
+            mlp_num_hidden_layers=1,
+            mlp_hidden_dim=128,
+            use_vanilla_swin=True,
+            decode_all_levels=False,
+        )
+
+    def test_forward_last_level(self, model):
+        """GAP last scale; in_dim is embed_dim * 16 = 768."""
+        assert model.classification_head.classifier[1].in_features == 768
+        out = model(torch.randn(8, 2, 1, 128, 128, 128))
+        assert out.shape == (8, 2)
+
+    def test_forward_decode_all_levels(self):
+        """Concat GAP of all 5 scales; in_dim is 48*(1+2+4+8+16)=1488."""
+        model = Multimodal3DSwinMIMwLateClassifier(
+            in_channels=1,
+            n_late_fusion=2,
+            embed_dim=48,
+            depths=(2, 2, 6, 2),
+            mlp_num_classes=2,
+            mlp_hidden_dim=128,
+            use_vanilla_swin=True,
+            decode_all_levels=True,
+        )
+        assert model.classification_head.classifier[1].in_features == 1488
+        out = model(torch.randn(8, 2, 128, 128, 128))
+        assert out.shape == (8, 2)
+
+    def test_forward_single_stream(self):
+        """n_late_fusion=1 accepts (B, C, *spatial)."""
+        model = Multimodal3DSwinMIMwLateClassifier(
+            in_channels=1,
+            n_late_fusion=1,
+            mlp_num_classes=2,
+            mlp_hidden_dim=128,
+            use_vanilla_swin=True,
+        )
+        out = model(torch.randn(8, 1, 128, 128, 128))
+        assert out.shape == (8, 2)
+
+    def test_wrong_n_late_fusion(self, model):
+        with pytest.raises(ValueError):
+            model(torch.randn(8, 3, 1, 128, 128, 128))

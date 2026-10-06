@@ -7,6 +7,8 @@ __all__ = [
     "Swinv2LateFusionFPNDecoder",
     "SwinMIM",
     "Multimodal3DSwinMIMFPN",
+    "Multimodal3DSwinMIMwLateFPN",
+    "Multimodal3DSwinMIMwLateClassifier",
 ]
 
 import logging
@@ -1034,8 +1036,8 @@ class Multimodal3DSwinMIMFPN(nn.Module):
     """`SwinTransformer` v2 (with residual convolutions) for 3D Masked Image
     Modeling with a FPN decoder and multimodal patch embedding support.
 
-    See `SwinMIM`, `FPNLightDecoder3D`, and `MultimodalPatchEmbed` for more details
-    on the input arguments and `forward()` contract.
+    See `SwinMIM`, `FPNDecoder3DFeaturesOnly`, and `MultimodalPatchEmbed` for more
+    details on the input arguments and `forward()` contract.
 
     If `use_vanilla_swin` is True, the model uses the original MONAI SwinViT encoder
     without mask-aware layers for SimMIM-style pre-training. We recommend that
@@ -1129,7 +1131,7 @@ class Multimodal3DSwinMIMFPN(nn.Module):
 
 
 @register(RK.NETWORK)
-class LateFusion3DSwinMIMFPN(nn.Module):
+class Multimodal3DSwinMIMwLateFPN(nn.Module):
     """`SwinTransformer` v2 (with residual convolutions) for 3D Masked Image
     Modeling with a multimodal patch embedding (as in `Multimodal3DSwinMIMFPN`)
     and a FPN decoder with additional late fusion support.
@@ -1303,3 +1305,223 @@ class LateFusion3DSwinMIMFPN(nn.Module):
 
         fpn_feats = self.fpn(fused_feats)
         return self.head(fpn_feats)
+
+
+@register(RK.NETWORK)
+class Multimodal3DSwinMIMwLateClassifier(nn.Module):
+    """Late-fusion Swin MIM encoder with a `ClassificationHead` MLP.
+
+    Same encoder, `MultimodalPatchEmbed`, and running late-fusion as
+    `Multimodal3DSwinMIMwLateFPN` (no FPN). Each of `n_late_fusion` streams is
+    encoded one at a time and accumulated into fused multi-scale features with
+    learnable per-level weights, then globally pooled and classified.
+
+    - `decode_all_levels=False` (default): GAP the last fused scale only.
+    - `decode_all_levels=True`: GAP every fused scale and concatenate features.
+
+    The classification head `in_dim` is inferred from `embed_dim`, `depths`,
+    and `decode_all_levels`.
+
+    `late_fusion` is accepted so `ClassificationModel` can log fusion weights
+    when it is passed through `model_kwargs`.
+    """
+
+    def __init__(
+        self,
+        *,
+        # SwinViT encoder args
+        in_channels: int = 1,
+        patch_size: int | Sequence[int] = 2,
+        depths: Sequence[int] = (2, 2, 6, 2),
+        num_heads: Sequence[int] = (3, 6, 12, 24),
+        window_size: Sequence[int] | int = 7,
+        embed_dim: int = 48,
+        use_v2: bool = True,
+        extra_swin_kwargs: dict[str, Any] | None = None,
+        use_vanilla_swin: bool = True,
+        merge_mode: Literal["and", "or"] = "and",
+        # Early encoder fusion patch embedding args
+        inject_modality_tokens: Sequence[bool] | bool = False,
+        expected_modalities: Sequence[Sequence[str]] | Sequence[str] | None = None,
+        fusion: Literal["none", "conv1x1"] = "none",
+        # Late-fusion args
+        n_late_fusion: int = 1,
+        late_fusion: bool = True,
+        # Classification head args
+        decode_all_levels: bool = False,
+        mlp_num_classes: int = 2,
+        mlp_num_hidden_layers: int = 1,
+        mlp_hidden_dim: int | Sequence[int] = 384,
+        mlp_dropout: float | Sequence[float] = 0.3,
+        mlp_activations: str | Sequence[str] = "GELU",
+        mlp_activation_kwargs: dict[str, Any] | Sequence[dict[str, Any]] | None = None,
+    ):
+        super().__init__()
+        _ = late_fusion  # consumed by ClassificationModel via model_kwargs
+
+        self.in_channels = in_channels
+        self.n_late_fusion = n_late_fusion
+        self.decode_all_levels = decode_all_levels
+
+        enc = SwinMIM if not use_vanilla_swin else SwinSimMIM
+        encoder_kwargs: dict[str, Any] = {
+            "in_channels": in_channels,
+            "patch_size": patch_size,
+            "depths": depths,
+            "num_heads": num_heads,
+            "window_size": window_size,
+            "embed_dim": embed_dim,
+            "use_v2": use_v2,
+            "spatial_dims": 3,
+            "extra_swin_kwargs": extra_swin_kwargs,
+        }
+        if enc == SwinMIM:
+            encoder_kwargs["merge_mode"] = merge_mode
+        self.encoder = enc(**encoder_kwargs)
+
+        patch_embed = MultimodalPatchEmbed(
+            patch_size=patch_size,
+            in_chans=in_channels,
+            embed_dim=embed_dim,
+            spatial_dims=3,
+            inject_modality_tokens=inject_modality_tokens,
+            expected_modalities=expected_modalities,
+            fusion=fusion,
+        )
+        self.encoder.patch_embed = MultimodalPatchEmbedAdapter(patch_embed)
+
+        level_channels = [embed_dim * 2**i for i in range(len(depths) + 1)]
+        self.L = len(level_channels)
+        in_dim = sum(level_channels) if decode_all_levels else level_channels[-1]
+
+        # Per-level softmax weights across modalities, same layout as FPN late fusion.
+        self.fusion_weights = nn.Parameter(torch.zeros(self.L, n_late_fusion))
+        self.classification_head = ClassificationHead(
+            in_dim=in_dim,
+            num_hidden_layers=mlp_num_hidden_layers,
+            num_classes=mlp_num_classes,
+            hidden_dim=mlp_hidden_dim,
+            activation=mlp_activations,
+            dropout=mlp_dropout,
+            activation_kwargs=mlp_activation_kwargs,
+        )
+
+        logger.info(
+            f"[{self.__class__.__name__}] Initialized with in_channels={in_channels}, "
+            f"n_late_fusion={n_late_fusion}, decode_all_levels={decode_all_levels}, "
+            f"mlp_in_dim={in_dim}, mlp_num_classes={mlp_num_classes}."
+        )
+
+    def _reshape_input(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize to (B, n_late_fusion, C, *spatial)."""
+        if x.ndim == 5:  # (B, C, *spatial) or (B, n_late_fusion, *spatial)
+            if self.n_late_fusion == 1:
+                x = x.unsqueeze(1)  # (B, 1, C, *spatial)
+            else:
+                x = x.unsqueeze(2)  # (B, n_late_fusion, 1, *spatial)
+        elif x.ndim == 6:  # (B, n_late_fusion, C, *spatial)
+            pass
+        else:
+            msg = (
+                f"[{self.__class__.__name__}] Expected input shape to be "
+                f"(B, C, *spatial_dims), (B, n_late_fusion, *spatial_dims), or "
+                f"(B, n_late_fusion, C, *spatial_dims), but got {x.shape}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        return x
+
+    def _encode_one(self, x1: torch.Tensor) -> list[torch.Tensor]:
+        feats = self.encoder(x1)
+        if not isinstance(feats, (list, tuple)):
+            msg = (
+                f"[{self.__class__.__name__}] Encoder must return a list/tuple "
+                f"of multi-scale features."
+            )
+            logger.error(msg)
+            raise RuntimeError(msg)
+        if len(feats) != self.L:
+            msg = (
+                f"[{self.__class__.__name__}] Expected {self.L} features from "
+                f"encoder, got {len(feats)}."
+            )
+            logger.error(msg)
+            raise RuntimeError(msg)
+        return list(feats)
+
+    @staticmethod
+    def _gap(feat: torch.Tensor) -> torch.Tensor:
+        return feat.mean(dim=tuple(range(2, feat.ndim)))
+
+    def _pool_fused(self, feats: list[torch.Tensor]) -> torch.Tensor:
+        """GAP last scale, or concat GAP of every scale."""
+        if self.decode_all_levels:
+            return torch.cat([self._gap(f) for f in feats], dim=1)
+        return self._gap(feats[-1])
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        normalize: bool = True,
+        *,
+        mask: torch.Tensor | None = None,
+        modality: Sequence[Sequence[str | None]] | Sequence[str | None] | None = None,
+    ) -> torch.Tensor:
+        """Return logits of shape (B, num_classes).
+
+        Args:
+            x: (B, C, *spatial), (B, n_late_fusion, *spatial), or
+                (B, n_late_fusion, C, *spatial).
+        """
+        _ = normalize, mask
+        cast(MultimodalPatchEmbedAdapter, self.encoder.patch_embed).set_modality(
+            modality
+        )
+
+        x = self._reshape_input(x)
+        _, n_late_fusion, C, *spatial = x.shape
+
+        if n_late_fusion != self.n_late_fusion:
+            msg = (
+                f"[{self.__class__.__name__}] Expected n_late_fusion="
+                f"{self.n_late_fusion}, got {n_late_fusion}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if C != self.in_channels:
+            msg = (
+                f"[{self.__class__.__name__}] in_channels={self.in_channels} but "
+                f"input has {C} channels."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        if len(spatial) != 3:
+            msg = (
+                f"[{self.__class__.__name__}] Expected 3 spatial dimensions, "
+                f"got {len(spatial)}."
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+
+        # softmax weights across modalities per scale: [levels, n_late_fusion]
+        alpha = torch.softmax(self.fusion_weights, dim=1)
+
+        # running fused features per scale; fill lazily at first modality
+        fused_feats: list[torch.Tensor | None] = [None] * self.L
+
+        for m in range(n_late_fusion):
+            in_m = x[:, m]  # (B, C, *spatial)
+            feats_m = self._encode_one(in_m)
+            for l in range(self.L):
+                w = alpha[l, m]
+                prev = fused_feats[l]
+                if prev is None:
+                    fused_feats[l] = w * feats_m[l]
+                else:
+                    fused_feats[l] = prev + w * feats_m[l]
+            del in_m, feats_m
+
+        feats = self._pool_fused(cast(list[torch.Tensor], fused_feats))
+        return self.classification_head(feats)

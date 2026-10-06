@@ -10,6 +10,7 @@ __all__ = [
     "get_classification_train_transforms",
     "get_segmentation_train_transforms",
     "get_downstream_val_transforms",
+    "get_downstream_3d_transforms",
 ]
 
 from typing import Sequence, Callable, Any
@@ -39,6 +40,7 @@ from monai.transforms import (
     RandGibbsNoised,
     RandAdjustContrastd,
     RandCropByPosNegLabeld,
+    RandSpatialCropSamplesd,
     Spacingd,
     Activations,
     AsDiscrete,
@@ -61,6 +63,7 @@ from .unit_transforms import (
     CreateRandomPatchGridMaskd,
     PadToMaxOfKeysd,
     CountForegroundd,
+    CenterCropByMaskd,
 )
 
 from anyBrainer.core.transforms.utils import (
@@ -1721,6 +1724,428 @@ def get_segmentation_transforms(
     )
 
     keys_to_delete = [key for key in keys if key != out_key]
+    if keys_to_delete:
+        transforms.append(DeleteItemsd(keys=keys_to_delete))
+
+    return transforms
+
+
+@register(RK.TRANSFORM)
+def get_downstream_3d_transforms(
+    input_size: int | Sequence[int] | None = None,
+    standard_spatial_size: int | Sequence[int] | None = None,
+    keys: Sequence[str] = ("img",),
+    mask_keys: Sequence[str] = (),
+    mask_crop_key: str | None = None,
+    n_patches: int = 4,
+    n_pos: int = 1,
+    n_neg: int = 2,
+    concat_keys: Sequence[str] | None = None,
+    out_key: str = "img",
+    pad_keys_mode: SegImagePadMode = "border",
+    val_mode: bool = False,
+    debug_mode: bool = False,
+    overfit_mode: bool = False,
+    allow_missing_keys: bool = False,
+    is_nifti: bool = False,
+    orientation: str = "LPI",
+) -> list[Callable]:
+    """Create preprocessing and augmentation transforms for downstream tasks.
+
+    Generic counterpart of ``get_segmentation_transforms``. Selected image
+    keys (``concat_keys``, defaulting to ``keys``) are concatenated into
+    ``out_key``; ``mask_keys`` receive nearest-neighbor resampling and
+    zero padding and are left as separate dictionary entries.
+
+    All images and masks are first harmonized and standardized to
+    ``standard_spatial_size``. When ``mask_crop_key`` is set, training uses
+    pos/neg label cropping and validation/inference uses a deterministic
+    center crop around that mask. Otherwise training uses random spatial
+    crops and validation keeps the full standardized volume.
+
+    Args:
+        input_size:
+            Spatial size for patch extraction. Required when ``val_mode=False``,
+            and also when ``val_mode=True`` with ``mask_crop_key`` set.
+
+        standard_spatial_size:
+            Fixed spatial canvas applied to every sample before augmentation and
+            patch extraction. Defaults to ``input_size`` when omitted. Required
+            when ``input_size`` is also omitted (full-volume validation).
+
+        keys:
+            Image modality keys.
+
+        mask_keys:
+            Optional mask / label keys. These use nearest interpolation and
+            constant (zero) padding.
+
+        mask_crop_key:
+            If set, must be one of ``mask_keys``. Training/overfit uses
+            ``RandCropByPosNegLabeld`` with ``n_pos`` / ``n_neg``. Validation
+            uses a deterministic center crop on the mask foreground
+            (``CenterCropByMaskd``), clamped to stay in-bounds.
+
+        n_patches:
+            Number of patches extracted from each training sample (ignored for
+            deterministic validation mask crops).
+
+        n_pos:
+            Relative positive-patch sampling weight (mask crop only).
+
+        n_neg:
+            Relative negative-patch sampling weight (mask crop only).
+
+        concat_keys:
+            Image keys to concatenate. Defaults to ``keys``. Must be a subset
+            of ``keys``.
+
+        out_key:
+            Key under which ``concat_keys`` are concatenated.
+
+        pad_keys_mode:
+            Image padding strategy. ``"zeros"`` uses zero/constant padding;
+            ``"border"`` replicates edge voxels. Masks are always padded with
+            zeros.
+
+        val_mode:
+            If ``True``, disable random augmentation. Without ``mask_crop_key``,
+            the sample keeps ``standard_spatial_size``. With ``mask_crop_key``,
+            a deterministic mask-centered crop of ``input_size`` is applied.
+
+        debug_mode:
+            If ``True``, log foreground counts for ``mask_keys`` after loading,
+            after fixed-size standardization, and immediately before patch
+            sampling.
+
+        overfit_mode:
+            If ``True``, disable augmentation and, when ``mask_crop_key`` is
+            set, sample positive patches only.
+
+        allow_missing_keys:
+            Whether dictionary transforms may ignore missing keys.
+
+        is_nifti:
+            If ``True``, load with ``NibabelReader`` and apply orientation,
+            nonzero percentile clipping, and nonzero intensity normalization
+            before spatial standardization. If ``False``, load ``.npy`` with
+            ``NumpyReader`` (assumes already oriented/normalized).
+
+        orientation:
+            Target anatomical orientation for ``Orientationd`` when
+            ``is_nifti=True`` (MONAI axcodes, e.g. ``"LPI"``). Reorients each
+            volume so its axes match the requested left/posterior/inferior
+            (or other) convention before further processing.
+
+    Returns:
+        Ordered MONAI transforms for the requested execution mode.
+    """
+    if not keys:
+        raise ValueError("At least one image key must be provided.")
+
+    resolved_concat_keys = list(keys if concat_keys is None else concat_keys)
+
+    need_input_size = (not val_mode) or (mask_crop_key is not None)
+    if need_input_size and input_size is None:
+        raise ValueError(
+            "input_size is required when val_mode=False or mask_crop_key is set."
+        )
+
+    if standard_spatial_size is None and input_size is None:
+        raise ValueError("standard_spatial_size is required when input_size is None.")
+
+    overlap = set(keys) & set(mask_keys)
+    if overlap:
+        raise ValueError(
+            f"mask_keys must not overlap image keys; shared keys: {sorted(overlap)}."
+        )
+
+    if out_key in mask_keys:
+        raise ValueError("out_key must not be one of mask_keys.")
+
+    unknown_concat = set(resolved_concat_keys) - set(keys)
+    if unknown_concat:
+        raise ValueError(
+            f"concat_keys must be a subset of keys; unknown: {sorted(unknown_concat)}."
+        )
+
+    if mask_crop_key is not None and mask_crop_key not in mask_keys:
+        raise ValueError(
+            f"mask_crop_key={mask_crop_key!r} must be included in mask_keys="
+            f"{list(mask_keys)}."
+        )
+
+    # This pipeline is specifically defined for 3D volumes.
+    standard_size_3d = ensure_tuple_dim(
+        standard_spatial_size if standard_spatial_size is not None else input_size,
+        3,
+    )
+    input_size_3d = ensure_tuple_dim(input_size, 3) if input_size is not None else None
+
+    if any(size <= 0 for size in standard_size_3d):
+        raise ValueError(
+            "standard_spatial_size must contain positive values, "
+            f"got {standard_size_3d}."
+        )
+
+    if input_size_3d is not None:
+        if any(size <= 0 for size in input_size_3d):
+            raise ValueError(
+                f"input_size must contain positive values, got {input_size_3d}."
+            )
+        if any(
+            patch_size > standard_size
+            for patch_size, standard_size in zip(
+                input_size_3d,
+                standard_size_3d,
+                strict=True,
+            )
+        ):
+            raise ValueError(
+                "input_size must not exceed standard_spatial_size on any axis: "
+                f"input_size={input_size_3d}, "
+                f"standard_spatial_size={standard_size_3d}."
+            )
+
+    all_keys = [*keys, *mask_keys]
+
+    img_pad_affine, img_pad_spatial = resolve_seg_image_pad_modes(pad_keys_mode)
+    pad_mode_affine = [img_pad_affine] * len(keys) + ["constant"] * len(mask_keys)
+    pad_mode_spatial = [img_pad_spatial] * len(keys) + ["constant"] * len(mask_keys)
+    interpolation_mode = ["bilinear"] * len(keys) + ["nearest"] * len(mask_keys)
+
+    transforms: list[Callable] = []
+
+    if not is_nifti:
+        transforms.append(
+            LoadImaged(
+                keys=all_keys,
+                reader="NumpyReader",
+                ensure_channel_first=True,
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+    else:
+        transforms.extend(
+            [
+                LoadImaged(
+                    keys=all_keys,
+                    reader="NibabelReader",
+                    ensure_channel_first=True,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                Orientationd(
+                    keys=all_keys,
+                    axcodes=orientation,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                ClipNonzeroPercentilesd(
+                    keys=keys,
+                    lower=0.5,
+                    upper=99.5,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                NormalizeIntensityd(
+                    keys=keys,
+                    nonzero=True,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+            ]
+        )
+
+    if debug_mode and mask_keys:
+        transforms.append(
+            CountForegroundd(
+                keys=mask_keys,
+                stage="after load",
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+
+    # Harmonize modality/mask shapes before any joint spatial operation.
+    transforms.extend(
+        [
+            PadToMaxOfKeysd(
+                keys=all_keys,
+                mode=pad_mode_spatial,
+            ),
+            SpatialPadd(
+                keys=all_keys,
+                spatial_size=standard_size_3d,
+                mode=pad_mode_spatial,
+                allow_missing_keys=allow_missing_keys,
+            ),
+            CenterSpatialCropd(
+                keys=all_keys,
+                roi_size=standard_size_3d,
+                allow_missing_keys=allow_missing_keys,
+            ),
+        ]
+    )
+
+    if debug_mode and mask_keys:
+        transforms.append(
+            CountForegroundd(
+                keys=mask_keys,
+                stage="after spatial standardization",
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+
+    # Joint image/mask spatial augmentation on the standardized canvas.
+    if not val_mode and not overfit_mode:
+        transforms.extend(
+            [
+                RandFlipd(
+                    keys=all_keys,
+                    spatial_axis=0,
+                    prob=0.5,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                RandFlipd(
+                    keys=all_keys,
+                    spatial_axis=1,
+                    prob=0.5,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+                RandAffined(
+                    keys=all_keys,
+                    rotate_range=(0.1, 0.1, 0.1),
+                    scale_range=(0.1, 0.1, 0.1),
+                    mode=interpolation_mode,
+                    padding_mode=pad_mode_affine,
+                    prob=1.0,
+                    allow_missing_keys=allow_missing_keys,
+                ),
+            ]
+        )
+
+    if debug_mode and mask_keys and not val_mode:
+        transforms.append(
+            CountForegroundd(
+                keys=mask_keys,
+                stage="before patch sampling",
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+
+    # Patch extraction.
+    #
+    # Multi-sample crop transforms return a list of dictionaries. MONAI Compose
+    # applies all subsequent transforms independently to each patch.
+    if not val_mode:
+        assert input_size_3d is not None  # validated above
+        if mask_crop_key is not None:
+            pos_weight = 1 if overfit_mode else n_pos
+            neg_weight = 0 if overfit_mode else n_neg
+            transforms.append(
+                RandCropByPosNegLabeld(
+                    keys=all_keys,
+                    label_key=mask_crop_key,
+                    spatial_size=input_size_3d,
+                    pos=pos_weight,
+                    neg=neg_weight,
+                    num_samples=n_patches,
+                    allow_missing_keys=allow_missing_keys,
+                )
+            )
+        else:
+            transforms.append(
+                RandSpatialCropSamplesd(
+                    keys=all_keys,
+                    roi_size=input_size_3d,
+                    num_samples=n_patches,
+                    random_size=False,
+                    allow_missing_keys=allow_missing_keys,
+                )
+            )
+    elif mask_crop_key is not None:
+        assert input_size_3d is not None  # validated above
+        transforms.append(
+            CenterCropByMaskd(
+                keys=all_keys,
+                mask_key=mask_crop_key,
+                roi_size=input_size_3d,
+                allow_missing_keys=allow_missing_keys,
+            )
+        )
+
+    # Apply intensity augmentation after patch sampling to reduce CPU work.
+    if not val_mode and not overfit_mode:
+        for key in keys:
+            transforms.extend(
+                [
+                    RandScaleIntensityFixedMeand(
+                        keys=key,
+                        factors=0.1,
+                        prob=0.8,
+                        allow_missing_keys=allow_missing_keys,
+                    ),
+                    RandGaussianNoised(
+                        keys=key,
+                        std=0.01,
+                        prob=0.3,
+                        allow_missing_keys=allow_missing_keys,
+                    ),
+                    OneOf(
+                        transforms=[
+                            RandGaussianSmoothd(
+                                keys=key,
+                                sigma_x=(0.5, 1.0),
+                                prob=0.7,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                            RandBiasFieldd(
+                                keys=key,
+                                coeff_range=(0.0, 0.05),
+                                prob=0.7,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                            RandGibbsNoised(
+                                keys=key,
+                                alpha=(0.2, 0.4),
+                                prob=0.7,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                        ],
+                        weights=[1.0, 1.0, 1.0],
+                    ),
+                    OneOf(
+                        transforms=[
+                            RandAdjustContrastd(
+                                keys=key,
+                                gamma=(0.9, 1.1),
+                                prob=1.0,
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                            RandSimulateLowResolutiond(
+                                keys=key,
+                                prob=0.5,
+                                zoom_range=(0.8, 1.0),
+                                allow_missing_keys=allow_missing_keys,
+                            ),
+                        ],
+                        weights=[1.0, 1.0],
+                    ),
+                ]
+            )
+
+    # Avoid deleting the result when out_key is already the sole concat key.
+    if not resolved_concat_keys or (
+        len(resolved_concat_keys) == 1 and resolved_concat_keys[0] == out_key
+    ):
+        return transforms
+
+    transforms.append(
+        ConcatItemsd(
+            keys=resolved_concat_keys,
+            name=out_key,
+            dim=0,
+            allow_missing_keys=allow_missing_keys,
+        )
+    )
+
+    keys_to_delete = [key for key in resolved_concat_keys if key != out_key]
     if keys_to_delete:
         transforms.append(DeleteItemsd(keys=keys_to_delete))
 

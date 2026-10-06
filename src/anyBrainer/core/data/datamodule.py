@@ -857,6 +857,7 @@ class ClassificationDataModule(BaseDataModule):
         get_seg_masks: bool = False,
         seg_dir: Path | str | None = None,
         seg_filename: str = "seg.npy",
+        seg_key: str = "seg",
         **base_module_kwargs,
     ):
         """
@@ -873,6 +874,7 @@ class ClassificationDataModule(BaseDataModule):
         - seg_dir: Directory containing segmentation masks with naming pattern
           any structure mirroring the data_dir.
         - seg_filename: Name of the segmentation mask file
+        - seg_key: Key to store the segmentation mask in the dataset entry.
         See `BaseDataModule` for all initialization parameters.
         """
         super().__init__(**base_module_kwargs)
@@ -897,6 +899,7 @@ class ClassificationDataModule(BaseDataModule):
         self.get_seg_masks = get_seg_masks
         self.seg_dir = resolve_path(seg_dir) if seg_dir is not None else self.data_dir
         self.seg_filename = seg_filename
+        self.seg_key = seg_key
 
         # Will get populated in setup()
         self.train_label_mean: float | None = None
@@ -976,7 +979,7 @@ class ClassificationDataModule(BaseDataModule):
                     / self.seg_filename
                 )
                 if seg_path.exists():
-                    session_entry["seg"] = seg_path
+                    session_entry[self.seg_key] = seg_path
                     seg_counts[label] += 1
 
             used_subjects.add(file_metadata["sub_id"])

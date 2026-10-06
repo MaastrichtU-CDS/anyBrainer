@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from anyBrainer.core.losses import (
     InfoNCELoss,
+    WeightedCrossEntropyLoss,
 )
 
 
@@ -118,3 +119,29 @@ class TestInfoNCELoss:
         assert loss_value.shape == ()
         assert loss_value.item() == 0
         assert loss_dict.get("skipped")
+
+
+class TestWeightedCrossEntropyLoss:
+    def test_accepts_yaml_weight_list(self):
+        loss = WeightedCrossEntropyLoss(weight=[0.25, 0.84])
+        assert isinstance(loss.weight, torch.Tensor)
+        assert torch.allclose(
+            loss.weight, torch.tensor([0.25, 0.84], dtype=torch.float32)
+        )
+
+        logits = torch.tensor([[2.0, 0.1], [0.1, 2.0]])
+        target = torch.tensor([0, 1])
+        out = loss(logits, target)
+        assert out.ndim == 0
+        assert torch.isfinite(out)
+
+    def test_factory_resolves_registered_name(self):
+        from anyBrainer.factories.unit import UnitFactory
+
+        loss = UnitFactory.get_loss_fn_instances_from_kwargs(
+            {"name": "WeightedCrossEntropyLoss", "weight": [0.25, 0.84]}
+        )
+        assert isinstance(loss, WeightedCrossEntropyLoss)
+        assert torch.allclose(
+            loss.weight, torch.tensor([0.25, 0.84], dtype=torch.float32)
+        )
