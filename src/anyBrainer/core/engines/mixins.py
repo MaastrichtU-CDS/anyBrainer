@@ -226,6 +226,16 @@ class LossMixin(PLModuleMixin):
                 "and will be overwritten."
             )
 
+        if isinstance(loss_fn_kwargs, dict):
+            if isinstance(loss_fn_kwargs.get("weight"), list):
+                loss_fn_kwargs["weight"] = torch.tensor(
+                    loss_fn_kwargs["weight"], dtype=torch.float32
+                )
+        elif isinstance(loss_fn_kwargs, list):
+            for cfg in loss_fn_kwargs:
+                if isinstance(cfg, dict) and isinstance(cfg.get("weight"), list):
+                    cfg["weight"] = torch.tensor(cfg["weight"], dtype=torch.float32)
+
         self.loss_fn = UnitFactory.get_loss_fn_instances_from_kwargs(loss_fn_kwargs)
 
         if isinstance(self.loss_fn, list):

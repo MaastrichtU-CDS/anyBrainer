@@ -123,7 +123,8 @@ class TestInfoNCELoss:
 
 class TestWeightedCrossEntropyLoss:
     def test_accepts_yaml_weight_list(self):
-        loss = WeightedCrossEntropyLoss(weight=[0.25, 0.84])
+        with pytest.warns(DeprecationWarning, match="WeightedCrossEntropyLoss"):
+            loss = WeightedCrossEntropyLoss(weight=[0.25, 0.84])
         assert isinstance(loss.weight, torch.Tensor)
         assert torch.allclose(
             loss.weight, torch.tensor([0.25, 0.84], dtype=torch.float32)
@@ -138,9 +139,10 @@ class TestWeightedCrossEntropyLoss:
     def test_factory_resolves_registered_name(self):
         from anyBrainer.factories.unit import UnitFactory
 
-        loss = UnitFactory.get_loss_fn_instances_from_kwargs(
-            {"name": "WeightedCrossEntropyLoss", "weight": [0.25, 0.84]}
-        )
+        with pytest.warns(DeprecationWarning, match="WeightedCrossEntropyLoss"):
+            loss = UnitFactory.get_loss_fn_instances_from_kwargs(
+                {"name": "WeightedCrossEntropyLoss", "weight": [0.25, 0.84]}
+            )
         assert isinstance(loss, WeightedCrossEntropyLoss)
         assert torch.allclose(
             loss.weight, torch.tensor([0.25, 0.84], dtype=torch.float32)
